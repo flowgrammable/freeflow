@@ -27,7 +27,7 @@ void app_start()
   void (*process)(Context*);
   char *error;
 
-  handle = dlopen ("/home/hvn1/code/test/fpio/output.so", RTLD_LAZY);
+  handle = dlopen ("../output.so", RTLD_LAZY);
   if (!handle) {
       fputs (dlerror(), stderr);
       exit(1);
