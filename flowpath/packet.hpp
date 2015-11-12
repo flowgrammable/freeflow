@@ -25,14 +25,16 @@ enum Buff_t {
 // That is, should it be timestamp(time) or timestamp(get_time()) ?
 struct Packet
 { 
-  using Buffer = Buffer::Base;
+  using Buffer = Buffer::Flowpath;
   
   Packet(unsigned char* data, int size, uint64_t time, void* buf_handle, 
     Buff_t buf_dev);
   ~Packet();
 
+  void alloc_buff(unsigned char* data);
+
   // Data members.
-  Buffer*   data_;       // Packet buffer.
+  Buffer    buf_;       // Packet buffer.
   int       size_;       // Number of bytes.
   uint64_t  timestamp_;  // Time of packet arrival.
   void*     buf_handle_; // [optional] port-specific buffer handle.

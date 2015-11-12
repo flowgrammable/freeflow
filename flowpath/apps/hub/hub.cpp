@@ -79,7 +79,7 @@ pipeline(void* args)
 
   while(hub->state != fp::Application::STOPPED) {
     // Get the next task to be executed.
-    if (pipeline_pool.request(*tsk)) {
+    if ((tsk = pipeline_pool.request())) {
       tsk->execute();
       delete tsk;
     }
@@ -120,7 +120,7 @@ port(void* args)
         
         // Create a new set of instructions to execute and assign
         // it to the pipeline work queue.
-        pipeline_pool.assign(fp::Task(process, cxt));
+        pipeline_pool.assign(new fp::Task(process, cxt));
       }
     }
 

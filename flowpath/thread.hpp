@@ -15,16 +15,17 @@ class Thread
 public:
 	using Work_fn = void* (*)(void*);
 	using Barrier = pthread_barrier_t;
+	using Attribute = pthread_attr_t;
 
 	Thread();
-	Thread(int, Work_fn);
-	Thread(int, Work_fn, Barrier*);
+	Thread(int, Work_fn, Attribute* = nullptr);
+	Thread(int, Work_fn, Barrier*, Attribute* = nullptr);
 
 	void run();
 	void sync();
 	int  halt();
-	void assign(int, Work_fn);
-	void assign(int, Work_fn, Barrier*);
+	void assign(int, Work_fn, Attribute* = nullptr);
+	void assign(int, Work_fn, Barrier*, Attribute* = nullptr);
 
 	int 		id_;
 	Work_fn work_;
@@ -32,10 +33,11 @@ public:
 	
 private:
 	pthread_t thread_;
+	Attribute* attr_;
 };
 
 
-// Provides an initializer for thread barriers.
+// Provides an initializer/destroyer for thread barriers.
 namespace Thread_barrier
 {
 
@@ -54,6 +56,24 @@ destroy(Thread::Barrier* barr)
 
 } // end namespace Thread_barrier
 
+
+// Provides an initializer/destoryerfor thread attributes.
+namespace Thread_attribute
+{
+
+inline int
+init(Thread::Attribute* attr)
+{
+	return pthread_attr_init(attr);
+}
+
+inline int
+destroy(Thread::Attribute* attr)
+{
+	return pthread_attr_destroy(attr);
+}
+
+} // end namespace Thread_attribute
 
 // A thread pool instruction entry. Contains a function to be
 // called, the arguments needed, and the resulting value.
@@ -78,13 +98,13 @@ struct Task
 // thread pool work queue.
 class Thread_pool
 {
-	using Input_queue = Locking_queue<Task>;
+	using Input_queue = Locking_queue<Task*>;
 public:
 	Thread_pool(int, bool, Thread::Work_fn);
 	~Thread_pool();
 
-	void 	assign(Task);
-	bool 	request(Task&);
+	void 	assign(Task*);
+	Task*	request();
 
 	bool 	has_work();
 	void 	resize(int);
@@ -97,16 +117,31 @@ public:
 	static void* work_fn(void*);
 
 private:
+	// Size of the thread pool.
 	int size_;
+	// Flag indicating the use of synchronization.
 	bool sync_;
+	// Flag indicating state of the thread pool.
 	bool running_;
+	// Number of processing cores available.
+	int num_proc_;
 
+  // Thread attribute variable.
+  Thread::Attribute attr_;  
+  // CPU core mask variable.
+  cpu_set_t cpu_set_;
+
+  // The thread pool.
 	Thread** pool_;
+	// The thread pool barrier.
 	Thread::Barrier barr_;
+	// The thread pool work function.
 	Thread::Work_fn work_;
 	
+	// The thread pool work queue.
 	Input_queue 	input_;
 
+	// Allocates the pool based on size.
 	void 	alloc_pool();
 };
 

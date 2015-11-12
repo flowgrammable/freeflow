@@ -11,19 +11,21 @@ namespace Buffer
 const int FP_INIT_BUF = 4096;
 
 // The base buffer object for packets.
-// 
-// TODO: Move this to its own file with a collection of
-// more robust buffer alloc/dealloc methods?
 struct Base
 {
   unsigned char data_[FP_INIT_BUF];
   Base(unsigned char*);
+  virtual ~Base();
 };
 
 
 // The default Flowpath buffer type.
+//
+// TODO: Implement a ring buffer so memory is pre-allocated
+// and the contents of each buffer node gets recycled.
 struct Flowpath : public Base
 {
+  using Base::Base;
   // TODO: Implement me? 
   // Do we need more than just the base data pointer?
 };
@@ -32,6 +34,7 @@ struct Flowpath : public Base
 // The NADK buffer type.
 struct Nadk : public Base
 {
+  using Base::Base;
   // TODO: Implement me.
 };
 
@@ -39,6 +42,7 @@ struct Nadk : public Base
 // The netmap buffer type.
 struct Netmap : public Base
 {
+  using Base::Base;
   // TODO: Implement me.
 };
 
@@ -46,6 +50,7 @@ struct Netmap : public Base
 // The dpdk buffer type.
 struct Dpdk : public Base
 {
+  using Base::Base;
   // TODO: Implement me.
 };
 

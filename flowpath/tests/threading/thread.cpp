@@ -9,7 +9,7 @@ report(void* args)
 {
   int id = *((int*)args);
   std::cerr << "Hello from thread " << id << '\n';
-  return 0;
+  pthread_exit(args);
 }
 
 
@@ -19,9 +19,9 @@ main(int argc, char** argv)
   fp::Thread* thread = new fp::Thread(1, report);
   std::cerr << "Created thread with id 1\n";
   thread->run();
-  std::cerr << "Thread started...\n";
+  std::cerr << "Thread [1] started...\n";
   sleep(2);
-  thread->halt();
-  std::cerr << "Thread stopped.\n";
+  int res = thread->halt();
+  std::cerr << "Thread [" << res << "] stopped.\n";
   return 0;
 }

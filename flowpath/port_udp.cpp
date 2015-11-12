@@ -100,9 +100,9 @@ Port_udp::send()
 
   // Get the next packet.
   Context* cxt = nullptr;
-  while (tx_queue_.dequeue(cxt)) {
+  while ((cxt = tx_queue_.dequeue())) {
     // Send the packet.
-    int l_bytes = sendto(sock_fd_, cxt->packet_->data_, cxt->packet_->size_, 0, 
+    int l_bytes = sendto(sock_fd_, cxt->packet_->buf_.data_, cxt->packet_->size_, 0, 
       (struct sockaddr*)&dst_addr_, sizeof(struct sockaddr_in));
     
     if (bytes < 0)

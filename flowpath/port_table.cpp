@@ -24,7 +24,7 @@ Port_flood::send()
   // Get the next packet to send.
   Context* cxt = nullptr;
   int bytes = 0;
-  while (tx_queue_.dequeue(cxt)) {
+  while ((cxt = tx_queue_.dequeue())) {
     // Iterator over ports
     auto iter = port_table.list().begin();
     while (++iter != port_table.list().end()) {
@@ -35,7 +35,7 @@ Port_flood::send()
         continue;
       
       // Send the packet to the next port.
-      int l_bytes = sendto(sock_fd_, cxt->packet_->data_, cxt->packet_->size_, 0, 
+      int l_bytes = sendto(sock_fd_, cxt->packet_->buf_.data_, cxt->packet_->size_, 0, 
         (struct sockaddr*)&p->src_addr_, sizeof(struct sockaddr_in));
     
       // Destroy the packet data.

@@ -74,7 +74,7 @@ pipeline(void* args)
 	
 	while (wire->state != fp::Application::STOPPED) {
 		// Get the next packet to be processed in the pipeline, if available.
-		if (pipeline_pool.request(*tsk)) {
+		if ((tsk = pipeline_pool.request())) {
 			tsk->execute();
 			delete tsk;
 		}
@@ -118,7 +118,7 @@ port(void* args)
 		cxt = self->recv();
 		
 		// Assign to the pipeline work queue.
-		pipeline_pool.assign(fp::Task(process, cxt));
+		pipeline_pool.assign(new fp::Task(process, cxt));
 
 		// Check if there is anything to send.
 		if (self->tx_queue_.size())

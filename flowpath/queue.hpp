@@ -32,8 +32,8 @@ public:
   Locking_queue();
   ~Locking_queue();
 
-  void enqueue(T&);
-  bool dequeue(T&);
+  void enqueue(T);
+  T dequeue();
 
   T get();
 
@@ -62,7 +62,7 @@ Locking_queue<T>::~Locking_queue()
 
 template <typename T>
 void
-Locking_queue<T>::enqueue(T& v)
+Locking_queue<T>::enqueue(T v)
 {
   mutex_.lock();
   queue_.push(v);
@@ -71,18 +71,17 @@ Locking_queue<T>::enqueue(T& v)
 
 
 template <typename T>
-bool
-Locking_queue<T>::dequeue(T& ret)
+T
+Locking_queue<T>::dequeue()
 {
-  bool res = false;
+  T ret = nullptr;
   mutex_.lock();
   if (!queue_.empty()) {
     ret = queue_.front();
     queue_.pop();
-    res = true;
   }
   mutex_.unlock();
-  return res;
+  return ret;
 }
 
 

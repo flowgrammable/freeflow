@@ -1,8 +1,12 @@
 #include "thread.hpp"
 
 #include <pthread.h>
+#include <unistd.h>
+#include <sched.h>
+#include <errno.h>
 #include <cassert>
 #include <algorithm>
+#include <string>
 
 namespace fp
 {
@@ -20,15 +24,15 @@ Thread::Thread()
 
 // Constructs a new thread object with the given ID and work function.
 // This thread does not use a barrier to synchronize.
-Thread::Thread(int id, Work_fn work)
-	: id_(id), work_(work), barrier_(nullptr)
+Thread::Thread(int id, Work_fn work, Attribute* attr)
+	: id_(id), work_(work), barrier_(nullptr), attr_(attr)
 { }
 
 
 // Constructs a new thread object with the given ID, work function, and
 // synchronization barrier.
-Thread::Thread(int id, Work_fn work, Barrier* barrier)
-	: id_(id), work_(work), barrier_(barrier)
+Thread::Thread(int id, Work_fn work, Barrier* barrier, Attribute* attr)
+	: id_(id), work_(work), barrier_(barrier), attr_(attr)
 { }
 
 
@@ -40,8 +44,11 @@ Thread::run()
 	// TODO: create the underlying pthread. Use the local
 	// work_fn member as the func ptr and the local ID as
 	// the argument.
-	if (pthread_create(&thread_, nullptr, work_, &id_) != 0)
-		throw("failed to create thread");
+	int res;
+	if ((res = pthread_create(&thread_, (const Thread::Attribute*)attr_, work_, &id_)) != 0){
+		errno = res;
+		perror(std::string("failed to create thread " + std::to_string(id_)).c_str());
+	}
 }
 
 
@@ -61,7 +68,7 @@ Thread::halt()
 {
 	int* ret = new int();
 	if (pthread_join(thread_, (void**)&ret) != 0)
-		throw("failed to join thread");
+		throw(std::string("failed to join thread"));
 	return 0;
 }
 
@@ -69,20 +76,21 @@ Thread::halt()
 // (Re)Assigns an ID and work function to the thread. Calling this during
 // thread execution will cause undefined behavior.
 void
-Thread::assign(int id, Work_fn work)
+Thread::assign(int id, Work_fn work, Attribute* attr)
 {
-	assign(id, work, nullptr);
+	assign(id, work, nullptr, attr);
 }
 
 
 // (Re)Assigns an ID, work function, and barrier to the thread. Calling this
 // during thread execution will cause undefined behavior.
 void
-Thread::assign(int id, Work_fn work, Barrier* barr)
+Thread::assign(int id, Work_fn work, Barrier* barr, Attribute* attr)
 {
 	id_ = id;
 	work_ = work;
 	barrier_ = barr;
+	attr_ = attr;
 }
 
 
@@ -90,6 +98,7 @@ Thread::assign(int id, Work_fn work, Barrier* barr)
 Thread_pool::Thread_pool(int size, bool sync, Thread::Work_fn work)
 	: size_(size), sync_(sync), running_(false), work_(work)
 { 
+	num_proc_ = sysconf(_SC_NPROCESSORS_ONLN);
 	alloc_pool();
 }
 
@@ -100,17 +109,17 @@ Thread_pool::~Thread_pool()
 
 // Enqueues the item in the work queue for processing.
 void
-Thread_pool::assign(Task item)
+Thread_pool::assign(Task* item)
 { 
 	input_.enqueue(item);
 }
 
 
 // Dequeues the next item from the work queue for processing.
-bool
-Thread_pool::request(Task& ret)
+Task*
+Thread_pool::request()
 { 
-	return input_.dequeue(ret);
+	return input_.dequeue();
 }
 
 
@@ -131,6 +140,7 @@ Thread_pool::resize(int s)
 	delete[] pool_;
 	if (sync_)
 		Thread_barrier::destroy(&barr_);
+	Thread_attribute::destroy(&attr_);
 	alloc_pool();
 	start();
 }
@@ -140,15 +150,42 @@ Thread_pool::resize(int s)
 void
 Thread_pool::alloc_pool()
 {	
+	Thread_attribute::init(&attr_);
 	pool_ = new Thread*[size_];
 	if (sync_) {
 		Thread_barrier::init(&barr_, size_);
-		for (int i = 0; i < size_; i++)
-			pool_[i] = new Thread(i, work_, &barr_);
+		for (int i = 0; i < size_; i++) {
+	    // Clear the CPU core mask.
+	    CPU_ZERO(&cpu_set_);
+	    
+	    // Set the CPU core mask.
+	    CPU_SET((i + num_proc_) % num_proc_, &cpu_set_);
+	    
+	    // Set the core you want the thread to run on using a thread
+	    // attribute variable. We do this to ensure the thread starts
+	    // on the core we want it to be on.
+	    pthread_attr_setaffinity_np(&attr_, sizeof(cpu_set_t), &cpu_set_);
+			
+			// Create the thread.
+			pool_[i] = new Thread(i, work_, &barr_, &attr_);
+		}
 	}
 	else {
-		for (int i = 0; i < size_; i++)
-			pool_[i] = new Thread(i, work_);
+		for (int i = 0; i < size_; i++) {
+	    // Clear the CPU core mask.
+	    CPU_ZERO(&cpu_set_);
+	    
+	    // Set the CPU core mask.
+	    CPU_SET((i + num_proc_) % num_proc_, &cpu_set_);
+	    
+	    // Set the core you want the thread to run on using a thread
+	    // attribute variable. We do this to ensure the thread starts
+	    // on the core we want it to be on.
+	    pthread_attr_setaffinity_np(&attr_, sizeof(cpu_set_t), &cpu_set_);
+			
+			// Create the thread.			
+			pool_[i] = new Thread(i, work_, &attr_);
+		}
 	}	
 }
 
