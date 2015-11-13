@@ -61,7 +61,7 @@ static void*
 add_work(void* args)
 {
   // Assign work to the pool.
-  for (int i = 0; i < 10000; i++) {
+  for (int i = 0; i < 1000000; i++) {
     pool.assign(new fp::Task(work, &t[i % 10]));
   }
   return 0;

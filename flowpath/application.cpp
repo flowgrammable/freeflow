@@ -4,63 +4,60 @@ namespace fp
 {
 
 
+//
+Application::Application(std::string const& name, Fn pipeline, Fn config, int num_ports)
+  : name_(n), state_(NEW), pipeline_(pipeline), config_(config), num_ports_(num_ports)
+{ }
 
-// Helper function to load a dll
-void* 
-load_library(std::string const& path)
+
+//
+Application::~Application()
+{ }
+
+
+//
+inline void
+Application::start()
 {
-  void* handle = dlopen(path.c_str(), RTLD_LOCAL | RTLD_LAZY);
-  // Error loading the library
-  if (not handle)
-    throw std::runtime_error(dlerror());
-  return handle;
+  state_ = RUNNING;
 }
 
 
-// Helper function to load a symbol from a dll
-void*
-load_library_symbol(void* handle, std::string const& symbol) 
+//
+inline void
+Application::stop()
 {
-  // clear any previous errors if present
-  dlerror(); 
-  void* loaded_symbol = dlsym(handle, symbol.c_str());
-  // get error status after dlsym call
-  const char* dlsym_error = dlerror(); 
-  // error loading the symbol
-  if (dlsym_error) 
-    throw std::runtime_error(dlsym_error);
-  return loaded_symbol;
+  state_ = STOPPED;
 }
 
 
-Application_library::Application_library(std::string const& path)
-  : handle(load_library(path)), 
-    factory(((Application_factory_fn)load_library_symbol(handle, "factory"))())
+//
+auto
+Application::pipeline() -> Pipe_fn
 {
-  // // Attempt to load the application's library file
-  // void* handle = load_library(path);
-
-  // // Attempt to load the factory symbol from the library
-  // void* factory_fn = load_library_symbol(handle, "factory");
-  
-  // // Create a factory object for the application
-  // Application_factory* factory = (Application_factory_fn)factory_fn();
-
+  return *pipeline_;
 }
 
 
-// Create a new application through the library interface
-Application*
-Application_library::create(Dataplane& dp) const {
-  return factory->create(dp); 
-}
-
-
-// Destroy an application
+//
 void
-Application_library::destroy(Application& app) const { 
-  return factory->destroy(app); 
+Application::configure()
+{
+  (*(*config_))();
+  ports_ = new Port*[num_ports_];
+  state_ = READY;
 }
+
+
+//
+Application_library::Application_library(std::string const& name, Handle app, Handle pipeline, Handle config)
+  : name_(name), app_(app), pipeline_(pipeline), config_(config)
+{ }
+
+
+//
+Application_library::~Application_library()
+{ }
 
 
 } // end namespace fp

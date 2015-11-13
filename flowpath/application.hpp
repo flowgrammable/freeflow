@@ -1,7 +1,7 @@
 #ifndef FP_APPLICATION_HPP
 #define FP_APPLICATION_HPP
 
-#include <dlfcn.h>
+
 #include <iostream>
 #include <stdexcept>
 #include <typeinfo>
@@ -19,35 +19,43 @@ struct Dataplane;
 
 struct Application 
 {
-  using Queue = Locking_queue<Context*>;
-// State of the application
+  using Pipe_fn = void (*)(Context*);
+  using Config_fn = void (*)(void);
+
+  // State of the application
   enum App_state { NEW, READY, RUNNING, WAITING, STOPPED };
 
-  Dataplane*  dataplane; // Dataplane that owns this application
-  std::string name;
-  App_state   state;
-
-  // Constructors
-  Application() { }
-  Application(Dataplane& dp, std::string const& n) 
-    : dataplane(&dp), name(n), state(Application::NEW)
-  { }
-
-  virtual ~Application() { }
-
-  virtual void configure() { state = Application::READY; }
-  
+  // Application name.
+  std::string name_;
   // Application state.
-  virtual void start() = 0;
-  virtual void stop() = 0;
+  App_state   state_;
 
-  // Pipeline functions.
-  virtual void ingress(Context&) = 0;
-  virtual void egress(Context&) = 0;
+  // Hook for pipeline function.
+  Pipe_fn*    pipeline_;
+  // Hook for configuration function.
+  Config_fn*  config_;
+
+  // Application port resources.
+  Port**  ports_;
+  int     num_ports_;
+
+  // Constructors.
+  Application(std::string const&, Pipe_fn, Config_fn, int);
+  ~Application();
+
+  // Application state.
+  inline void start();
+  inline void stop();
+
+  // Pipeline function.
+  auto pipeline() -> Pipe_fn;
+
+  // Configuration function.
+  void configure();
 
   // Port functions.
-  virtual void add_port(Port*)  = 0;
-  virtual void remove_port(Port*) = 0;
+  void add_port(Port*);
+  void remove_port(Port*);
 
   // We leave the rest of the stages to be defined by the application.
   // Any application need only implement these necessary functions to
@@ -55,35 +63,26 @@ struct Application
 };
 
 
-// The Application_factory is an abstract base class whose derived 
-// classes are responsible for creating applications. Objects of this 
-// class are returned from the loading of application libraries.
-struct Application_factory 
-{
-  virtual Application* create(Dataplane&) = 0;
-  virtual void destroy(Application&) = 0;
-};
-
-
-// The type of the factory function pointer
-using Application_factory_fn = Application_factory*(*)();
-
-
 // The Application_library class represents a dynamically loaded
-// library that implements (one or more?) flowpath applications.
+// library that implements flowpath applications.
 // The factory is used to instantiate those applications whenever
 // they are launched.
 struct Application_library
 {  
-  void* handle;                 // handle for the dll
-  Application_factory* factory; // The factory object
+  using Handle = void*;
 
-  Application_library() { };
-  Application_library(std::string const&);
-  
-  // Application management
-  Application* create(Dataplane&) const;
-  void destroy(Application&) const;
+  // The library name.
+  const std::string name_;
+  // The application handle.
+  Handle app_;
+  // The pipeline symbol handle.
+  Handle pipeline_;
+  // The configuration symbol handle.
+  Handle config_;
+  // The number of ports required by the application.
+  int    num_ports_;
+  Application_library(std::string const&, Handle, Handle, Handle, int);
+  ~Application_library();
 };
 
 

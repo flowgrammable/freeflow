@@ -95,8 +95,8 @@ Thread::assign(int id, Work_fn work, Barrier* barr, Attribute* attr)
 
 
 // The default flowpath thread pool ctor.
-Thread_pool::Thread_pool(int size, bool sync, Thread::Work_fn work)
-	: size_(size), sync_(sync), running_(false), work_(work)
+Thread_pool::Thread_pool(int size, bool sync)
+	: size_(size), sync_(sync), running_(false)
 { 
 	num_proc_ = sysconf(_SC_NPROCESSORS_ONLN);
 	alloc_pool();
@@ -167,7 +167,7 @@ Thread_pool::alloc_pool()
 	    pthread_attr_setaffinity_np(&attr_, sizeof(cpu_set_t), &cpu_set_);
 			
 			// Create the thread.
-			pool_[i] = new Thread(i, work_, &barr_, &attr_);
+			pool_[i] = new Thread(i, Thread_pool_work_fn, &barr_, &attr_);
 		}
 	}
 	else {
@@ -184,7 +184,7 @@ Thread_pool::alloc_pool()
 	    pthread_attr_setaffinity_np(&attr_, sizeof(cpu_set_t), &cpu_set_);
 			
 			// Create the thread.			
-			pool_[i] = new Thread(i, work_, &attr_);
+			pool_[i] = new Thread(i, Thread_pool_work_fn, &attr_);
 		}
 	}	
 }
@@ -215,6 +215,26 @@ bool
 Thread_pool::running()
 {
 	return running_;
+}
+
+
+// The thread pool work function. This is what the thread pool
+// threads execute; request tasks and execute them.
+static void*
+Thread_pool_work_fn(void* args)
+{
+	// Figure out who I am.
+	int id = *((int*)args);
+	fp::Task* tsk = nullptr;
+	
+	while (thread_pool.running()) {
+		// Get the next task to be executed.
+		if ((tsk = thread_pool.request())) {
+			tsk->execute();
+			delete tsk;
+		}
+	}
+	return 0;
 }
 
 

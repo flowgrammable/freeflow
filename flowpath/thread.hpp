@@ -100,7 +100,7 @@ class Thread_pool
 {
 	using Input_queue = Locking_queue<Task*>;
 public:
-	Thread_pool(int, bool, Thread::Work_fn);
+	Thread_pool(int, bool);
 	~Thread_pool();
 
 	void 	assign(Task*);
@@ -113,8 +113,6 @@ public:
 	void 	stop();
 
 	bool running();
-
-	static void* work_fn(void*);
 
 private:
 	// Size of the thread pool.
@@ -135,8 +133,6 @@ private:
 	Thread** pool_;
 	// The thread pool barrier.
 	Thread::Barrier barr_;
-	// The thread pool work function.
-	Thread::Work_fn work_;
 	
 	// The thread pool work queue.
 	Input_queue 	input_;
@@ -144,6 +140,9 @@ private:
 	// Allocates the pool based on size.
 	void 	alloc_pool();
 };
+
+// The thread pool work function.
+static void* Thread_pool_work_fn(void*);
 
 
 } // end namespace fp

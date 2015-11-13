@@ -29,28 +29,26 @@ main()
   Port* p2 = sys.make_port(Port::Type::udp, ":5001");
 
   // Load the application library
-  sys.load_application("apps/wire.app");
+  Application_library* app_lib = sys.load_application("apps/wire.app");
 
-  // Create the dataplane
-  Dataplane& dp = sys.make_dataplane("dp1", "wire");
+  // Create the dataplane with the loaded application library.
+  Dataplane* dp = sys.make_dataplane("dp1", app_lib);
 
-  // Create application, associating it with the dataplane
-  dp.add_application("apps/wire.app");
+  // Configure the data plane based on the applications needs.
+  dp->configure();
 
   // Add all ports
-  dp.add_port(p1);
-  dp.add_port(p2);
-
-  dp.configure();
+  dp->add_port(p1);
+  dp->add_port(p2);
 
   // Start the wire.
-  dp.up();
+  dp->up();
 
   // Loop forever.
   // TODO: Implement graceful termination.
   while (running) { };
 
-  dp.down();
+  dp->down();
 
   return 0;
 }

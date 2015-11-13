@@ -23,6 +23,8 @@ struct System
   Dataplane& make_dataplane(std::string const&, std::string const&);
 
   void load_application(std::string const&);
+  void* get_app_handle(std::string const&);
+  void* get_sym_handle(void*, std::string const&);
 
 };
 

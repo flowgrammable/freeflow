@@ -31,10 +31,9 @@ struct Dataplane
   /* Configuration parameters for Modular stages. */
   size_t key_size;   /* Number of bytes of user-defined Key */
   
-  System* system;    /* The system that owns the dataplane */
   
   Dataplane();
-  Dataplane(System* sys, std::string const& dp_name, std::string const& dp_type)
+  Dataplane(std::string const& dp_name, std::string const& dp_type)
     : name(dp_name), type(dp_type), system(sys)
   { }
   
@@ -43,13 +42,12 @@ struct Dataplane
   void add_port(Port*);
   void remove_port(Port*);
 
-  void add_application(const std::string&);
+  void add_application(Application*);
   void remove_application(Application*);
-
-  void configure();
 
   void up();
   void down();
+  void configure();
 };
 
 

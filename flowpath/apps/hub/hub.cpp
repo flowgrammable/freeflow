@@ -15,7 +15,7 @@ static Factory factory_;
 static fp::Port* ports[4];
 
 // Thread pool for pipeline work.
-static fp::Thread_pool pipeline_pool(5, true, pipeline);
+static fp::Thread_pool pipeline_pool(5, true);
 
 // The hub object.
 static Hub* hub;
@@ -67,28 +67,6 @@ egress_after_miss(fp::Dataplane& dp, fp::Context& ctx)
   hub->egress(&ctx);
 }
 #endif
-
-// The main hub processing loop. This routine will be executed by a
-// separate thread.
-static void*
-pipeline(void* args)
-{
-  int id = *((int*)args);
-  fp::Task* tsk = nullptr;
-  std::cerr << "[thread:" << id << "] starting\n";
-
-  while(hub->state != fp::Application::STOPPED) {
-    // Get the next task to be executed.
-    if ((tsk = pipeline_pool.request())) {
-      tsk->execute();
-      delete tsk;
-    }
-  }
-
-  std::cerr << "[thread:" << id << "] stopped\n";
-  return 0;
-}
-
 
 //
 static void*

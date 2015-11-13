@@ -12,7 +12,7 @@ static Factory factory_;
 static fp::Port* ports[2];
 
 // Thread pool for pipeline work.
-static fp::Thread_pool pipeline_pool(3, true, pipeline);
+static fp::Thread_pool pipeline_pool(3, true);
 
 // The wire object.
 static Wire* wire;
@@ -62,27 +62,7 @@ Wire::~Wire()
 }
 
 
-// The main wire pipeline processing loop. This routine will be executed 
-// by a separate thread from the application. It receives work from the
-// the applications work queue that the port workers populate.
-static void*
-pipeline(void* args)
-{
-	int id = *((int*)args);
-	fp::Task* tsk = nullptr;
-	std::cerr << "[pipeline_thread:" << id << "] starting\n";
-	
-	while (wire->state != fp::Application::STOPPED) {
-		// Get the next packet to be processed in the pipeline, if available.
-		if ((tsk = pipeline_pool.request())) {
-			tsk->execute();
-			delete tsk;
-		}
-	}
 
-	std::cerr << "[thread:" << id << "] stopped\n";
-	return 0;
-}
 
 
 // The port tx/rx loop. Each port runs in its own thread with an id that
