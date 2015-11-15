@@ -36,6 +36,7 @@ add_subdirectory(lang)
 # The flowpath runtime library.
 add_library(flowpath-rt SHARED
     application.cpp
+    application_library.cpp
     buffer.cpp
     dataplane.cpp
     flow.cpp
