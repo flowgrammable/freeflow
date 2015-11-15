@@ -5,10 +5,12 @@
 #include <vector>
 
 #include "queue.hpp"
-#include "application_library.hpp"
+#include "application.hpp"
 
 namespace fp
 {
+
+struct Application;
 
 
 // The flowpath thread object. Wraps a posix thread.
@@ -85,16 +87,15 @@ struct Task
 	using Label = std::string;
 	using Arg = void*;
 
-	Task(Label app, Label target, Arg arg)
-		: app_(app), target_(target), arg_(arg)
+	Task(Label func, Arg arg)
+		: func_(func), arg_(arg)
 	{ }
 
-	Label app() const { return app_; }
-	Label target() const { return target_; }
+	Label func() const { return func_; }
 	Arg 	arg() const { return arg_; }
 
 	Label app_;
-	Label target_;
+	Label func_;
 	Arg 	arg_;
 };
 
@@ -112,7 +113,8 @@ public:
 	void 	assign(Task*);
 	Task*	request();
 
-	void 	install(Application_library*);
+	void 	install(Application*);
+	void	uninstall();
 
 	bool 	has_work();
 	void 	resize(int);
@@ -121,6 +123,7 @@ public:
 	void 	stop();
 
 	bool running();
+	Application* app();
 
 private:
 	// Size of the thread pool.
@@ -131,6 +134,8 @@ private:
 	bool running_;
 	// Number of processing cores available.
 	int num_proc_;
+	// The application currently installed.
+	Application* app_;
 
   // Thread attribute variable.
   Thread::Attribute attr_;  

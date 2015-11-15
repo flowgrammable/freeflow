@@ -1,17 +1,21 @@
 #include "application_library.hpp"
 
+#include <dlfcn.h>
+
 namespace fp
 {
 
 
 //
 Application_library::Application_library(std::string const& name, Handle app)
-  : name_(name), app_(app)
+  : name_(name)
 { 
+	handles_["app"] = app;
 	for (auto& pair : handles_) {
-		pair.second = get_sym_handle(app_, pair.first);
+		if (!pair.second)
+			pair.second = get_sym_handle(app, pair.first);
 	}
-	ports_ = *((int*)get_sym_handle(app_, "ports"));
+	num_ports_ = *((int*)get_sym_handle(app, "ports"));
 }
 
 
@@ -26,11 +30,11 @@ Application_library::exec(std::string const& cmd) -> Handle
 {
 	try 
 	{
-		return handles_.at(cmd)
+		return handles_.at(cmd);
 	}
 	catch (std::out_of_range)
 	{
-		throw std::string("Undefined reference to '" + cmd + "' in '" + app_ + "'");
+		throw std::string("Undefined reference to '" + cmd + "' in '" + name_ + "'");
 	}
 }
 

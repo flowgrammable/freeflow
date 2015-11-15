@@ -1,16 +1,13 @@
 #include <dlfcn.h>
 
 #include "application.hpp"
-#include "thread.hpp"
 
 namespace fp
 {
 
-extern Module_table module_table;
-
 //
 Application::Application(std::string const& name, int num_ports)
-  : name_(n), state_(NEW), num_ports_(num_ports)
+  : name_(name), state_(NEW), num_ports_(num_ports)
 { }
 
 
@@ -20,7 +17,7 @@ Application::~Application()
 
 
 //
-inline void
+void
 Application::start()
 {
   state_ = RUNNING;
@@ -28,7 +25,7 @@ Application::start()
 
 
 //
-inline void
+void
 Application::stop()
 {
   state_ = STOPPED;
@@ -37,9 +34,26 @@ Application::stop()
 
 //
 void
-Application::configure()
-{	
-  module_table[name_]->exec("config")();
+Application::add_port(Port* p)
+{
+	bool res = false;
+  for (int i = 0; i < num_ports_; i++)
+  	if (ports_[i] == nullptr) {
+  		ports_[i] = p;
+  		res = true;
+  	}
+	if (!res)
+		throw std::string("All ports have been added");
+}
+
+
+//
+void
+Application::remove_port(Port* p)
+{
+  for (int i = 0; i < num_ports_; i++)
+  	if (ports_[i] == p)
+  		ports_[i] = nullptr;
 }
 
 
@@ -52,8 +66,8 @@ Application::name() const
 
 
 //
-App_state
-Application::state() const
+auto
+Application::state() const -> State
 {
 	return state_;
 }

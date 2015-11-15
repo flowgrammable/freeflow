@@ -2,18 +2,20 @@
 
 #include "dataplane.hpp"
 #include "application_library.hpp"
+#include "thread.hpp"
 
 namespace fp {
 
 extern Module_table module_table;
+static Thread_pool thread_pool(4, true);
 
 // Data plane ctor.
 Dataplane::Dataplane(std::string const& name, std::string const& app)
   : name_(name)
 { 
   auto app_lib = module_table.find(app);
-  if (app_lib != module_table.end())
-    app_ = new Application(app_lib->name_, app_lib->num_ports_);
+  if (app_lib != module_table.end()) 
+    app_ = new Application(app_lib->second->name(), app_lib->second->num_ports());
   else
     throw std::string("Unknown application name '" + app + "'");
 }
@@ -44,9 +46,11 @@ Dataplane::remove_port(Port* p)
 void 
 Dataplane::up()
 {
-  if (app_->state == Application::READY)
-    app_->start();
-  else if (app_->state == Application::NEW)
+  if (app_->state() == Application::State::READY) {
+    thread_pool.install(app());
+    thread_pool.start();
+  }
+  else if (app_->state() == Application::State::NEW)
     throw std::string("Data plane has not been configured, unable to start");
 }
 
@@ -55,8 +59,12 @@ Dataplane::up()
 void 
 Dataplane::down()
 {
-  if (app_->state == Application::RUNNING)
-    app_->stop();
+  if (app_->state() == Application::State::RUNNING) {
+    thread_pool.stop();
+    thread_pool.uninstall();
+  }
+  else
+    throw std::string("Data plane is not 'up'");
 }
 
 
@@ -64,10 +72,11 @@ Dataplane::down()
 void
 Dataplane::configure()
 {
-  if (app_->state == Application::NEW)
-    app_->configure();
+  if (app_->state() == Application::State::NEW) {
+    ((void (*)())module_table[app_->name()]->exec("config"))();
+  }
   else
-    throw std::string("Data plane has already been configured")
+    throw std::string("Data plane has already been configured");
 }
 
 

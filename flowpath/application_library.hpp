@@ -1,6 +1,9 @@
 #ifndef FP_APPLICATION_LIBRARY_HPP
 #define FP_APPLICATION_LIBRARY_HPP
 
+#include <string>
+#include <unordered_map>
+
 namespace fp
 {
 
@@ -34,8 +37,12 @@ struct Application_library
   // Returns the function matching the given string name.
   auto exec(std::string const&) -> Handle;
   void* get_sym_handle(void*, std::string const&);
+  std::string name() const { return name_; }
+  int num_ports() const { return num_ports_; }
 };
 
+
+using Module_table = std::unordered_map<std::string, Application_library*>;
 
 }
 

@@ -1,4 +1,5 @@
 #include "thread.hpp"
+#include "application_library.hpp"
 
 #include <pthread.h>
 #include <unistd.h>
@@ -13,7 +14,7 @@ namespace fp
 
 
 extern Thread_pool thread_pool;
-extern Application_
+extern Module_table module_table;
 
 
 // Constructs a new thread object with no ID, work function, or barrier.
@@ -125,14 +126,39 @@ Thread_pool::request()
 }
 
 
-bool
-Thread_pool::has_work()
+// Installs the application in the thread pool.
+void
+Thread_pool::install(Application* app)
 { 
-	return input_.size();
+	if (!app_)
+		app_ = app;
+	else
+		throw std::string("Application '" + app_->name() + "' already installed in thread pool");
 }
 
 
-// Checks if there is any work to be done.
+// Removes the application from the thread pool.
+void
+Thread_pool::uninstall()
+{ 
+	if (app_) {
+		switch (app_->state()) {
+			case Application::RUNNING:
+			case Application::WAITING:
+				throw std::string("Application '" + app_->name() + "' is running");
+			break;
+			case Application::READY:
+			case Application::NEW:
+			case Application::STOPPED:
+				app_ = nullptr;
+			break;
+		}		
+	}
+	else
+		throw std::string("No application currently installed in thread pool");
+}
+
+
 bool
 Thread_pool::has_work()
 { 
@@ -203,7 +229,7 @@ Thread_pool::alloc_pool()
 void
 Thread_pool::start()
 {	
-	running_ = true;
+	app_->start();
 	for (int i = 0; i < size_; i++)
 		pool_[i]->run();	
 }
@@ -213,7 +239,7 @@ Thread_pool::start()
 void
 Thread_pool::stop()
 {
-	running_ = false;
+	app_->stop();
 	for (int i = 0; i < size_; i++)
 		pool_[i]->halt();
 }
@@ -223,7 +249,15 @@ Thread_pool::stop()
 bool
 Thread_pool::running()
 {
-	return running_;
+	return app_->state() == Application::RUNNING;
+}
+
+
+// Returns the currently installed application.
+Application*
+Thread_pool::app()
+{
+	return app_;
 }
 
 
@@ -239,8 +273,8 @@ Thread_pool_work_fn(void* args)
 	while (thread_pool.running()) {
 		// Get the next task to be executed.
 		if ((tsk = thread_pool.request())) {
-			// Execute the application target function with arg.
-			application_libraries.[tsk->app()]->exec(tsk->target())(tsk->arg());
+			// Execute the installed application function with arg.
+			((void (*)(void*))module_table[thread_pool.app()->name()]->exec(tsk->func()))(tsk->arg());
 			delete tsk;
 		}
 	}

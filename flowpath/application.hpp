@@ -10,15 +10,17 @@
 namespace fp
 {
 
+struct Port;
+
 struct Application 
 {
   // State of the application
-  enum App_state { NEW, READY, RUNNING, WAITING, STOPPED };
+  enum State { NEW, READY, RUNNING, WAITING, STOPPED };
 
   // Application name.
   std::string name_;
   // Application state.
-  App_state   state_;
+  State   state_;
 
   // Application port resources.
   Port**  ports_;
@@ -29,11 +31,8 @@ struct Application
   ~Application();
 
   // Application state.
-  inline void start();
-  inline void stop();
-
-  // Configuration function.
-  void configure();
+  void start();
+  void stop();
 
   // Port functions.
   void add_port(Port*);
@@ -41,7 +40,7 @@ struct Application
 
   // Accessors.
   std::string name() const;
-  App_state state() const;
+  auto state() const -> State;
   Port** ports() const;
   int num_ports() const;
 };

@@ -15,7 +15,7 @@ namespace fp
 
 struct Table;
 struct Flow;
-class Port;
+struct Port;
 
 struct Binding
 {
@@ -98,7 +98,7 @@ struct Context_current {
 
 // Context visible to the dataplane
 struct Context {
-  Context(Packet*, Port::Id, Port::Id, int);
+  Context(Packet*, uint32_t, uint32_t, int);
   virtual ~Context() { }
 
   Packet const* packet() const { return packet_; }
@@ -130,10 +130,10 @@ struct Context {
   Packet* packet_;
   Metadata metadata_;
   Context_current current_;
-  Port::Id in_port;
-  Port::Id in_phy_port;
+  uint32_t in_port;
+  uint32_t in_phy_port;
   int   tunnel_id;
-  Port::Id out_port;
+  uint32_t out_port;
 };
 
 } // end namespace fp

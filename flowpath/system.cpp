@@ -6,8 +6,6 @@
 
 namespace fp 
 {
-
-using Module_table = std::unordered_map<std::string, Application_library*>;
 using Dataplane_table = std::unordered_map<std::string, Dataplane*>;
 
 
@@ -62,7 +60,7 @@ System::delete_dataplane(std::string const& name)
   if (dp != dataplane_table.end())
     dataplane_table.erase(dp);
   else
-    throw std::string("Data plane name not in use")
+    throw std::string("Data plane name not in use");
 }
 
 
@@ -80,7 +78,7 @@ System::load_application(std::string const& path)
   void* app_hndl = get_app_handle(path);
   
   // Register the path with the Application_library object.
-  module_table.insert({path, new Application_library(app_hndl)});
+  module_table.insert({path, new Application_library(path, app_hndl)});
 }
 
 
@@ -94,7 +92,7 @@ System::unload_application(std::string const& path)
     throw std::string("Application at '" + path + "' is not loaded.");
   
   // Close the application handle.
-  dlclose(app->handles_["app"]);
+  dlclose(app->second->handles_["app"]);
 
   // Remove the application from the module table.
   module_table.erase(app);
