@@ -26,11 +26,11 @@ Application_library::~Application_library()
 
 // Returns the function matching the given string name. Throws if not defined.
 auto
-Application_library::exec(std::string const& cmd) -> Handle
+Application_library::exec(std::string const& cmd) -> Func
 {
 	try 
 	{
-		return handles_.at(cmd);
+		return (Func)handles_.at(cmd);
 	}
 	catch (std::out_of_range)
 	{

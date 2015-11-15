@@ -267,14 +267,14 @@ static void*
 Thread_pool_work_fn(void* args)
 {
 	// Figure out who I am.
-	int id = *((int*)args);
+	//int id = *((int*)args);
 	fp::Task* tsk = nullptr;
 	
 	while (thread_pool.running()) {
 		// Get the next task to be executed.
 		if ((tsk = thread_pool.request())) {
 			// Execute the installed application function with arg.
-			((void (*)(void*))module_table[thread_pool.app()->name()]->exec(tsk->func()))(tsk->arg());
+			module_table[thread_pool.app()->name()]->exec(tsk->func())(tsk->arg());
 			delete tsk;
 		}
 	}

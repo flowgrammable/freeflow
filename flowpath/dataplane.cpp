@@ -73,7 +73,7 @@ void
 Dataplane::configure()
 {
   if (app_->state() == Application::State::NEW) {
-    ((void (*)())module_table[app_->name()]->exec("config"))();
+    module_table[app_->name()]->exec("config")(nullptr);
   }
   else
     throw std::string("Data plane has already been configured");

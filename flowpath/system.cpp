@@ -6,12 +6,12 @@
 
 namespace fp 
 {
+
 using Dataplane_table = std::unordered_map<std::string, Dataplane*>;
 
-
-static Port_table port_table;
 static Module_table module_table;
 static Dataplane_table dataplane_table;
+static Port_table port_table;
 
 
 // Creates a new port, adds it to the master port table, and

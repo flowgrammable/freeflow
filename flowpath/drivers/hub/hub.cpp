@@ -6,8 +6,6 @@
 #include <string>
 
 // Emulate a 4 port hub running over UDP ports.
-using namespace fp;
-
 static bool running;
 
 void
@@ -21,20 +19,20 @@ main()
 {
   signal(SIGINT, sig_handle);
   running = true;
-  System sys;
+  fp::System sys;
 
   // Instantiate ports.
   // TODO: Supply a bind address?
-  Port* p1 = sys.create_port(Port::Type::udp, ":5000");
-  Port* p2 = sys.create_port(Port::Type::udp, ":5001");
-  Port* p3 = sys.create_port(Port::Type::udp, ":5002");
-  Port* p4 = sys.create_port(Port::Type::udp, ":5003");
+  fp::Port* p1 = sys.create_port(fp::Port::Type::udp, ":5000");
+  fp::Port* p2 = sys.create_port(fp::Port::Type::udp, ":5001");
+  fp::Port* p3 = sys.create_port(fp::Port::Type::udp, ":5002");
+  fp::Port* p4 = sys.create_port(fp::Port::Type::udp, ":5003");
 
   // Load the application library
   sys.load_application("apps/hub.app");
 
   // Create the dataplane with the application
-  Dataplane* dp = sys.create_dataplane("dp1", "apps/hub.app");
+  fp::Dataplane* dp = sys.create_dataplane("dp1", "apps/hub.app");
 
   // Add all ports
   dp->add_port(p1);

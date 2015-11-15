@@ -15,6 +15,7 @@ namespace fp
 struct Application_library
 {  
   using Handle = void*;
+  using Func = void (*)(void*);
   using Map = std::unordered_map<std::string, Handle>;
 
   // The library name.
@@ -35,7 +36,7 @@ struct Application_library
   ~Application_library();
 
   // Returns the function matching the given string name.
-  auto exec(std::string const&) -> Handle;
+  auto exec(std::string const&) -> Func;
   void* get_sym_handle(void*, std::string const&);
   std::string name() const { return name_; }
   int num_ports() const { return num_ports_; }
