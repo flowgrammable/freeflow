@@ -90,4 +90,12 @@ Port::drop(Context* cxt)
 }
 
 
+// Gets the port id.
+Port::Id
+Port::id() const
+{
+  return id_;
+}
+
+
 } // end namespace FP

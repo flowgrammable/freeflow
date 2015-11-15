@@ -2,71 +2,102 @@
 #include <exception>
 
 #include "system.hpp"
-#include "port.hpp"
 #include "port_table.hpp"
 
 namespace fp 
 {
 
+using Module_table = std::unordered_map<std::string, Application_library*>;
+using Dataplane_table = std::unordered_map<std::string, Dataplane*>;
 
-extern Port_table port_table;
+
+static Port_table port_table;
+static Module_table module_table;
+static Dataplane_table dataplane_table;
 
 
-// Creates a new UDP port, adds it to the master port table, and
-// returns a reference to the new port.
+// Creates a new port, adds it to the master port table, and
+// returns a pointer to the new port.
 Port*
-System::make_port(Port::Type port_type, std::string const& args)
+System::create_port(Port::Type port_type, std::string const& args)
 {
   // Create the port of given type with args in the master port table.
   Port* p = port_table.alloc(port_type, args);
   
-  // Return a reference to it.
+  // Return a pointer to it.
   return p;
 }
 
 
-// Creates a new data plane and returns a reference to it. If the 
+// Deletes the given port from the system port table.
+void
+System::delete_port(Port::Id id)
+{
+  if (port_table.find(id))
+    port_table.dealloc(id);
+}
+
+
+// Creates a new data plane and returns a pointer to it. If the 
 // name already exists it throws an exception.
-Dataplane& 
-System::make_dataplane(std::string const& name, Application_library* app_lib)
+Dataplane*
+System::create_dataplane(std::string const& name, std::string const& app)
 {
   // Check if a dataplane with this name already exists.
   if (dataplane_table.find(name) != dataplane_table.end())
-  {
-    throw("data plane name exists");
-  }
+    throw std::string("Data plane name already exists");
 
-  // Allocate the new data plane.
-  Dataplane* dp = new Dataplane(name, app_lib);
+  // Allocate the new data plane in the master data plane table.
+  dataplane_table.insert({name, new Dataplane(name, app)});
+ 
+  return dataplane_table.at(name);
+}
 
-  // Update the master port table.
-  dataplane_table.insert({name, dp});
 
-  // Return a reference to it.
-  return *dp;
+// Deletes the given data plane from the system data plane table.
+void
+System::delete_dataplane(std::string const& name)
+{
+  auto dp = dataplane_table.find(name);
+  if (dp != dataplane_table.end())
+    dataplane_table.erase(dp);
+  else
+    throw std::string("Data plane name not in use")
 }
 
 
 // Loads the application at the given path. If it exists, throws a message.
 // If the application does not exist, it creates the module and adds it to
 // the module table.
-Application_library*
+void
 System::load_application(std::string const& path)
 {
   // Check if library from this path has already been loaded.
   if (module_table.find(path) != module_table.end())
-    throw("module exists");
+    throw std::string("Application at '" + path + "' has already been loaded");
 
+  // Get the application handle.
   void* app_hndl = get_app_handle(path);
-  void* pipe_hndl = get_sym_handle(app_hndl, "process");
-  void* cfg_hndl = get_sym_handle(app_hndl, "config");
-  void* ports = get_sym_handle(app_hndl, "ports");
-  int num_ports = *((int*)ports);
-  Application_library* app_lib = new Application_library(app_hndl, pipe_hndl, cfg_hndl, ports);
-
+  
   // Register the path with the Application_library object.
-  module_table.insert({path, &app_lib});
-  return app_lib;
+  module_table.insert({path, new Application_library(app_hndl)});
+}
+
+
+// Unloads the given application. If it does not exist, throws a message.
+void
+System::unload_application(std::string const& path)
+{
+  auto app = module_table.find(path);
+  // Check if library from this path has already been loaded.
+  if (app != module_table.end())
+    throw std::string("Application at '" + path + "' is not loaded.");
+  
+  // Close the application handle.
+  dlclose(app->handles_["app"]);
+
+  // Remove the application from the module table.
+  module_table.erase(app);
 }
 
 
@@ -79,20 +110,6 @@ System::get_app_handle(std::string const& path)
     return hndl;
   else
     throw std::runtime_error(dlerror());
-}
-
-
-// Returns a handle to the given symbol from the given application handle.
-void*
-System::get_sym_handle(void* app_hndl, std::string const& sym)
-{
-  dlerror();
-  void* sym_hndl = dlsym(app_hndl, sym.c_str());
-  const char* err = dlerror();
-  if (err)
-    throw std::runtime_error(err);
-  else
-    return sym_hndl;
 }
 
 

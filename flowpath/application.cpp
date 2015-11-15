@@ -1,12 +1,16 @@
+#include <dlfcn.h>
+
 #include "application.hpp"
+#include "thread.hpp"
 
 namespace fp
 {
 
+extern Module_table module_table;
 
 //
-Application::Application(std::string const& name, Fn pipeline, Fn config, int num_ports)
-  : name_(n), state_(NEW), pipeline_(pipeline), config_(config), num_ports_(num_ports)
+Application::Application(std::string const& name, int num_ports)
+  : name_(n), state_(NEW), num_ports_(num_ports)
 { }
 
 
@@ -32,32 +36,45 @@ Application::stop()
 
 
 //
-auto
-Application::pipeline() -> Pipe_fn
-{
-  return *pipeline_;
-}
-
-
-//
 void
 Application::configure()
-{
-  (*(*config_))();
-  ports_ = new Port*[num_ports_];
-  state_ = READY;
+{	
+  module_table[name_]->exec("config")();
 }
 
 
 //
-Application_library::Application_library(std::string const& name, Handle app, Handle pipeline, Handle config)
-  : name_(name), app_(app), pipeline_(pipeline), config_(config)
-{ }
+std::string
+Application::name() const
+{
+	return name_;
+}
 
 
 //
-Application_library::~Application_library()
-{ }
+App_state
+Application::state() const
+{
+	return state_;
+}
+
+
+//
+Port**
+Application::ports() const
+{
+	return ports_;
+}
+
+
+//
+int
+Application::num_ports() const
+{
+	return num_ports_;
+}
+
+
 
 
 } // end namespace fp

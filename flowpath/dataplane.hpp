@@ -13,45 +13,31 @@
 namespace fp
 {
 
-struct System;
-
 
 struct Dataplane
 {
-  int         id;    /* Unique data plane id. */
-  int         state; /* The current state of the dataplane. */
-  std::string name;  /* Data plane name. */
-  std::string type;  /* Data plane type. */
+  // Data plane name.
+  std::string name_; 
 
   std::map<std::string, Table*> tables;
 
   // Application.
   Application* app_;
 
-  /* Configuration parameters for Modular stages. */
-  size_t key_size;   /* Number of bytes of user-defined Key */
-  
-  
-  Dataplane();
-  Dataplane(std::string const& dp_name, std::string const& dp_type)
-    : name(dp_name), type(dp_type), system(sys)
-  { }
-  
+  Dataplane(std::string const&, std::string const&);
   ~Dataplane();
 
   void add_port(Port*);
   void remove_port(Port*);
 
-  void add_application(Application*);
-  void remove_application(Application*);
-
   void up();
   void down();
+
   void configure();
+
+  Application* app();
+  std::string name() const;
 };
-
-
-using Dataplane_table = std::unordered_map<std::string, Dataplane*>;
 
 } // namespace
 

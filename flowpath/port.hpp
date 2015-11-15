@@ -62,6 +62,8 @@ public:
   void up();
   void down();
 
+  Id id() const;
+
   // Data members.
   Id              id_;        // The internal port ID.
   Address         addr_;      // The hardware address for the port.

@@ -13,6 +13,7 @@ namespace fp
 
 
 extern Thread_pool thread_pool;
+extern Application_
 
 
 // Constructs a new thread object with no ID, work function, or barrier.
@@ -102,6 +103,7 @@ Thread_pool::Thread_pool(int size, bool sync)
 	alloc_pool();
 }
 
+
 // The flowpath thread pool dtor.
 Thread_pool::~Thread_pool()
 { }
@@ -120,6 +122,13 @@ Task*
 Thread_pool::request()
 { 
 	return input_.dequeue();
+}
+
+
+bool
+Thread_pool::has_work()
+{ 
+	return input_.size();
 }
 
 
@@ -230,7 +239,8 @@ Thread_pool_work_fn(void* args)
 	while (thread_pool.running()) {
 		// Get the next task to be executed.
 		if ((tsk = thread_pool.request())) {
-			tsk->execute();
+			// Execute the application target function with arg.
+			application_libraries.[tsk->app()]->exec(tsk->target())(tsk->arg());
 			delete tsk;
 		}
 	}

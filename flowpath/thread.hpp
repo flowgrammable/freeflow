@@ -3,7 +3,9 @@
 
 #include <pthread.h>
 #include <vector>
+
 #include "queue.hpp"
+#include "application_library.hpp"
 
 namespace fp
 {
@@ -75,20 +77,24 @@ destroy(Thread::Attribute* attr)
 
 } // end namespace Thread_attribute
 
+
 // A thread pool instruction entry. Contains a function to be
 // called, the arguments needed, and the resulting value.
 struct Task
 {
-	using Func = void* (*)(void*);
+	using Label = std::string;
 	using Arg = void*;
 
-	Task(Func f, Arg a)
-		: func_(f), arg_(a)
+	Task(Label app, Label target, Arg arg)
+		: app_(app), target_(target), arg_(arg)
 	{ }
 
-	void execute() { func_(arg_); }
+	Label app() const { return app_; }
+	Label target() const { return target_; }
+	Arg 	arg() const { return arg_; }
 
-	Func 	func_;
+	Label app_;
+	Label target_;
 	Arg 	arg_;
 };
 
@@ -105,6 +111,8 @@ public:
 
 	void 	assign(Task*);
 	Task*	request();
+
+	void 	install(Application_library*);
 
 	bool 	has_work();
 	void 	resize(int);

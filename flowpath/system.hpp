@@ -5,27 +5,24 @@
 
 #include "dataplane.hpp"
 #include "port.hpp"
-#include "application.hpp"
+#include "application_library.hpp"
 
 
 namespace fp 
 {
 
-using Module_table = std::map<std::string, Application_library>;
-
 struct System 
 {
-  Dataplane_table dataplane_table;  // Master dataplane table.
-  Module_table 		module_table; 		// DL modules table.
+  Port* create_port(Port::Type, std::string const&);
+  void 	delete_port(Port::Id);
 
-  Port* make_port(Port::Type, std::string const&);
+  Dataplane* create_dataplane(std::string const&, std::string const&);
+  void			 delete_dataplane(std::string const&);
 
-  Dataplane& make_dataplane(std::string const&, std::string const&);
+  Application_library* load_application(std::string const&);
+  void unload_application(std::string const&);
 
-  void load_application(std::string const&);
   void* get_app_handle(std::string const&);
-  void* get_sym_handle(void*, std::string const&);
-
 };
 
 } // end namespace fp
