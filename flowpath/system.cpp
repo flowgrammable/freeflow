@@ -1,17 +1,20 @@
-#include <dlfcn.h>
 #include <exception>
+#include <unordered_map>
 
 #include "system.hpp"
 #include "port_table.hpp"
+#include "application.hpp"
+#include "thread.hpp"
+
 
 namespace fp 
 {
 
-using Dataplane_table = std::unordered_map<std::string, Dataplane*>;
 
-static Module_table module_table;
-static Dataplane_table dataplane_table;
-static Port_table port_table;
+extern Module_table     module_table;         // Flowpath module table.
+Dataplane_table         dataplane_table;      // Flowpath data plane table.
+extern Port_table       port_table;           // Flowpath port table.
+extern Thread_pool      thread_pool; // Flowpath thread pool.
 
 
 // Creates a new port, adds it to the master port table, and
@@ -73,12 +76,9 @@ System::load_application(std::string const& path)
   // Check if library from this path has already been loaded.
   if (module_table.find(path) != module_table.end())
     throw std::string("Application at '" + path + "' has already been loaded");
-
-  // Get the application handle.
-  void* app_hndl = get_app_handle(path);
   
   // Register the path with the Application_library object.
-  module_table.insert({path, new Application_library(path, app_hndl)});
+  module_table.insert({path, new Application(path)});
 }
 
 
@@ -90,24 +90,9 @@ System::unload_application(std::string const& path)
   // Check if library from this path has already been loaded.
   if (app != module_table.end())
     throw std::string("Application at '" + path + "' is not loaded.");
-  
-  // Close the application handle.
-  dlclose(app->second->handles_["app"]);
 
   // Remove the application from the module table.
   module_table.erase(app);
-}
-
-
-// Returns a handle to the application at the given path, if it exists.
-void*
-System::get_app_handle(std::string const& path)
-{
-  void* hndl = dlopen(path.c_str(), RTLD_LOCAL | RTLD_LAZY);
-  if (hndl)
-    return hndl;
-  else
-    throw std::runtime_error(dlerror());
 }
 
 

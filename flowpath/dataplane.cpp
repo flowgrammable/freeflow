@@ -1,23 +1,22 @@
 #include <algorithm>
 
 #include "dataplane.hpp"
-#include "application_library.hpp"
 #include "thread.hpp"
 
 namespace fp {
 
 extern Module_table module_table;
-static Thread_pool thread_pool(4, true);
+extern Thread_pool thread_pool;
 
 // Data plane ctor.
-Dataplane::Dataplane(std::string const& name, std::string const& app)
+Dataplane::Dataplane(std::string const& name, std::string const& app_name)
   : name_(name)
 { 
-  auto app_lib = module_table.find(app);
-  if (app_lib != module_table.end()) 
-    app_ = new Application(app_lib->second->name(), app_lib->second->num_ports());
+  auto app = module_table.find(app_name);
+  if (app != module_table.end()) 
+    app_ = app->second;
   else
-    throw std::string("Unknown application name '" + app + "'");
+    throw std::string("Unknown application name '" + app_name + "'");
 }
 
 Dataplane::~Dataplane() 
@@ -72,9 +71,8 @@ Dataplane::down()
 void
 Dataplane::configure()
 {
-  if (app_->state() == Application::State::NEW) {
-    module_table[app_->name()]->exec("config")(nullptr);
-  }
+  if (app_->state() == Application::State::NEW)
+    app_->lib().exec("config")(nullptr);
   else
     throw std::string("Data plane has already been configured");
 }

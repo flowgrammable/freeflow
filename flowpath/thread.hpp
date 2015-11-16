@@ -100,6 +100,9 @@ struct Task
 };
 
 
+// The thread pool work function.
+void* Thread_pool_work_fn(void*);
+
 // The flowpath thread pool. Contains a user defined
 // number of threads to execute tasks allocated to the
 // thread pool work queue.
@@ -137,6 +140,8 @@ private:
 	// The application currently installed.
 	Application* app_;
 
+	Thread::Work_fn pool_work_ = Thread_pool_work_fn;
+
   // Thread attribute variable.
   Thread::Attribute attr_;  
   // CPU core mask variable.
@@ -154,8 +159,6 @@ private:
 	void 	alloc_pool();
 };
 
-// The thread pool work function.
-static void* Thread_pool_work_fn(void*);
 
 
 } // end namespace fp

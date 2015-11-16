@@ -39,6 +39,8 @@ struct Dataplane
   std::string name() const;
 };
 
+using Dataplane_table = std::unordered_map<std::string, Dataplane*>;
+
 } // namespace
 
 #endif

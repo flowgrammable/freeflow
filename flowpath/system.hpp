@@ -1,11 +1,10 @@
 #ifndef FP_SYSTEM_HPP
 #define FP_SYSTEM_HPP
 
-#include <map>
-
 #include "dataplane.hpp"
 #include "port.hpp"
-#include "application_library.hpp"
+#include "port_table.hpp"
+#include "thread.hpp"
 
 
 namespace fp 

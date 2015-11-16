@@ -1,5 +1,4 @@
 #include "thread.hpp"
-#include "application_library.hpp"
 
 #include <pthread.h>
 #include <unistd.h>
@@ -12,9 +11,7 @@
 namespace fp
 {
 
-
-extern Thread_pool thread_pool;
-extern Module_table module_table;
+Thread_pool thread_pool(4, true);
 
 
 // Constructs a new thread object with no ID, work function, or barrier.
@@ -131,7 +128,7 @@ void
 Thread_pool::install(Application* app)
 { 
 	if (!app_)
-		app_ = app;
+		app_ = app;	
 	else
 		throw std::string("Application '" + app_->name() + "' already installed in thread pool");
 }
@@ -202,7 +199,7 @@ Thread_pool::alloc_pool()
 	    pthread_attr_setaffinity_np(&attr_, sizeof(cpu_set_t), &cpu_set_);
 			
 			// Create the thread.
-			pool_[i] = new Thread(i, Thread_pool_work_fn, &barr_, &attr_);
+			pool_[i] = new Thread(i, pool_work_, &barr_, &attr_);
 		}
 	}
 	else {
@@ -219,7 +216,7 @@ Thread_pool::alloc_pool()
 	    pthread_attr_setaffinity_np(&attr_, sizeof(cpu_set_t), &cpu_set_);
 			
 			// Create the thread.			
-			pool_[i] = new Thread(i, Thread_pool_work_fn, &attr_);
+			pool_[i] = new Thread(i, pool_work_, &attr_);
 		}
 	}	
 }
@@ -263,7 +260,7 @@ Thread_pool::app()
 
 // The thread pool work function. This is what the thread pool
 // threads execute; request tasks and execute them.
-static void*
+void*
 Thread_pool_work_fn(void* args)
 {
 	// Figure out who I am.
@@ -274,7 +271,7 @@ Thread_pool_work_fn(void* args)
 		// Get the next task to be executed.
 		if ((tsk = thread_pool.request())) {
 			// Execute the installed application function with arg.
-			module_table[thread_pool.app()->name()]->exec(tsk->func())(tsk->arg());
+			thread_pool.app()->lib().exec(tsk->func())(tsk->arg());
 			delete tsk;
 		}
 	}
