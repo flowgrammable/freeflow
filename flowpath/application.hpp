@@ -1,7 +1,7 @@
 #ifndef FP_APPLICATION_HPP
 #define FP_APPLICATION_HPP
 
-#include <map>
+#include <unordered_map>
 #include <string>
 
 #include "context.hpp"
@@ -12,6 +12,33 @@ namespace fp
 
 struct Port;
 
+// The Application_library class represents a dynamically loaded
+// library that implements flowpath applications.
+// The factory is used to instantiate those applications whenever
+// they are launched.
+struct Library
+{  
+  using Handle = void*;
+  using Func = void (*)(void*);
+  using Map = std::unordered_map<std::string, Handle>;
+  
+  // The defined application handles.
+  Map handles_ = 
+  {
+    {"app", nullptr},
+    {"pipeline", nullptr},
+    {"config", nullptr}
+  };
+  
+  Library(Handle);
+  ~Library();
+
+  // Returns the function matching the given string name.
+  auto exec(std::string const&) -> Func;
+
+};
+
+
 struct Application 
 {
   // State of the application
@@ -21,13 +48,15 @@ struct Application
   std::string name_;
   // Application state.
   State   state_;
+  // Application library.
+  Library lib_;
 
   // Application port resources.
   Port**  ports_;
   int     num_ports_;
 
   // Constructors.
-  Application(std::string const&, int);
+  Application(std::string const&);
   ~Application();
 
   // Application state.
@@ -43,7 +72,13 @@ struct Application
   auto state() const -> State;
   Port** ports() const;
   int num_ports() const;
+  auto lib() const -> Library;
 };
+
+void* get_sym_handle(void*, std::string const&);
+void* get_app_handle(std::string const&);
+
+using Module_table = std::unordered_map<std::string, Application*>;
 
 
 } // end namespace fp

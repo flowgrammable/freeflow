@@ -5,15 +5,21 @@
 namespace fp
 {
 
+Module_table module_table;
+
 //
-Application::Application(std::string const& name, int num_ports)
-  : name_(name), state_(NEW), num_ports_(num_ports)
-{ }
+Application::Application(std::string const& name)
+  : name_(name), state_(NEW), lib_(get_app_handle(name))
+{ 
+
+}
 
 
 //
 Application::~Application()
-{ }
+{ 
+  dlclose(lib_.handles_["app"]);
+}
 
 
 //
@@ -89,6 +95,69 @@ Application::num_ports() const
 }
 
 
+//
+auto
+Application::lib() const -> Library
+{
+  return lib_;
+}
+
+
+//
+Library::Library(Handle app)
+{ 
+  handles_["app"] = app;
+  for (auto& pair : handles_) {
+    if (!pair.second)
+      pair.second = get_sym_handle(app, pair.first);
+  }
+}
+
+
+//
+Library::~Library()
+{ }
+
+
+// Returns the function matching the given string name. Throws if not defined.
+auto
+Library::exec(std::string const& cmd) -> Func
+{
+  try 
+  {
+    return (Func)handles_.at(cmd);
+  }
+  catch (std::out_of_range)
+  {
+    throw std::string("Undefined reference to '" + cmd + "'");
+  }
+}
+
+
+// Returns a handle to the given symbol from the given application handle.
+void*
+get_sym_handle(void* app_hndl, std::string const& sym)
+{
+  dlerror();
+  void* sym_hndl = dlsym(app_hndl, sym.c_str());
+  const char* err = dlerror();
+  if (err)
+    throw std::runtime_error(err);
+  else
+    return sym_hndl;
+}
+
+
+// Returns a handle to the application at the given path, if it exists.
+void*
+get_app_handle(std::string const& path)
+{
+  void* hndl = dlopen(path.c_str(), RTLD_LOCAL | RTLD_LAZY);
+  if (hndl)
+    return hndl;
+  else
+    throw std::runtime_error(dlerror());
+}
 
 
 } // end namespace fp
