@@ -13,47 +13,10 @@ static void* add_work(void*);
 static void* req_work(void*);
 
 // The thread pool.
-static fp::Thread_pool pool(2, true, req_work);
+static fp::Thread_pool pool(2, true);
 
 // Data for the thread pool.
 static int t[] = {0,1,2,3,4,5,6,7,8,9};
-
-// Work function definition.
-//
-// A simple thread work stub. Retrieves a work item from the thread pool
-// and prints the value.
-static void* 
-req_work(void* args)
-{
-  // Figure out who I am.
-  int id = *((int*)args);
-  fp::Task* tsk = nullptr;
-
-  // Local counter for work done.
-  int my_work = 0;
-
-  // Buffer messages into strings to make them print better.
-  std::string msg;
-  msg = std::string("[thread:" + std::to_string(id) + "] started.\n");
-  std::cout << msg;
-  
-  // Wait until everyone is ready.
-  sync();
-
-  // Start processing.
-  while (pool.running()) {
-    // Request a work item from the pool.
-    if ((tsk = pool.request())) {
-      // Increment local work counter.
-      ++my_work;
-      // Execute the task.
-      tsk->execute();
-      // Delete task.
-      delete tsk;
-    }
-  }
-  return 0;
-}
 
 
 // Adds work to the thread pool.

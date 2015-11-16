@@ -2,4 +2,4 @@
 add_subdirectory(ports)
 
 # Thread based tests.
-add_subdirectory(threading)
+#add_subdirectory(threading)
