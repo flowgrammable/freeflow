@@ -3,6 +3,7 @@
 #include "port.hpp"
 
 #include <string>
+#include <iostream>
 #include <signal.h>
 
 // Emulate a 2 port wire running over UDP ports.
