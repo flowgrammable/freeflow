@@ -27,7 +27,8 @@ struct Library
   {
     {"app", nullptr},
     {"pipeline", nullptr},
-    {"config", nullptr}
+    {"config", nullptr},
+    {"ports", nullptr}
   };
   
   Library(Handle);

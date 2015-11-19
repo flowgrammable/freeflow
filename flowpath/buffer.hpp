@@ -1,20 +1,18 @@
 #ifndef FP_BUFFER_HPP
 #define FP_BUFFER_HPP
 
+#include <cstdint>
+
 namespace fp
 {
 
 namespace Buffer
 {
 
-// Default buffer size.
-const int FP_INIT_BUF = 4096;
-
-// The base buffer object for packets.
 struct Base
 {
-  unsigned char data_[FP_INIT_BUF];
-  Base(unsigned char*);
+  uint8_t* data_;
+  Base(uint8_t*);
   virtual ~Base();
 };
 

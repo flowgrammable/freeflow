@@ -14,7 +14,7 @@ namespace fp
 extern Port_table port_table;
 
 
-const int INIT_BUFF_SIZE = 4096;
+const int INIT_BUFF_SIZE = 2048;
 
 
 // UDP Port constructor. Parses the UDP address and port from

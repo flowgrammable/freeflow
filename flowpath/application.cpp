@@ -11,7 +11,7 @@ Module_table module_table;
 Application::Application(std::string const& name)
   : name_(name), state_(NEW), lib_(get_app_handle(name))
 { 
-
+  lib_.exec("ports")(&num_ports_);
 }
 
 
