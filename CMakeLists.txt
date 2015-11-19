@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 2.8.12)
 
-project(freeflow CXX)
+project(freeflow C CXX)
 
 # Configure compiler.
 # We effectively require a functioning C++11 implementation.
@@ -13,7 +13,8 @@ elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
 endif()
 
-# C++ build flags.
+# C/C++ build flags.
+set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -Wall")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -pedantic -Wall -pthread")
 
 # Require Boost C++ Libraries.
@@ -31,3 +32,6 @@ add_subdirectory(flowmgr)
 
 # Flowpath Runtime
 add_subdirectory(flowpath)
+
+# Utilities
+add_subdirectory(util)
