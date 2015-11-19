@@ -9,6 +9,7 @@
 
 #include "port.hpp"
 #include "application.hpp"
+#include "table.hpp"
 
 namespace fp
 {
@@ -40,6 +41,18 @@ struct Dataplane
 };
 
 using Dataplane_table = std::unordered_map<std::string, Dataplane*>;
+
+extern "C" Table* create_table(Dataplane*, int, int, Table::Type);
+extern "C" void   add_flow(Table*, void*, void*);
+extern "C" void   del_flow(Table*, void*);
+extern "C" Port*  get_port(std::string const&);
+extern "C" void   output_port(Context*, std::string const&);
+extern "C" void   goto_table(Context*, Table*);
+extern "C" void   bind(Context*, int, int, int, int);
+extern "C" void   bind_hdr(Context*, int, int);
+extern "C" void   load(Context*, int);
+extern "C" void   gather(Context*, ...);
+extern "C" void   advance(Context*, int);
 
 } // namespace
 

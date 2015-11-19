@@ -1,14 +1,13 @@
 #ifndef FP_SYSTEM_HPP
 #define FP_SYSTEM_HPP
 
-#include "dataplane.hpp"
 #include "port.hpp"
-#include "port_table.hpp"
-#include "thread.hpp"
 
 
 namespace fp 
 {
+
+struct Dataplane;
 
 struct System 
 {

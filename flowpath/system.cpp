@@ -4,7 +4,6 @@
 #include "system.hpp"
 #include "port_table.hpp"
 #include "application.hpp"
-#include "thread.hpp"
 
 
 namespace fp 

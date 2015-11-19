@@ -68,6 +68,8 @@ struct Key_hash
 // The abstract table interface.
 struct Table
 {
+  enum Type { EXACT, PREFIX, WILDCARD };
+  
   virtual ~Table() { }
 
   virtual Flow& find(Key const&) = 0;
