@@ -10,16 +10,16 @@ namespace fp
 {
 
 
-extern Module_table     module_table;         // Flowpath module table.
-Dataplane_table         dataplane_table;      // Flowpath data plane table.
-extern Port_table       port_table;           // Flowpath port table.
-extern Thread_pool      thread_pool; // Flowpath thread pool.
+extern Module_table     module_table;     // Flowpath module table.
+Dataplane_table         dataplane_table;  // Flowpath data plane table.
+extern Port_table       port_table;       // Flowpath port table.
+extern Thread_pool      thread_pool;      // Flowpath thread pool.
 
 
 // Creates a new port, adds it to the master port table, and
 // returns a pointer to the new port.
 Port*
-System::create_port(Port::Type port_type, std::string const& args)
+create_port(Port::Type port_type, std::string const& args)
 {
   // Create the port of given type with args in the master port table.
   Port* p = port_table.alloc(port_type, args);
@@ -31,17 +31,33 @@ System::create_port(Port::Type port_type, std::string const& args)
 
 // Deletes the given port from the system port table.
 void
-System::delete_port(Port::Id id)
+delete_port(Port::Id id)
 {
   if (port_table.find(id))
     port_table.dealloc(id);
 }
 
 
+// Returns the port matching the given name.
+extern "C" Port*  
+get_port(std::string const& name)
+{
+  return nullptr;
+}
+
+
+// Outputs the contexts packet on the port with the matching name.
+extern "C" void   
+output_port(Context* cxt, std::string const& name)
+{
+
+}
+
+
 // Creates a new data plane and returns a pointer to it. If the 
 // name already exists it throws an exception.
 Dataplane*
-System::create_dataplane(std::string const& name, std::string const& app)
+create_dataplane(std::string const& name, std::string const& app)
 {
   // Check if a dataplane with this name already exists.
   if (dataplane_table.find(name) != dataplane_table.end())
@@ -56,7 +72,7 @@ System::create_dataplane(std::string const& name, std::string const& app)
 
 // Deletes the given data plane from the system data plane table.
 void
-System::delete_dataplane(std::string const& name)
+delete_dataplane(std::string const& name)
 {
   auto dp = dataplane_table.find(name);
   if (dp != dataplane_table.end())
@@ -70,7 +86,7 @@ System::delete_dataplane(std::string const& name)
 // If the application does not exist, it creates the module and adds it to
 // the module table.
 void
-System::load_application(std::string const& path)
+load_application(std::string const& path)
 {
   // Check if library from this path has already been loaded.
   if (module_table.find(path) != module_table.end())
@@ -83,7 +99,7 @@ System::load_application(std::string const& path)
 
 // Unloads the given application. If it does not exist, throws a message.
 void
-System::unload_application(std::string const& path)
+unload_application(std::string const& path)
 {
   auto app = module_table.find(path);
   // Check if library from this path has already been loaded.
@@ -93,6 +109,83 @@ System::unload_application(std::string const& path)
   // Remove the application from the module table.
   module_table.erase(app);
 }
+
+
+// Creates a new table in the given data plane with the given size,
+// key width, and table type.
+extern "C" Table* 
+create_table(Dataplane* dp, int size, int key_width, Table::Type type)
+{
+  return nullptr;
+}
+
+
+// Dispatches the given context to the given table, if it exists.
+extern "C" void   
+goto_table(Context* cxt, Table* tbl)
+{
+
+}
+
+
+// Creates a new flow rule from the given key and function pointer
+// and adds it to the given table.
+extern "C" void   
+add_flow(Table* tbl, void* key, void* fn)
+{
+
+}
+
+
+// Removes the given key from the given table, if it exists.
+extern "C" void   
+del_flow(Table* tbl, void* key)
+{
+
+}
+
+
+// Binds a given field index to a section in the packet contexts raw
+// packet data. Using the given header offset, field offset, and field
+// length we can grab exactly what we need.
+extern "C" void   
+bind(Context* cxt, int hdr_off, int field_off, int field_len, int field)
+{
+
+}
+
+
+// Binds a header to the context at the given offset with the given length.
+extern "C" void   
+bind_hdr(Context* cxt, int hdr_off, int len)
+{
+
+}
+
+
+// Loads the field from the context.
+extern "C" void   
+load(Context* cxt, int field)
+{
+
+}
+
+
+// Creates a subset of the fields in the packet context.
+extern "C" void   
+gather(Context* cxt, ...)
+{
+
+}
+
+
+// Advances the current context byte pointer 'n' bytes.
+extern "C" void   
+advance(Context* cxt, int n)
+{
+
+}
+
 
 
 } // end namespace fp
