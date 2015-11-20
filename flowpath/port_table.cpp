@@ -112,10 +112,42 @@ Port_table::dealloc(Port::Id id)
 
 
 // Accessors.
+//
+
+// Returns the port that matches the given 'id'. If not found,
+// returns a nullptr.
 auto
 Port_table::find(Port::Id id) -> value_type
 {
-  return (data_[id-1] ? data_[id-1] : nullptr);
+  if (data_[id-1])
+    return data_[id-1];
+  else if (id == flood_port_->id())
+    return flood_port();
+  else if (id == broad_port_->id())
+    return broad_port();
+  else if (id == drop_port_->id())
+    return drop_port();
+  else
+    return nullptr;
+}
+
+
+// Returns the port with the matching 'name'. If not found,
+// returns a nullptr.
+auto
+Port_table::find(std::string const& name) -> value_type
+{
+  auto res = std::find(data_.begin(), data_.end(), name);
+  if (res == data_.end())
+    return *res;
+  else if (name == "flood")
+    return flood_port();
+  else if (name == "broadcast")
+    return broad_port();
+  else if (name == "drop")
+    return drop_port();
+  else
+    return nullptr;
 }
 
 

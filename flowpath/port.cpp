@@ -42,6 +42,13 @@ Port::operator==(Port* other)
 
 
 bool
+operator==(Port* p, std::string const& name)
+{
+  return p->name_ == name;
+}
+
+
+bool
 Port::operator!=(Port& other)
 {
   return !(*this == other);

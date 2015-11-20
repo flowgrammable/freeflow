@@ -73,6 +73,9 @@ public:
 };
 
 
+bool operator==(Port*, std::string const&);
+
+
 } // end namespace FP
 
 #endif

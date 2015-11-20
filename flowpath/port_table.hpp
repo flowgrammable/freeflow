@@ -52,6 +52,7 @@ public:
 
   // Accessors.
   value_type find(Port::Id);
+  value_type find(std::string const&);
   store_type list();
 
   value_type flood_port() const { return flood_port_; }
@@ -69,11 +70,6 @@ private:
   value_type drop_port_;
 };
 
-
-// Port table reserved port thread functions.
-//static void* flood(void*);
-//static void* broad(void*);
-//static void* drop(void*);
 
 } // end namespace fp
 
