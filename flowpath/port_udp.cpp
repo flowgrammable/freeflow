@@ -40,7 +40,7 @@ Port_udp::Port_udp(Port::Id id, std::string const& str)
 
   // Check length of port arg.
   if (str.length() - idx < 2)
-    throw("bad port form"); 
+    throw("bad port form");
 
   // Set the port.
   int port = std::stoi(str.substr(idx + 1, str.length()), nullptr);
@@ -64,13 +64,13 @@ Port_udp::recv()
   char buff[INIT_BUFF_SIZE];
   socklen_t slen = sizeof(dst_addr_);
   // Receive data.
-  int bytes = recvfrom(sock_fd_, buff, INIT_BUFF_SIZE, 0, 
+  int bytes = recvfrom(sock_fd_, buff, INIT_BUFF_SIZE, 0,
     (struct sockaddr*)&dst_addr_, &slen);
 
   if (bytes < 0)
     return nullptr;
 
-  // If we receive a 0-byte packet, the dest has closed. 
+  // If we receive a 0-byte packet, the dest has closed.
   // Set the port config to reflect this and return nullptr.
   if (bytes == 0) {
     config_.down = 1;
@@ -78,14 +78,22 @@ Port_udp::recv()
   }
 
   // Copy the buffer so that we guarantee that we don't
-  // accidentally overwrite it when we have multiple 
-  // readers. 
+  // accidentally overwrite it when we have multiple
+  // readers.
   //
   // TODO: We should probably have a better buffer management
   // framework so that we don't have to copy each time we
   // create a packet.
   Packet* pkt = packet_create((unsigned char*)buff, bytes, 0, nullptr, FP_BUF_ALLOC);
-  return new Context(pkt, id_, id_, 0);  
+  // TODO: We should call functions which ask the application
+  // for the maximum desired number of headers and fields
+  // that can be extracted so we can produce a context
+  // which takes up a minimal amount of space.
+  // And probably move these to become global values instead
+  // of locals to reduce function calls.
+  int max_headers = 0;
+  int max_fields = 0;
+  return new Context(pkt, id_, id_, 0, max_headers, max_fields);
 }
 
 
@@ -102,9 +110,9 @@ Port_udp::send()
   Context* cxt = nullptr;
   while ((cxt = tx_queue_.dequeue())) {
     // Send the packet.
-    int l_bytes = sendto(sock_fd_, cxt->packet_->buf_.data_, cxt->packet_->size_, 0, 
+    int l_bytes = sendto(sock_fd_, cxt->packet_->buf_.data_, cxt->packet_->size_, 0,
       (struct sockaddr*)&dst_addr_, sizeof(struct sockaddr_in));
-    
+
     if (bytes < 0)
       continue;
 
@@ -114,12 +122,12 @@ Port_udp::send()
 
     // Destroy the packet data.
     packet_destroy(cxt->packet_);
-    
+
     // Destroy the packet context.
     delete cxt;
 
     bytes += l_bytes;
-  }  
+  }
   // Return number of bytes sent.
   return bytes;
 }

@@ -39,13 +39,19 @@ struct Binding
 // Each field/header can reoccur at most MAX_BINDINGS
 // number of times. Any more recurrences are undefined behavior
 struct Binding_list {
+  // Hard coded maximum amount of times a header can
+  // reappear during decoding.
+  //
+  // FIXME: figure out how to make this a configuration thing
+  constexpr static int max_dup = 4;
+
   Binding_list()
     : top(-1)
   { }
 
   Binding const* get_top() const { return &bindings[top]; }
   bool     is_empty() const { return (top < 0) ? true : false; }
-  bool     is_full() const { return (top == MAX_BINDINGS - 1) ? true : false; }
+  bool     is_full() const { return (top == max_dup - 1) ? true : false; }
 
   void insert(uint16_t len, uint16_t byte_offset)
   {
@@ -64,18 +70,21 @@ struct Binding_list {
   // bindings for a field/header
   // if top == -1 then the field hasn't been bound before
   int  top;
-  Binding  bindings[MAX_BINDINGS];
+  Binding bindings[max_dup];
 };
 
 
-template<unsigned int N>
 struct Environment {
+  Environment(int max_fields)
+    : bindings_(new Binding_list[max_fields])
+  { }
+
   Binding_list const& bindings(int n) const { return bindings_[n]; }
   // Environments keep a set of bindings
   // The bindings array is of fixed size
   // and is large enough to contain the maximum
   // amount of fields/headers
-  Binding_list bindings_[N];
+  Binding_list* bindings_;
 };
 
 
@@ -98,7 +107,7 @@ struct Context_current {
 
 // Context visible to the dataplane
 struct Context {
-  Context(Packet*, uint32_t, uint32_t, int);
+  Context(Packet*, uint32_t, uint32_t, int, int, int);
   virtual ~Context() { }
 
   Packet const* packet() const { return packet_; }
@@ -119,13 +128,13 @@ struct Context {
   // these virtual functions merely provide an interface
 
   // a lookup returns a Byte* and a length value
-  virtual std::pair<Byte*, int>     read_field(uint32_t f) { return {nullptr, 0}; }
-  virtual std::pair<Byte*, int>     read_header(uint32_t h) { return {nullptr, 0}; }
+  std::pair<Byte*, int> read_field(uint32_t f);
+  std::pair<Byte*, int> read_header(uint32_t h);
 
-  virtual void      add_field_binding(uint32_t f, uint16_t o, uint16_t l) { }
-  virtual void      pop_field_binding(uint32_t f) { }
-  virtual void      add_header_binding(uint32_t h, uint16_t o, uint16_t l) { }
-  virtual void      pop_header_binding(uint32_t h) { }
+  void add_field_binding(uint32_t f, uint16_t o, uint16_t l);
+  void pop_field_binding(uint32_t f);
+  void add_header_binding(uint32_t h, uint16_t o, uint16_t l);
+  void pop_header_binding(uint32_t h);
 
   Packet* packet_;
   Metadata metadata_;
@@ -134,6 +143,10 @@ struct Context {
   uint32_t in_phy_port;
   int   tunnel_id;
   uint32_t out_port;
+
+  // bindings
+  Environment hdr_;
+  Environment fld_;
 };
 
 } // end namespace fp
