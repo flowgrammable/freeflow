@@ -3,6 +3,9 @@
 #include <netdb.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <arpa/inet.h>
+#include <unistd.h>
 
 #define MAX_PACKET_SIZE 1500
  
@@ -16,7 +19,7 @@ int main(int argc, char* argv[])
   char sendbuf[MAX_PACKET_SIZE];
   char recvbuf[MAX_PACKET_SIZE];
 
-  int sockfd, n;
+  int sockfd;
   sockfd = socket(AF_INET, SOCK_STREAM, 0);
 
   struct sockaddr_in servaddr;
