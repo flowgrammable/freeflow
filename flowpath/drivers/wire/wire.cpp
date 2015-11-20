@@ -7,7 +7,6 @@
 #include <signal.h>
 
 // Emulate a 2 port wire running over UDP ports.
-using namespace fp;
 
 static bool running;
 
@@ -22,21 +21,20 @@ main()
 {
   signal(SIGINT, sig_handle);
   running = true;
-  System sys;
 
   // Instantiate ports.
   // TODO: Supply a bind address?
-  Port* p1 = sys.create_port(Port::Type::udp, ":5000");
+  fp::Port* p1 = fp::create_port(fp::Port::Type::udp, ":5000");
   std::cerr << "Created port 'p1' with id '" << p1->id() << "'\n";
-  Port* p2 = sys.create_port(Port::Type::udp, ":5001");
+  fp::Port* p2 = fp::create_port(fp::Port::Type::udp, ":5001");
   std::cerr << "Created port 'p2' with id '" << p2->id() << "'\n";
 
   // Load the application library
-  sys.load_application("apps/wire.app");
+  fp::load_application("apps/wire.app");
   std::cerr << "Loaded application 'apps/wire.app'\n";
 
   // Create the dataplane with the loaded application library.
-  Dataplane* dp = sys.create_dataplane("dp1", "apps/wire.app");
+  fp::Dataplane* dp = fp::create_dataplane("dp1", "apps/wire.app");
   std::cerr << "Created data plane '" << dp->name() << "'\n";
 
   // Configure the data plane based on the applications needs.
@@ -65,13 +63,13 @@ main()
   // dp->app()->statistics(); ?
 
   // Cleanup
-  sys.delete_port(p1->id());
+  fp::delete_port(p1->id());
   std::cerr << "Deleted port 'p1' with id '" << p1->id() << "'\n";
-  sys.delete_port(p2->id());
+  fp::delete_port(p2->id());
   std::cerr << "Deleted port 'p2' with id '" << p1->id() << "'\n";
-  sys.delete_dataplane("dp1");
+  fp::delete_dataplane("dp1");
 
-  sys.unload_application("apps/wire.app");
+  fp::unload_application("apps/wire.app");
   std::cerr << "Unloaded application 'apps/wire.app'\n";
   
   return 0;

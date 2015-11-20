@@ -19,20 +19,19 @@ main()
 {
   signal(SIGINT, sig_handle);
   running = true;
-  fp::System sys;
 
   // Instantiate ports.
   // TODO: Supply a bind address?
-  fp::Port* p1 = sys.create_port(fp::Port::Type::udp, ":5000");
-  fp::Port* p2 = sys.create_port(fp::Port::Type::udp, ":5001");
-  fp::Port* p3 = sys.create_port(fp::Port::Type::udp, ":5002");
-  fp::Port* p4 = sys.create_port(fp::Port::Type::udp, ":5003");
+  fp::Port* p1 = fp::create_port(fp::Port::Type::udp, ":5000");
+  fp::Port* p2 = fp::create_port(fp::Port::Type::udp, ":5001");
+  fp::Port* p3 = fp::create_port(fp::Port::Type::udp, ":5002");
+  fp::Port* p4 = fp::create_port(fp::Port::Type::udp, ":5003");
 
   // Load the application library
-  sys.load_application("apps/hub.app");
+  fp::load_application("apps/hub.app");
 
   // Create the dataplane with the application
-  fp::Dataplane* dp = sys.create_dataplane("dp1", "apps/hub.app");
+  fp::Dataplane* dp = fp::create_dataplane("dp1", "apps/hub.app");
 
   // Add all ports
   dp->add_port(p1);

@@ -35,7 +35,6 @@ add_subdirectory(lang)
 
 # The flowpath runtime library.
 add_library(flowpath-rt SHARED
-    system.cpp
     application.cpp
     buffer.cpp
     context.cpp
@@ -48,6 +47,7 @@ add_library(flowpath-rt SHARED
     port_udp.cpp
     queue.cpp
     sbi.cpp
+    system.cpp
     table.cpp
     thread.cpp
     types.cpp)
