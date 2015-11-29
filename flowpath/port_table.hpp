@@ -70,6 +70,7 @@ private:
   value_type drop_port_;
 };
 
+extern Port_table port_table;
 
 } // end namespace fp
 

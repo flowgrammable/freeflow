@@ -5,19 +5,19 @@
 #include "table.hpp"
 
 
-extern "C" Dataplane* fp_get_dataplane(std::string const&);
-extern "C" Port*      fp_get_port(std::string const&);
-extern "C" void       fp_output_port(Context*, std::string const&);
-extern "C" Table*     fp_create_table(Dataplane*, int, int, Table::Type);
-extern "C" void       fp_delete_table(Dataplane*, Table*);
-extern "C" void       fp_add_flow(Table*, void*, void*);
-extern "C" void       fp_remove_flow(Table*, void*);
-extern "C" void       fp_goto_table(Context*, Table*);
-extern "C" void       fp_bind(Context*, int, int, int, int);
-extern "C" void       fp_bind_hdr(Context*, int, int);
-extern "C" void       fp_load(Context*, int);
-extern "C" void       fp_gather(Context*, ...);
-extern "C" void       fp_advance(Context*, int);
+extern "C" fp::Dataplane* fp_get_dataplane(std::string const&);
+extern "C" fp::Port*      fp_get_port(std::string const&);
+extern "C" void           fp_output_port(fp::Context*, std::string const&);
+extern "C" fp::Table*     fp_create_table(fp::Dataplane*, int, int, fp::Table::Type);
+extern "C" void           fp_delete_table(fp::Dataplane*, fp::Table*);
+extern "C" void           fp_add_flow(fp::Table*, void*, void*);
+extern "C" void           fp_remove_flow(fp::Table*, void*);
+extern "C" void           fp_goto_table(fp::Context*, fp::Table*);
+extern "C" void           fp_bind(fp::Context*, int, int, int, int);
+extern "C" void           fp_bind_hdr(fp::Context*, int, int);
+extern "C" void           fp_load(fp::Context*, int);
+extern "C" void           fp_gather(fp::Context*, ...);
+extern "C" void           fp_advance(fp::Context*, int);
 
 namespace fp 
 {

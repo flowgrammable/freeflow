@@ -159,7 +159,7 @@ private:
 	void 	alloc_pool();
 };
 
-
+extern Thread_pool thread_pool;
 
 } // end namespace fp
 

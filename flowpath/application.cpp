@@ -5,7 +5,6 @@
 namespace fp
 {
 
-Module_table module_table;
 
 //
 Application::Application(std::string const& name)

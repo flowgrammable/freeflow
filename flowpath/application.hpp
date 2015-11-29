@@ -81,6 +81,7 @@ void* get_app_handle(std::string const&);
 
 using Module_table = std::unordered_map<std::string, Application*>;
 
+extern Module_table module_table;
 
 } // end namespace fp
 

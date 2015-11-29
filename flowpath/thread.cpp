@@ -11,8 +11,6 @@
 namespace fp
 {
 
-Thread_pool thread_pool(4, true);
-
 
 // Constructs a new thread object with no ID, work function, or barrier.
 // This thread must be initialized with `assign` before it can be used.

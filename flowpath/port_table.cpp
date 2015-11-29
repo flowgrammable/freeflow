@@ -9,9 +9,6 @@
 namespace fp
 {
 
-// The global port table.
-Port_table port_table;
-
 
 // Send the packet to all ports but the receiver.
 int
