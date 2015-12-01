@@ -4,43 +4,47 @@
 #include <unordered_map>
 #include <string>
 
-#include "context.hpp"
 #include "port.hpp"
 
 namespace fp
 {
 
-struct Port;
 
-// The Application_library class represents a dynamically loaded
-// library that implements flowpath applications.
-// The factory is used to instantiate those applications whenever
-// they are launched.
+struct Port;
+struct Context;
+
+// The Library class represents a dynamically loaded application
+// library that contains user provided definitions for application
+// functions such as the pipeline and configuration.
 struct Library
-{  
-  using Handle = void*;
-  using Func = void (*)(void*);
-  using Map = std::unordered_map<std::string, Handle>;
-  
-  // The defined application handles.
-  Map handles_ = 
+{
+  using App_handle =  void*;
+  using Pipeline_fn = void (*)(Context*);
+  using Config_fn =   void (*)(void);
+  using Port_fn =     void (*)(int&);
+
+  // The user defined application functions.
+  const std::string handles_[3] =
   {
-    {"app", nullptr},
-    {"pipeline", nullptr},
-    {"config", nullptr},
-    {"ports", nullptr}
+    "pipeline",
+    "config",
+    "port"
   };
-  
-  Library(Handle);
+
+  Library(App_handle);
   ~Library();
 
-  // Returns the function matching the given string name.
-  auto exec(std::string const&) -> Func;
+  // Executes the function matching the given string name.
+  void exec(std::string const&, void*);
 
+  App_handle  app_;
+  Pipeline_fn pipeline_;
+  Config_fn   config_;
+  Port_fn     port_;
 };
 
 
-struct Application 
+struct Application
 {
   // State of the application
   enum State { NEW, READY, RUNNING, WAITING, STOPPED };
@@ -53,7 +57,7 @@ struct Application
   Library lib_;
 
   // Application port resources.
-  Port**  ports_;
+  std::vector<Port*>  ports_;
   int     num_ports_;
 
   // Constructors.
@@ -70,10 +74,10 @@ struct Application
 
   // Accessors.
   std::string name() const;
-  auto state() const -> State;
-  Port** ports() const;
+  State state() const;
+  std::vector<Port*> ports() const;
   int num_ports() const;
-  auto lib() const -> Library;
+  Library lib() const;
 };
 
 void* get_sym_handle(void*, std::string const&);

@@ -9,15 +9,15 @@ namespace fp
 //
 Application::Application(std::string const& name)
   : name_(name), state_(NEW), lib_(get_app_handle(name))
-{ 
-  lib_.exec("ports")(&num_ports_);
+{
+  lib_.exec("ports", &num_ports_);
 }
 
 
 //
 Application::~Application()
-{ 
-  dlclose(lib_.handles_["app"]);
+{
+  dlclose(lib_.app_);
 }
 
 
@@ -41,14 +41,12 @@ Application::stop()
 void
 Application::add_port(Port* p)
 {
-	bool res = false;
-  for (int i = 0; i < num_ports_; i++)
-  	if (ports_[i] == nullptr) {
-  		ports_[i] = p;
-  		res = true;
-  	}
-	if (!res)
-		throw std::string("All ports have been added");
+  if (ports_.size() == num_ports_)
+    throw std::string("All ports have been added");
+  else if (std::find(ports_.begin(), ports_.end(), p) == ports_.end())
+    ports_.push_back(p);
+  else
+    throw std::string("Port already exists");
 }
 
 
@@ -56,9 +54,10 @@ Application::add_port(Port* p)
 void
 Application::remove_port(Port* p)
 {
-  for (int i = 0; i < num_ports_; i++)
-  	if (ports_[i] == p)
-  		ports_[i] = nullptr;
+  if (std::find(ports_.begin(), ports_.end(), p) != ports_.end())
+    ports_.erase(p);
+  else
+    throw std::string("Port not found");
 }
 
 
@@ -71,15 +70,15 @@ Application::name() const
 
 
 //
-auto
-Application::state() const -> State
+Application::State
+Application::state() const
 {
 	return state_;
 }
 
 
 //
-Port**
+std::vector<Port*>
 Application::ports() const
 {
 	return ports_;
@@ -95,21 +94,20 @@ Application::num_ports() const
 
 
 //
-auto
-Application::lib() const -> Library
+Library
+Application::lib() const
 {
   return lib_;
 }
 
 
 //
-Library::Library(Handle app)
-{ 
-  handles_["app"] = app;
-  for (auto& pair : handles_) {
-    if (!pair.second)
-      pair.second = get_sym_handle(app, pair.first);
-  }
+Library::Library(App_handle app)
+{
+  app_ = app;
+  pipeline_ = (void (*)(Context*))get_sym_handle(app, "pipeline");
+  config_ = (void (*)(void))get_sym_handle(app, "config");
+  port_ = (void (*)(int&))get_sym_handle(app, "port");
 }
 
 
@@ -118,18 +116,19 @@ Library::~Library()
 { }
 
 
-// Returns the function matching the given string name. Throws if not defined.
-auto
-Library::exec(std::string const& cmd) -> Func
+// Executes the function matching the given string name. Throws if not defined.
+void
+Library::exec(std::string const& cmd, void* arg)
 {
-  try 
-  {
-    return (Func)handles_.at(cmd);
-  }
-  catch (std::out_of_range)
-  {
-    throw std::string("Undefined reference to '" + cmd + "'");
-  }
+  if (cmd == "pipeline")
+    pipeline_((Context*)arg);
+  else if (cmd == "config")
+    config_();
+  else if (cmd == "port")
+    port_((int&)arg);
+  else
+    throw std::string("Application library error: Unknown command '" +
+      cmd + "'");
 }
 
 
@@ -160,4 +159,3 @@ get_app_handle(std::string const& path)
 
 
 } // end namespace fp
-
