@@ -98,10 +98,12 @@ unload_application(std::string const& path)
 } // end namespace fp
 
 
-//////////////////////////////////////////////////////
-//              External runtime system calls       //
-//////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
+//                    External Runtime System Calls                     //
+//////////////////////////////////////////////////////////////////////////
 //
+// These are the set of system calls that an application can expect
+// to be able to call at runtime.
 
 
 // Returns the port matching the given name.
@@ -131,6 +133,7 @@ fp_create_table(fp::Dataplane* dp, int size, int key_width, fp::Table::Type type
     case fp::Table::Type::EXACT:
     // Make a new hash table.
     tbl = new fp::Hash_table(size);
+    dp->tables().push_back(tbl);
     break;
     case fp::Table::Type::PREFIX:
     // Make a new prefix match table.
