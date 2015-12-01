@@ -10,22 +10,22 @@ extern Thread_pool thread_pool;
 // Data plane ctor.
 Dataplane::Dataplane(std::string const& name, std::string const& app_name)
   : name_(name)
-{ 
+{
   auto app = module_table.find(app_name);
-  if (app != module_table.end()) 
+  if (app != module_table.end())
     app_ = app->second;
   else
     throw std::string("Unknown application name '" + app_name + "'");
 }
 
-Dataplane::~Dataplane() 
-{ 
+Dataplane::~Dataplane()
+{
   delete app_;
 }
 
 
 // Adds the port to the local list.
-void 
+void
 Dataplane::add_port(Port* p)
 {
 	app_->add_port(p);
@@ -33,7 +33,7 @@ Dataplane::add_port(Port* p)
 
 
 // Removes the port from the local list if it exists.
-void 
+void
 Dataplane::remove_port(Port* p)
 {
 	app_->remove_port(p);
@@ -41,7 +41,7 @@ Dataplane::remove_port(Port* p)
 
 
 // TODO: Document me.
-void 
+void
 Dataplane::up()
 {
   if (app_->state() == Application::State::READY) {
@@ -54,7 +54,7 @@ Dataplane::up()
 
 
 // Stops the application.
-void 
+void
 Dataplane::down()
 {
   if (app_->state() == Application::State::RUNNING) {
@@ -71,7 +71,7 @@ void
 Dataplane::configure()
 {
   if (app_->state() == Application::State::NEW)
-    app_->lib().exec("config")(nullptr);
+    app_->lib().exec("config",nullptr);
   else
     throw std::string("Data plane has already been configured");
 }
@@ -90,6 +90,22 @@ Application*
 Dataplane::app()
 {
   return app_;
+}
+
+
+// Gets the data planes tables.
+std::vector<Table*>
+Dataplane::tables() const
+{
+  return tables_;
+}
+
+
+// Gets the table at the given index.
+Table*
+Dataplane::table(int idx)
+{
+  return tables_.at(idx);
 }
 
 

@@ -5,7 +5,6 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
-#include <map>
 
 #include "port.hpp"
 #include "application.hpp"
@@ -13,13 +12,15 @@
 namespace fp
 {
 
+struct Table;
 
 struct Dataplane
 {
   // Data plane name.
-  std::string name_; 
+  std::string name_;
 
-  std::map<std::string, Table*> tables;
+  // The set of tables applications can use.
+  std::vector<Table*> tables_;
 
   // Application.
   Application* app_;
@@ -27,16 +28,20 @@ struct Dataplane
   Dataplane(std::string const&, std::string const&);
   ~Dataplane();
 
+  // Resource alloc/dealloc.
   void add_port(Port*);
   void remove_port(Port*);
 
+  // Mutators.
   void up();
   void down();
-
   void configure();
 
-  Application* app();
-  std::string name() const;
+  // Accessors.
+  Application*        app();
+  std::string         name() const;
+  std::vector<Table*> tables() const;
+  Table*              table(int);
 };
 
 using Dataplane_table = std::unordered_map<std::string, Dataplane*>;
