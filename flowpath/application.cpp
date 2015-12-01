@@ -1,4 +1,5 @@
 #include <dlfcn.h>
+#include <algorithm>
 
 #include "application.hpp"
 
@@ -54,8 +55,9 @@ Application::add_port(Port* p)
 void
 Application::remove_port(Port* p)
 {
-  if (std::find(ports_.begin(), ports_.end(), p) != ports_.end())
-    ports_.erase(p);
+  auto idx = std::find(ports_.begin(), ports_.end(), p);
+  if (idx != ports_.end())
+    ports_.erase(idx);
   else
     throw std::string("Port not found");
 }
