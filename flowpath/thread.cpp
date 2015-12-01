@@ -94,7 +94,7 @@ Thread::assign(int id, Work_fn work, Barrier* barr, Attribute* attr)
 // The default flowpath thread pool ctor.
 Thread_pool::Thread_pool(int size, bool sync)
 	: size_(size), sync_(sync), running_(false)
-{ 
+{
 	num_proc_ = sysconf(_SC_NPROCESSORS_ONLN);
 	alloc_pool();
 }
@@ -108,7 +108,7 @@ Thread_pool::~Thread_pool()
 // Enqueues the item in the work queue for processing.
 void
 Thread_pool::assign(Task* item)
-{ 
+{
 	input_.enqueue(item);
 }
 
@@ -116,7 +116,7 @@ Thread_pool::assign(Task* item)
 // Dequeues the next item from the work queue for processing.
 Task*
 Thread_pool::request()
-{ 
+{
 	return input_.dequeue();
 }
 
@@ -124,9 +124,9 @@ Thread_pool::request()
 // Installs the application in the thread pool.
 void
 Thread_pool::install(Application* app)
-{ 
+{
 	if (!app_)
-		app_ = app;	
+		app_ = app;
 	else
 		throw std::string("Application '" + app_->name() + "' already installed in thread pool");
 }
@@ -135,7 +135,7 @@ Thread_pool::install(Application* app)
 // Removes the application from the thread pool.
 void
 Thread_pool::uninstall()
-{ 
+{
 	if (app_) {
 		switch (app_->state()) {
 			case Application::RUNNING:
@@ -147,7 +147,7 @@ Thread_pool::uninstall()
 			case Application::STOPPED:
 				app_ = nullptr;
 			break;
-		}		
+		}
 	}
 	else
 		throw std::string("No application currently installed in thread pool");
@@ -156,7 +156,7 @@ Thread_pool::uninstall()
 
 bool
 Thread_pool::has_work()
-{ 
+{
 	return input_.size();
 }
 
@@ -179,7 +179,7 @@ Thread_pool::resize(int s)
 // Allocate the thread pool.
 void
 Thread_pool::alloc_pool()
-{	
+{
 	Thread_attribute::init(&attr_);
 	pool_ = new Thread*[size_];
 	if (sync_) {
@@ -187,15 +187,15 @@ Thread_pool::alloc_pool()
 		for (int i = 0; i < size_; i++) {
 	    // Clear the CPU core mask.
 	    CPU_ZERO(&cpu_set_);
-	    
+
 	    // Set the CPU core mask.
 	    CPU_SET((i + num_proc_) % num_proc_, &cpu_set_);
-	    
+
 	    // Set the core you want the thread to run on using a thread
 	    // attribute variable. We do this to ensure the thread starts
 	    // on the core we want it to be on.
 	    pthread_attr_setaffinity_np(&attr_, sizeof(cpu_set_t), &cpu_set_);
-			
+
 			// Create the thread.
 			pool_[i] = new Thread(i, pool_work_, &barr_, &attr_);
 		}
@@ -204,29 +204,29 @@ Thread_pool::alloc_pool()
 		for (int i = 0; i < size_; i++) {
 	    // Clear the CPU core mask.
 	    CPU_ZERO(&cpu_set_);
-	    
+
 	    // Set the CPU core mask.
 	    CPU_SET((i + num_proc_) % num_proc_, &cpu_set_);
-	    
+
 	    // Set the core you want the thread to run on using a thread
 	    // attribute variable. We do this to ensure the thread starts
 	    // on the core we want it to be on.
 	    pthread_attr_setaffinity_np(&attr_, sizeof(cpu_set_t), &cpu_set_);
-			
-			// Create the thread.			
+
+			// Create the thread.
 			pool_[i] = new Thread(i, pool_work_, &attr_);
 		}
-	}	
+	}
 }
 
 
 // Starts the thread pool processing.
 void
 Thread_pool::start()
-{	
+{
 	app_->start();
 	for (int i = 0; i < size_; i++)
-		pool_[i]->run();	
+		pool_[i]->run();
 }
 
 
@@ -264,12 +264,12 @@ Thread_pool_work_fn(void* args)
 	// Figure out who I am.
 	//int id = *((int*)args);
 	fp::Task* tsk = nullptr;
-	
+
 	while (thread_pool.running()) {
 		// Get the next task to be executed.
 		if ((tsk = thread_pool.request())) {
 			// Execute the installed application function with arg.
-			thread_pool.app()->lib().exec(tsk->func())(tsk->arg());
+			thread_pool.app()->lib().exec(tsk->func(),tsk->arg());
 			delete tsk;
 		}
 	}
