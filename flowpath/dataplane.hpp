@@ -12,6 +12,9 @@
 namespace fp
 {
 
+extern Module_table module_table;
+extern Thread_pool thread_pool;
+
 struct Table;
 
 struct Dataplane

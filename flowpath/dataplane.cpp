@@ -40,11 +40,15 @@ Dataplane::remove_port(Port* p)
 }
 
 
-// TODO: Document me.
+// Starts the data plane packet processors. If the application has configured
+// the data plane, it will install the application in the thread pool and start
+// it. Otherwise it reports errors.
 void
 Dataplane::up()
 {
-  if (app_->state() == Application::State::READY) {
+  if (!app_)
+    throw std::string("No applicaiton is installed.");
+  else if (app_->state() == Application::State::READY) {
     thread_pool.install(app());
     thread_pool.start();
   }
@@ -53,7 +57,7 @@ Dataplane::up()
 }
 
 
-// Stops the application.
+// Stops the data plane packet processors, if they are running.
 void
 Dataplane::down()
 {
@@ -62,7 +66,7 @@ Dataplane::down()
     thread_pool.uninstall();
   }
   else
-    throw std::string("Data plane is not 'up'");
+    throw std::string("Data plane is not running.");
 }
 
 
@@ -71,9 +75,9 @@ void
 Dataplane::configure()
 {
   if (app_->state() == Application::State::NEW)
-    app_->lib().exec("config",nullptr);
+    app_->lib().exec("config");
   else
-    throw std::string("Data plane has already been configured");
+    throw std::string("Data plane has already been configured.");
 }
 
 
