@@ -49,7 +49,7 @@ Thread::run()
 }
 
 
-// Synchronizes on the given barrier.
+// Synchronizes threads sharing the same barrier.
 void
 Thread::sync()
 {
@@ -66,7 +66,7 @@ Thread::halt()
 	int* ret = new int();
 	if (pthread_join(thread_, (void**)&ret) != 0)
 		throw(std::string("failed to join thread"));
-	return 0;
+	return *ret;
 }
 
 
@@ -165,13 +165,19 @@ Thread_pool::has_work()
 void
 Thread_pool::resize(int s)
 {
+	// Stop processing.
 	stop();
+	// Set new size.
 	size_ = s;
-	delete[] pool_;
+	// Empty the thread pool.
+	pool_.clear();
+	// Destroy barrier, if synced, and attribute.
 	if (sync_)
 		Thread_barrier::destroy(&barr_);
 	Thread_attribute::destroy(&attr_);
+	// Reallocate the pool with new size.
 	alloc_pool();
+	// Start the pool again.
 	start();
 }
 
@@ -180,14 +186,13 @@ Thread_pool::resize(int s)
 void
 Thread_pool::alloc_pool()
 {
+	// Create thread attribute.
 	Thread_attribute::init(&attr_);
-	pool_ = new Thread*[size_];
 	if (sync_) {
 		Thread_barrier::init(&barr_, size_);
 		for (int i = 0; i < size_; i++) {
 	    // Clear the CPU core mask.
 	    CPU_ZERO(&cpu_set_);
-
 	    // Set the CPU core mask.
 	    CPU_SET((i + num_proc_) % num_proc_, &cpu_set_);
 
@@ -197,14 +202,13 @@ Thread_pool::alloc_pool()
 	    pthread_attr_setaffinity_np(&attr_, sizeof(cpu_set_t), &cpu_set_);
 
 			// Create the thread.
-			pool_[i] = new Thread(i, pool_work_, &barr_, &attr_);
+			pool_.push_back(new Thread(i, pool_work_, &barr_, &attr_));
 		}
 	}
 	else {
 		for (int i = 0; i < size_; i++) {
 	    // Clear the CPU core mask.
 	    CPU_ZERO(&cpu_set_);
-
 	    // Set the CPU core mask.
 	    CPU_SET((i + num_proc_) % num_proc_, &cpu_set_);
 
@@ -214,7 +218,7 @@ Thread_pool::alloc_pool()
 	    pthread_attr_setaffinity_np(&attr_, sizeof(cpu_set_t), &cpu_set_);
 
 			// Create the thread.
-			pool_[i] = new Thread(i, pool_work_, &attr_);
+			pool_.push_back(new Thread(i, pool_work_, &attr_));
 		}
 	}
 }
@@ -225,8 +229,8 @@ void
 Thread_pool::start()
 {
 	app_->start();
-	for (int i = 0; i < size_; i++)
-		pool_[i]->run();
+	for (Thread* thread : pool_)
+		thread->run();
 }
 
 
@@ -235,8 +239,8 @@ void
 Thread_pool::stop()
 {
 	app_->stop();
-	for (int i = 0; i < size_; i++)
-		pool_[i]->halt();
+	for (Thread* thread : pool_)
+		thread->halt();
 }
 
 

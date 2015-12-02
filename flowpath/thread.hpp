@@ -1,5 +1,5 @@
 #ifndef FP_THREAD_HPP
-#define FP_THREAD_HPP 
+#define FP_THREAD_HPP
 
 #include <pthread.h>
 #include <vector>
@@ -34,7 +34,7 @@ public:
 	int 		id_;
 	Work_fn work_;
 	Barrier* barrier_;
-	
+
 private:
 	pthread_t thread_;
 	Attribute* attr_;
@@ -45,10 +45,10 @@ private:
 namespace Thread_barrier
 {
 
-inline int 
+inline int
 init(Thread::Barrier* barr, int num)
 {
-	return pthread_barrier_init(barr, nullptr, num);	
+	return pthread_barrier_init(barr, nullptr, num);
 }
 
 
@@ -94,7 +94,6 @@ struct Task
 	Label func() const { return func_; }
 	Arg 	arg() const { return arg_; }
 
-	Label app_;
 	Label func_;
 	Arg 	arg_;
 };
@@ -143,15 +142,15 @@ private:
 	Thread::Work_fn pool_work_ = Thread_pool_work_fn;
 
   // Thread attribute variable.
-  Thread::Attribute attr_;  
+  Thread::Attribute attr_;
   // CPU core mask variable.
   cpu_set_t cpu_set_;
 
   // The thread pool.
-	Thread** pool_;
+	std::vector<Thread*> pool_;
 	// The thread pool barrier.
 	Thread::Barrier barr_;
-	
+
 	// The thread pool work queue.
 	Input_queue 	input_;
 
