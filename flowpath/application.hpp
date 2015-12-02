@@ -36,7 +36,7 @@ struct Library
   ~Library();
 
   // Executes the function matching the given string name.
-  void exec(std::string const&, void*);
+  void exec(std::string const&, void* arg = nullptr);
 
   App_handle  app_;
   Pipeline_fn pipeline_;
