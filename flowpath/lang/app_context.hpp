@@ -40,8 +40,8 @@ struct Application_context : fp::Context
 
   virtual ~Application_context() { }
 
-  fp::Environment<MAX_HEADERS> headers() const { return hdr_; }
-  fp::Environment<MAX_FIELDS> fields() const { return fld_; }
+  // fp::Environment<MAX_HEADERS> headers() const { return hdr_; }
+  // fp::Environment<MAX_FIELDS> fields() const { return fld_; }
 
   std::pair<fp::Byte*, int>  read_field(uint32_t);
   std::pair<fp::Byte*, int>  read_header(uint32_t);
@@ -55,10 +55,10 @@ struct Application_context : fp::Context
   // as the environment is incapable of doing so.
   Header_state<MAX_EXTRACTS> header_state[MAX_HEADERS];
   // pointer to the immediate state
-  Header_state<MAX_EXTRACTS>* state_; 
+  Header_state<MAX_EXTRACTS>* state_;
 
-  fp::Environment<MAX_HEADERS> hdr_;
-  fp::Environment<MAX_FIELDS> fld_;  
+  // fp::Environment<MAX_HEADERS> hdr_;
+  // fp::Environment<MAX_FIELDS> fld_;
 };
 
 #include "app_context.ipp"
