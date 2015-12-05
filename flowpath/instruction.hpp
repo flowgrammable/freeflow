@@ -41,17 +41,6 @@ struct Field
 // popping headers.
 
 
-// Get the value of a field. This returns a pointer
-// to the accessed memory.
-//
-// FIXME: This doesn't make much sense since an action
-// does not return a value, and this must.
-struct Get_action
-{
-  Field field;
-};
-
-
 // Copies a value into the given field. Note that
 // value + field.length must be within the range
 // of memory designated by field.address.
@@ -115,11 +104,10 @@ struct Action
 {
   enum Type : std::uint8_t
   {
-    GET, SET, COPY, OUTPUT, QUEUE, GROUP, ACTION, DROP
+    SET, COPY, OUTPUT, QUEUE, GROUP, ACTION, DROP
   };
   union Value
   {
-    Get_action    get;
     Set_action    set;
     Copy_action   copy;
     Output_action output;
@@ -136,71 +124,10 @@ using Action_list = std::vector<Action>;
 
 
 // -------------------------------------------------------------------------- //
-// Instructions
-
-
-// Immeidately apply the given instruction.
-struct Apply_instruction
-{
-  Action action;
-};
-
-
-// Write the instruction into the packet's action list.
-struct Write_instruction
-{
-  Action action;
-};
-
-
-// Empties the packet's action list.
-struct Clear_instruction
-{
-};
-
-
-// Sets the next processing target for the packet.
-struct Goto_instruction
-{
-  std::uint32_t target;
-};
-
-
-// Represents one of the instructions. Abstractly:
-//
-//    insn ::= apply <action>
-//             write <action>
-//             clear
-//             goto <processor>
-struct Instruction
-{
-  enum Type : std::uint8_t
-  {
-    APPLY, WRITE, CLEAR, GOTO
-  };
-  union Value
-  {
-    Apply_instruction apply;
-    Write_instruction write;
-    Clear_instruction clear;
-    Goto_instruction  go;
-  } value;
-  std::uint8_t type;
-};
-
-
-// A list of instructions.
-using Instruction_list = std::vector<Instruction>;
-
-
-// -------------------------------------------------------------------------- //
 // Evaluation
 
 void evaluate(Context&, Action);
 void evaluate(Context&, Action_list const&);
-void evaluate(Context&, Instruction);
-void evaluate(Context&, Instruction_list const&);
-
 
 } // namespace fp
 
