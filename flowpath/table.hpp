@@ -69,7 +69,7 @@ struct Key_hash
 struct Table
 {
   enum Type { EXACT, PREFIX, WILDCARD };
-  
+
   virtual ~Table() { }
 
   virtual Flow& find(Key const&) = 0;
@@ -97,15 +97,12 @@ struct Hash_table : Table, private std::unordered_map<Key, Flow, Key_hash>
 
   Flow&       find(Key const&);
   Flow const& find(Key const&) const;
-  
+
   void insert(Key const&, Flow const&);
   void erase(Key const&);
 
   Flow miss_;   // The miss rule
 };
-
-
-#include "table.ipp"
 
 
 } // end namespace fp
