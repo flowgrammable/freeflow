@@ -8,22 +8,28 @@
 extern "C"
 {
 
+void           fp_apply(fp::Context*, fp::Action);
+void           fp_write(fp::Context*, fp::Action);
+void           fp_clear(fp::Context*);
+void           fp_goto(fp::Context*, fp::Table*);
+
+// System queries.
 fp::Dataplane* fp_get_dataplane(std::string const&);
 fp::Port*      fp_get_port(std::string const&);
 void           fp_output_port(fp::Context*, std::string const&);
+
+// Flow tables.
 fp::Table*     fp_create_table(fp::Dataplane*, int, int, fp::Table::Type);
 void           fp_delete_table(fp::Dataplane*, fp::Table*);
 void           fp_add_flow(fp::Table*, void*, void*);
 void           fp_remove_flow(fp::Table*, void*);
-void           fp_goto_table(fp::Context*, fp::Table*);
-void           fp_bind(fp::Context*, int, int, int, int);
-void           fp_bind_hdr(fp::Context*, int, int);
+
+// Header tracking.
+void           fp_advance_header(fp::Context*, int);
+void           fp_bind_header(fp::Context*, int);
+void           fp_bind_field(fp::Context*, int, int, int);
+
 void           fp_load(fp::Context*, int);
-void           fp_gather(fp::Context*, ...);
-void           fp_advance(fp::Context*, int);
-void           fp_apply(fp::Context*, fp::Action);
-void           fp_write(fp::Context*, fp::Action);
-void           fp_clear(fp::Context*);
 
 } // extern "C"
 

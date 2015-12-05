@@ -1,16 +1,18 @@
 #ifndef FP_PACKET_HPP
 #define FP_PACKET_HPP
 
-#include <cstdint>
 #include "buffer.hpp"
+#include "types.hpp"
+
+#include <cstdint>
 
 namespace fp
 {
 
 // Buffer type enumeration.
 enum Buff_t {
-  FP_BUF_NADK, 
-  FP_BUF_NETMAP, 
+  FP_BUF_NADK,
+  FP_BUF_NETMAP,
   FP_BUF_ALLOC
 };
 
@@ -24,17 +26,20 @@ enum Buff_t {
 // create the timestamp inside the packet constructor?
 // That is, should it be timestamp(time) or timestamp(get_time()) ?
 struct Packet
-{ 
+{
   using Buffer = Buffer::Flowpath;
-  
-  Packet(unsigned char* data, int size, uint64_t time, void* buf_handle, 
-    Buff_t buf_dev);
+
+  Packet(unsigned char*, int, uint64_t, void*, Buff_t);
   ~Packet();
 
   void alloc_buff(unsigned char* data);
 
+  // Returns a pointer to the raw buffer.
+  Byte const* data() const { return buf_.data_; }
+  Byte*       data()       { return buf_.data_; }
+
   // Data members.
-  Buffer    buf_;       // Packet buffer.
+  Buffer    buf_;        // Packet buffer.
   int       size_;       // Number of bytes.
   uint64_t  timestamp_;  // Time of packet arrival.
   void*     buf_handle_; // [optional] port-specific buffer handle.

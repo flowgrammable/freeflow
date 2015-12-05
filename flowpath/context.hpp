@@ -113,6 +113,9 @@ struct Context_current
 
 
 // Context visible to the dataplane.
+//
+// TODO: The use of member functions may prevent optimizations
+// due to aliasing issues.
 struct Context
 {
   Context(Packet*, uint32_t, uint32_t, int, int, int);
@@ -124,13 +127,14 @@ struct Context
   Metadata const& metadata() const { return metadata_; }
   Metadata&       metadata()       { return metadata_; }
 
-  std::uint16_t get_pos() const          { return current_.pos; }
-  void          set_pos(std::uint16_t n) { current_.pos = n; }
+  // Packet header access.
+  void          advance(std::uint16_t n);
+  std::uint16_t offset() const;
+  Byte const*   position() const;
+  Byte*         position();
 
   Table*   current_table() const { return current_.table; }
   Flow*    current_flow() const  { return current_.flow; }
-
-  Byte* get_current_byte() { return nullptr; }
 
   void            write_metadata(uint64_t);
   Metadata const& read_metadata();
@@ -149,6 +153,11 @@ struct Context
   void clear_actions();
 
   // FIXME: Implement me.
+  void bind_header(int) { }
+  void bind_field(int, std::uint16_t, std::uint16_t) { }
+  std::uint16_t get_header(int) const { return 0; }
+  std::uint16_t get_field(int) const { return 0; }
+
   void add_field_binding(uint32_t f, uint16_t o, uint16_t l) { }
   void pop_field_binding(uint32_t f) { }
   void add_header_binding(uint32_t h, uint16_t o, uint16_t l) { }
@@ -167,10 +176,46 @@ struct Context
   // Actions
   Action_list actions_;
 
-  // Header and field bindings
+  // Header and field bindings.
+  // FIXME: These data structures should be required by
+  // the applicaiton, since a) not every data application
+  // needs full support for rebinding and b) making that
+  // assumption will be an unfortunate pessimization.
   Environment hdr_;
   Environment fld_;
 };
+
+
+// Advance the current header offset by n bytes.
+inline void
+Context::advance(std::uint16_t n)
+{
+  current_.pos += n;
+}
+
+
+// Returns the current header offset within the packet.
+inline std::uint16_t
+Context::offset() const
+{
+  return current_.pos;
+}
+
+
+// Returns a pointer to the current header.
+inline Byte const*
+Context::position() const
+{
+  return packet_->data() + offset();
+}
+
+
+// Returns a pointer to the current header.
+inline Byte*
+Context::position()
+{
+  return packet_->data() + offset();
+}
 
 
 // Add the given action to the context's action set.

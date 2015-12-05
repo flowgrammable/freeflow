@@ -106,8 +106,45 @@ unload_application(std::string const& path)
 // to be able to call at runtime.
 
 
+extern "C"
+{
+
+
+// Apply the given action to the context.
+void
+fp_apply(fp::Context* cxt, fp::Action a)
+{
+  cxt->apply_action(a);
+}
+
+
+// Write the given action to the context's action list.
+void
+fp_write(fp::Context* cxt, fp::Action a)
+{
+  cxt->write_action(a);
+}
+
+
+// Clear the context's action list.
+void
+fp_clear(fp::Context* cxt)
+{
+  cxt->clear_actions();
+}
+
+
+// Dispatches the given context to the given table, if it exists.
+void
+fp_goto(fp::Context* cxt, fp::Table* tbl)
+{
+
+}
+
+
+
 // Returns the port matching the given name.
-extern "C" fp::Port*
+fp::Port*
 fp_get_port(std::string const& name)
 {
   return fp::port_table.find(name);
@@ -115,7 +152,7 @@ fp_get_port(std::string const& name)
 
 
 // Outputs the contexts packet on the port with the matching name.
-extern "C" void
+void
 fp_output_port(fp::Context* cxt, std::string const& name)
 {
   fp::port_table.find(name)->send(cxt);
@@ -124,7 +161,7 @@ fp_output_port(fp::Context* cxt, std::string const& name)
 
 // Creates a new table in the given data plane with the given size,
 // key width, and table type.
-extern "C" fp::Table*
+fp::Table*
 fp_create_table(fp::Dataplane* dp, int size, int key_width, fp::Table::Type type)
 {
   fp::Table* tbl = nullptr;
@@ -148,17 +185,9 @@ fp_create_table(fp::Dataplane* dp, int size, int key_width, fp::Table::Type type
 }
 
 
-// Dispatches the given context to the given table, if it exists.
-extern "C" void
-fp_goto_table(fp::Context* cxt, fp::Table* tbl)
-{
-
-}
-
-
 // Creates a new flow rule from the given key and function pointer
 // and adds it to the given table.
-extern "C" void
+void
 fp_add_flow(fp::Table* tbl, void* key, void* fn)
 {
 
@@ -166,77 +195,52 @@ fp_add_flow(fp::Table* tbl, void* key, void* fn)
 
 
 // Removes the given key from the given table, if it exists.
-extern "C" void
+void
 fp_del_flow(fp::Table* tbl, void* key)
 {
 
 }
 
 
-// Binds a given field index to a section in the packet contexts raw
-// packet data. Using the given header offset, field offset, and field
-// length we can grab exactly what we need.
-extern "C" void
-fp_bind(fp::Context* cxt, int hdr_off, int field_off, int field_len, int field)
-{
+// -------------------------------------------------------------------------- //
+// Header and field bindings
 
+
+// Advances the current header offset by 'n' bytes.
+void
+fp_advance_header(fp::Context* cxt, int n)
+{
+  cxt->advance(n);
 }
 
 
-// Binds a header to the context at the given offset with the given length.
-extern "C" void
-fp_bind_hdr(fp::Context* cxt, int hdr_off, int len)
+// Binds the current header offset to given identifier.
+void
+fp_bind_header(fp::Context* cxt, int id)
 {
+  cxt->bind_header(id);
+}
 
+
+// Binds a given field index to a section in the packet contexts raw
+// packet data. Using the given header offset, field offset, and field
+// length we can grab exactly what we need.
+void
+fp_bind_field(fp::Context* cxt, int id, int off, int len)
+{
+  cxt->bind_field(id, off, len);
 }
 
 
 // Loads the field from the context.
-extern "C" void
+//
+// FIXME: What does this actually do?
+void
 fp_load(fp::Context* cxt, int field)
 {
 
 }
 
-
-// Creates a subset of the fields in the packet context.
-extern "C" void
-fp_gather(fp::Context* cxt, ...)
-{
-
-}
-
-
-// Advances the current context byte pointer 'n' bytes.
-extern "C" void
-fp_advance(fp::Context* cxt, int n)
-{
-
-}
-
-
-extern "C"
-{
-
-void
-fp_apply(fp::Context* cxt, fp::Action a)
-{
-  cxt->apply_action(a);
-}
-
-
-void
-fp_write(fp::Context* cxt, fp::Action a)
-{
-  cxt->write_action(a);
-}
-
-
-void
-fp_clear(fp::Context* cxt)
-{
-  cxt->clear_actions();
-}
 
 
 } // extern "C"

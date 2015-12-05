@@ -11,9 +11,10 @@ namespace Buffer
 
 struct Base
 {
-  uint8_t* data_;
   Base(uint8_t*);
   virtual ~Base();
+
+  uint8_t* data_;
 };
 
 
@@ -24,7 +25,7 @@ struct Base
 struct Flowpath : public Base
 {
   using Base::Base;
-  // TODO: Implement me? 
+  // TODO: Implement me?
   // Do we need more than just the base data pointer?
 };
 
