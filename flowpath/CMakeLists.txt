@@ -34,6 +34,7 @@ add_subdirectory(tests)
 add_library(flowpath-rt SHARED
     application.cpp
     buffer.cpp
+    action.cpp
     context.cpp
     dataplane.cpp
     flow.cpp
@@ -45,5 +46,4 @@ add_library(flowpath-rt SHARED
     system.cpp
     table.cpp
     thread.cpp
-    types.cpp
-    instruction.cpp)
+    types.cpp)

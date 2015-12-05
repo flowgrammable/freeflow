@@ -1,8 +1,8 @@
 // Copyright (c) 2015 Flowgrammable.org
 // All rights reserved
 
-#ifndef FP_INSTRUCTION_HPP
-#define FP_INSTRUCTION_HPP
+#ifndef FP_ACTION_HPP
+#define FP_ACTION_HPP
 
 #include "types.hpp"
 
