@@ -112,6 +112,14 @@ struct Action
 using Action_list = std::vector<Action>;
 
 
+// The action set maintains a sequence of instructions
+// to be executed on a packet (context) prior to egress.
+struct Action_set : Action_list
+{
+
+};
+
+
 } // namespace fp
 
 

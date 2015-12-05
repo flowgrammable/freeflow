@@ -100,7 +100,7 @@ struct Context
   uint32_t out_port;
 
   // Actions
-  Action_list actions_;
+  Action_set actions_;
 
   // Header and field bindings.
   // FIXME: These data structures should be required by
