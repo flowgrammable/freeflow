@@ -1,16 +1,23 @@
 #ifndef FP_THREAD_HPP
 #define FP_THREAD_HPP
 
+#include "queue.hpp"
+#include "application.hpp"
+
 #include <pthread.h>
 #include <vector>
 
-#include "queue.hpp"
-#include "application.hpp"
 
 namespace fp
 {
 
 struct Application;
+
+#if __APPLE__
+using Barrier_type = void*;
+#else
+using Barrier_type = pthread_barrier_t;
+#endif
 
 
 // The flowpath thread object. Wraps a posix thread.
@@ -18,8 +25,8 @@ class Thread
 {
 public:
 	using Work_fn = void* (*)(void*);
-	using Barrier = pthread_barrier_t;
-	using Attribute = pthread_attr_t;
+  using Barrier = Barrier_type;
+  using Attribute = pthread_attr_t;
 
 	Thread();
 	Thread(int, Work_fn, Attribute* = nullptr);
@@ -31,12 +38,12 @@ public:
 	void assign(int, Work_fn, Attribute* = nullptr);
 	void assign(int, Work_fn, Barrier*, Attribute* = nullptr);
 
-	int 		id_;
-	Work_fn work_;
+	int 		 id_;
+	Work_fn  work_;
 	Barrier* barrier_;
 
 private:
-	pthread_t thread_;
+	pthread_t  thread_;
 	Attribute* attr_;
 };
 
@@ -45,6 +52,26 @@ private:
 namespace Thread_barrier
 {
 
+#if __APPLE__
+inline int
+init(Thread::Barrier* barr, int num)
+{
+	return 0;
+}
+
+
+inline int
+destroy(Thread::Barrier* barr)
+{
+	return 0;
+}
+
+inline int
+wait(Thread::Barrier*)
+{
+  return 0;
+}
+#else
 inline int
 init(Thread::Barrier* barr, int num)
 {
@@ -58,6 +85,12 @@ destroy(Thread::Barrier* barr)
 	return pthread_barrier_destroy(barr);
 }
 
+inline int
+wait(Thread::Barrier* b)
+{
+	return pthread_barrier_wait(b);
+}
+#endif
 } // end namespace Thread_barrier
 
 
@@ -143,8 +176,13 @@ private:
 
   // Thread attribute variable.
   Thread::Attribute attr_;
+
+  // FIXME: Apple does not support explicitly binding
+  // a thread to processor.
+#if ! __APPLE__
   // CPU core mask variable.
   cpu_set_t cpu_set_;
+#endif
 
   // The thread pool.
 	std::vector<Thread*> pool_;

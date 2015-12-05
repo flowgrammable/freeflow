@@ -54,7 +54,7 @@ void
 Thread::sync()
 {
 	assert(barrier_);
-	pthread_barrier_wait(barrier_);
+	Thread_barrier::wait(barrier_);
 }
 
 
@@ -191,6 +191,7 @@ Thread_pool::alloc_pool()
 	if (sync_) {
 		Thread_barrier::init(&barr_, size_);
 		for (int i = 0; i < size_; i++) {
+      #if !__APPLE__
 	    // Clear the CPU core mask.
 	    CPU_ZERO(&cpu_set_);
 	    // Set the CPU core mask.
@@ -200,6 +201,7 @@ Thread_pool::alloc_pool()
 	    // attribute variable. We do this to ensure the thread starts
 	    // on the core we want it to be on.
 	    pthread_attr_setaffinity_np(&attr_, sizeof(cpu_set_t), &cpu_set_);
+      #endif
 
 			// Create the thread.
 			pool_.push_back(new Thread(i, pool_work_, &barr_, &attr_));
@@ -207,6 +209,7 @@ Thread_pool::alloc_pool()
 	}
 	else {
 		for (int i = 0; i < size_; i++) {
+      #if !__APPLE__
 	    // Clear the CPU core mask.
 	    CPU_ZERO(&cpu_set_);
 	    // Set the CPU core mask.
@@ -216,6 +219,7 @@ Thread_pool::alloc_pool()
 	    // attribute variable. We do this to ensure the thread starts
 	    // on the core we want it to be on.
 	    pthread_attr_setaffinity_np(&attr_, sizeof(cpu_set_t), &cpu_set_);
+      #endif
 
 			// Create the thread.
 			pool_.push_back(new Thread(i, pool_work_, &attr_));

@@ -6,9 +6,6 @@
 #include "context.hpp"
 #include "dataplane.hpp"
 
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/epoll.h>
 #include <string>
 
 namespace fp
@@ -23,10 +20,10 @@ public:
   Port_udp(Port::Id, std::string const&);
   ~Port_udp();
 
-  // Packet related funtions.  
+  // Packet related funtions.
   Context*  recv();
   int       send();
-  
+
   // Port state functions.
   int     open();
   void    close();

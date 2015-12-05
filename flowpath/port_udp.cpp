@@ -1,9 +1,17 @@
-#include <exception>
-#include <netinet/in.h>
-#include <unistd.h>
-
 #include "port_udp.hpp"
 #include "port_table.hpp"
+
+#include <arpa/inet.h>
+#include <netinet/in.h>
+
+// FIXME: Apple uses kqueue instead of epoll.
+#if ! __APPLE__
+#  include <sys/epoll.h>
+#endif
+
+#include <unistd.h>
+
+#include <exception>
 
 
 // The UDP port module.

@@ -50,4 +50,5 @@ add_library(flowpath-rt SHARED
     system.cpp
     table.cpp
     thread.cpp
-    types.cpp)
+    types.cpp
+    instruction.cpp)

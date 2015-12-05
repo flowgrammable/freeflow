@@ -15,7 +15,8 @@ namespace fp
 
 struct Table;
 struct Flow;
-struct Port;
+class Port;
+
 
 struct Binding
 {
@@ -38,7 +39,8 @@ struct Binding
 // Bindings are actually a stack of active bindings
 // Each field/header can reoccur at most MAX_BINDINGS
 // number of times. Any more recurrences are undefined behavior
-struct Binding_list {
+struct Binding_list
+{
   // Hard coded maximum amount of times a header can
   // reappear during decoding.
   //
@@ -74,7 +76,8 @@ struct Binding_list {
 };
 
 
-struct Environment {
+struct Environment
+{
   Environment(int max_fields)
     : bindings_(new Binding_list[max_fields])
   { }
@@ -88,25 +91,28 @@ struct Environment {
 };
 
 
-// Metadata fields
-// Could be larger amount of data, but 64-bit
-// is the openflow standard
-struct Metadata {
+// Packet metadata. This is an unstructured blob
+// to be used as scratch data by the application.
+//
+// FIXME: This should be dynamically allocated on
+// application load and indexed by fields.
+struct Metadata
+{
   uint64_t data;
 };
 
 
-struct Context_current {
-  // Current offset position
-  uint16_t pos;
-  // Pointers to current flow and table
+struct Context_current
+{
+  uint16_t pos;  // The current header offset?
   Table* table;
-  Flow* flow;
+  Flow*  flow;
 };
 
 
 // Context visible to the dataplane
-struct Context {
+struct Context
+{
   Context(Packet*, uint32_t, uint32_t, int, int, int);
   virtual ~Context() { }
 
@@ -121,7 +127,7 @@ struct Context {
 
   void set_pos(uint16_t n) { current_.pos = n; }
 
-  void write_metadata(uint64_t);
+  void            write_metadata(uint64_t);
   Metadata const& read_metadata();
 
   // only the application context defines these.
@@ -136,19 +142,23 @@ struct Context {
   void add_header_binding(uint32_t h, uint16_t o, uint16_t l);
   void pop_header_binding(uint32_t h);
 
-  Packet* packet_;
-  Metadata metadata_;
+  Packet*         packet_;
+  Metadata        metadata_;
   Context_current current_;
+
+  // Input contet.
   uint32_t in_port;
   uint32_t in_phy_port;
-  int   tunnel_id;
+  int      tunnel_id;
   uint32_t out_port;
 
-  // bindings
+  // Header and field bindings
   Environment hdr_;
   Environment fld_;
 };
 
-} // end namespace fp
+
+} // namespace fp
+
 
 #endif
