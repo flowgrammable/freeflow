@@ -35,6 +35,7 @@ add_library(flowpath-rt SHARED
     application.cpp
     buffer.cpp
     action.cpp
+    binding.cpp
     context.cpp
     dataplane.cpp
     flow.cpp
