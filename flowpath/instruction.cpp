@@ -11,51 +11,51 @@ namespace fp
 // -------------------------------------------------------------------------- //
 // Evaluation of actions
 
-// FIXME: We should probably never get here.
 inline void
-evaluate(Context* cxt, Get_action a)
+evaluate(Context& cxt, Get_action a)
+{
+  // FIXME: We should probably never get here.
+}
+
+
+inline void
+evaluate(Context& cxt, Set_action a)
 {
 }
 
 
 inline void
-evaluate(Context* cxt, Set_action a)
+evaluate(Context& cxt, Copy_action a)
 {
 }
 
 
 inline void
-evaluate(Context* cxt, Copy_action a)
+evaluate(Context& cxt, Output_action a)
 {
 }
 
 
 inline void
-evaluate(Context* cxt, Output_action a)
+evaluate(Context& cxt, Queue_action a)
 {
 }
 
 
 inline void
-evaluate(Context* cxt, Queue_action a)
+evaluate(Context& cxt, Group_action a)
 {
 }
 
 
 inline void
-evaluate(Context* cxt, Group_action a)
-{
-}
-
-
-inline void
-evaluate(Context* cxt, Drop_action a)
+evaluate(Context& cxt, Drop_action a)
 {
 }
 
 
 void
-evaluate(Context* cxt, Action a)
+evaluate(Context& cxt, Action a)
 {
   switch (a.type) {
     case Action::GET: return evaluate(cxt, a.value.get);
@@ -70,7 +70,7 @@ evaluate(Context* cxt, Action a)
 
 
 void
-evaluate(Context* cxt, Action_list const& acts)
+evaluate(Context& cxt, Action_list const& acts)
 {
   for (Action const& a : acts)
     evaluate(cxt, a);
@@ -81,33 +81,33 @@ evaluate(Context* cxt, Action_list const& acts)
 // Evaluation of instructions
 
 inline void
-evaluate(Context* cxt, Apply_instruction i)
+evaluate(Context& cxt, Apply_instruction i)
 {
   return evaluate(cxt, i.action);
 }
 
 
 inline void
-evaluate(Context* cxt, Write_instruction i)
+evaluate(Context& cxt, Write_instruction i)
 {
 }
 
 
 inline void
-evaluate(Context* cxt, Clear_instruction i)
+evaluate(Context& cxt, Clear_instruction i)
 {
 }
 
 
 inline void
-evaluate(Context* cxt, Goto_instruction i)
+evaluate(Context& cxt, Goto_instruction i)
 {
 }
 
 
 
 void
-evaluate(Context* cxt, Instruction i)
+evaluate(Context& cxt, Instruction i)
 {
   switch (i.type) {
     case Instruction::APPLY: return evaluate(cxt, i.value.apply);
@@ -119,7 +119,7 @@ evaluate(Context* cxt, Instruction i)
 
 
 void
-evaluate(Context* cxt, Instruction_list const& insns)
+evaluate(Context& cxt, Instruction_list const& insns)
 {
   for (Instruction const& i : insns)
     evaluate(cxt, i);

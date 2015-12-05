@@ -196,10 +196,10 @@ using Instruction_list = std::vector<Instruction>;
 // -------------------------------------------------------------------------- //
 // Evaluation
 
-void evaluate(Context*, Action);
-void evaluate(Context*, Action_list const&);
-void evaluate(Context*, Instruction);
-void evaluate(Context*, Instruction_list const&);
+void evaluate(Context&, Action);
+void evaluate(Context&, Action_list const&);
+void evaluate(Context&, Instruction);
+void evaluate(Context&, Instruction_list const&);
 
 
 } // namespace fp

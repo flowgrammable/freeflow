@@ -110,22 +110,26 @@ struct Context_current
 };
 
 
-// Context visible to the dataplane
+// Context visible to the dataplane.
 struct Context
 {
   Context(Packet*, uint32_t, uint32_t, int, int, int);
   virtual ~Context() { }
 
   Packet const* packet() const { return packet_; }
-  Metadata const& metadata() const { return metadata_; }
+  Packet*       packet()       { return packet_; }
 
-  uint16_t current_pos() const { return current_.pos; }
-  Table* current_table() const { return current_.table; }
-  Flow* current_flow() const { return current_.flow; }
+  Metadata const& metadata() const { return metadata_; }
+  Metadata&       metadata()       { return metadata_; }
+
+  std::uint16_t get_pos() const          { return current_.pos; }
+  void          set_pos(std::uint16_t n) { current_.pos = n; }
+
+  Table*   current_table() const { return current_.table; }
+  Flow*    current_flow() const  { return current_.flow; }
 
   Byte* get_current_byte() { return nullptr; }
 
-  void set_pos(uint16_t n) { current_.pos = n; }
 
   void            write_metadata(uint64_t);
   Metadata const& read_metadata();
@@ -133,14 +137,15 @@ struct Context
   // only the application context defines these.
   // these virtual functions merely provide an interface
 
-  // a lookup returns a Byte* and a length value
-  std::pair<Byte*, int> read_field(uint32_t f);
-  std::pair<Byte*, int> read_header(uint32_t h);
+  // FIXME: Implement these.
+  std::pair<Byte*, int> read_field(uint32_t f) { return {}; }
+  std::pair<Byte*, int> read_header(uint32_t h) { return {}; }
 
-  void add_field_binding(uint32_t f, uint16_t o, uint16_t l);
-  void pop_field_binding(uint32_t f);
-  void add_header_binding(uint32_t h, uint16_t o, uint16_t l);
-  void pop_header_binding(uint32_t h);
+  // FIXME: Implement me.
+  void add_field_binding(uint32_t f, uint16_t o, uint16_t l) { }
+  void pop_field_binding(uint32_t f) { }
+  void add_header_binding(uint32_t h, uint16_t o, uint16_t l) { }
+  void pop_header_binding(uint32_t h) { }
 
   Packet*         packet_;
   Metadata        metadata_;
