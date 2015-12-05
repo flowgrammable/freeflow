@@ -213,3 +213,30 @@ fp_advance(fp::Context* cxt, int n)
 {
 
 }
+
+
+extern "C"
+{
+
+void
+fp_apply(fp::Context* cxt, fp::Action a)
+{
+  cxt->apply_action(a);
+}
+
+
+void
+fp_write(fp::Context* cxt, fp::Action a)
+{
+  cxt->write_action(a);
+}
+
+
+void
+fp_clear(fp::Context* cxt)
+{
+  cxt->clear_actions();
+}
+
+
+} // extern "C"

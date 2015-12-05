@@ -2,6 +2,7 @@
 #define FP_CONTEXT_HPP
 
 #include "packet.hpp"
+#include "action.hpp"
 #include "port.hpp"
 #include "types.hpp"
 
@@ -102,6 +103,7 @@ struct Metadata
 };
 
 
+// FIXME: This is a terribly named class.
 struct Context_current
 {
   uint16_t pos;  // The current header offset?
@@ -114,7 +116,7 @@ struct Context_current
 struct Context
 {
   Context(Packet*, uint32_t, uint32_t, int, int, int);
-  virtual ~Context() { }
+  ~Context() { }
 
   Packet const* packet() const { return packet_; }
   Packet*       packet()       { return packet_; }
@@ -130,7 +132,6 @@ struct Context
 
   Byte* get_current_byte() { return nullptr; }
 
-
   void            write_metadata(uint64_t);
   Metadata const& read_metadata();
 
@@ -140,6 +141,12 @@ struct Context
   // FIXME: Implement these.
   std::pair<Byte*, int> read_field(uint32_t f) { return {}; }
   std::pair<Byte*, int> read_header(uint32_t h) { return {}; }
+
+  // Aciton interface
+  void apply_action(Action a);
+  void write_action(Action a);
+  void apply_actions();
+  void clear_actions();
 
   // FIXME: Implement me.
   void add_field_binding(uint32_t f, uint16_t o, uint16_t l) { }
@@ -151,16 +158,45 @@ struct Context
   Metadata        metadata_;
   Context_current current_;
 
-  // Input contet.
+  // Input context.
   uint32_t in_port;
   uint32_t in_phy_port;
   int      tunnel_id;
   uint32_t out_port;
 
+  // Actions
+  Action_list actions_;
+
   // Header and field bindings
   Environment hdr_;
   Environment fld_;
 };
+
+
+// Add the given action to the context's action set.
+// These actions are applied prior to egress.
+inline void
+Context::write_action(Action a)
+{
+  actions_.push_back(a);
+}
+
+// Apply all of the saved actions.
+inline void
+Context::apply_actions()
+{
+  for (Action const& a : actions_)
+    apply_action(a);
+}
+
+
+// Reset the action list.
+inline void
+Context::clear_actions()
+{
+  actions_.clear();
+}
+
 
 
 } // namespace fp

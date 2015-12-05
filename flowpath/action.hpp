@@ -83,28 +83,18 @@ struct Group_action
 };
 
 
-// Immediately stop processing the packet and
-// do not forward it.
-struct Drop_action
-{
-  std::uint32_t group;
-};
-
-
 // Represents one of a set of actions. Abstactly:
 //
-//    action ::= getfield <field>
-//               setfield <field> <value>
-//               copyfield <field> <location>
+//    action ::= set <field> <value>
+//               copy <field> <address>
 //               output <port>
 //               queue <queue>
 //               group <group>
-//               drop
 struct Action
 {
   enum Type : std::uint8_t
   {
-    SET, COPY, OUTPUT, QUEUE, GROUP, ACTION, DROP
+    SET, COPY, OUTPUT, QUEUE, GROUP, ACTION
   };
   union Value
   {
@@ -113,7 +103,6 @@ struct Action
     Output_action output;
     Queue_action  queue;
     Group_action  group;
-    Drop_action   drop;
   } value;
   std::uint8_t type;
 };
@@ -122,12 +111,6 @@ struct Action
 // A list of actions.
 using Action_list = std::vector<Action>;
 
-
-// -------------------------------------------------------------------------- //
-// Evaluation
-
-void evaluate(Context&, Action);
-void evaluate(Context&, Action_list const&);
 
 } // namespace fp
 
