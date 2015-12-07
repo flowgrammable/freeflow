@@ -11,8 +11,8 @@ Context::Context(Packet* p, Port::Id in, Port::Id in_phys, int tunn_id,
   , in_port(in)
   , in_phy_port(in_phys)
   , tunnel_id(tunn_id)
-  , hdr_(max_headers)
-  , fld_(max_fields)
+  , hdr_()
+  , fld_()
 { }
 
 
