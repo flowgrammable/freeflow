@@ -114,6 +114,9 @@ using Action_list = std::vector<Action>;
 
 // The action set maintains a sequence of instructions
 // to be executed on a packet (context) prior to egress.
+//
+// FIXME: This is a highly structured list of actions,
+// and the order in which those actions are applied matters.
 struct Action_set : Action_list
 {
 
