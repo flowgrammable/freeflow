@@ -26,6 +26,8 @@ constexpr int Metadata_memory = 1;
 //
 // If the field refers to packet memory, the offset is
 // relative to the current header.
+//
+// FIXME: Preserve the address space or no?
 struct Field
 {
   std::uint8_t  address;

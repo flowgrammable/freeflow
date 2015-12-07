@@ -25,9 +25,9 @@ void           fp_add_flow(fp::Table*, void*, void*);
 void           fp_remove_flow(fp::Table*, void*);
 
 // Header tracking.
-void           fp_advance_header(fp::Context*, int);
+void           fp_advance_header(fp::Context*, std::uint16_t);
 void           fp_bind_header(fp::Context*, int);
-void           fp_bind_field(fp::Context*, int, int, int);
+void           fp_bind_field(fp::Context*, int, std::uint16_t, std::uint16_t);
 
 void           fp_load(fp::Context*, int);
 

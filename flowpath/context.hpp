@@ -38,6 +38,35 @@ struct Context_current
 };
 
 
+// Represents a header in the header stack. This
+// is represented by its offset and a "link" to
+// the next header in the stack. The last header
+// has next == -1.
+struct Header
+{
+  int offset;
+  int next;
+};
+
+
+// A bounded stack of headers. This is the data structure
+// manipulated by push/pop operations.
+//
+// TODO: Make this dynamically resizable?
+//
+// FIXME: If we insert a new header, then we may need to
+// point to an address space that is neither metadata
+// nor packet. Consider adding an address field to the
+// Header structure.
+struct Header_stack
+{
+  void push(int offset);
+
+  Header hdrs[16];
+  int    top;
+};
+
+
 // Context visible to the dataplane.
 //
 // TODO: The use of member functions may prevent optimizations
@@ -79,8 +108,8 @@ struct Context
   void clear_actions();
 
   // FIXME: Implement me.
-  void bind_header(int) { }
-  void bind_field(int, std::uint16_t, std::uint16_t) { }
+  void bind_header(int);
+  void bind_field(int, std::uint16_t, std::uint16_t);
   std::uint16_t get_header(int) const { return 0; }
   std::uint16_t get_field(int) const { return 0; }
 
@@ -168,6 +197,18 @@ Context::clear_actions()
   actions_.clear();
 }
 
+inline void 
+Context::bind_header(int id) 
+{ 
+  hdr_.push(id, offset());
+}
+
+
+inline void 
+Context::bind_field(int id, std::uint16_t off, std::uint16_t len)
+{
+  fld_.push(id, {off, len});
+}
 
 
 } // namespace fp

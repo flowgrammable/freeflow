@@ -110,6 +110,9 @@ extern "C"
 {
 
 
+// -------------------------------------------------------------------------- //
+// Control instructions
+
 // Apply the given action to the context.
 void
 fp_apply(fp::Context* cxt, fp::Action a)
@@ -142,6 +145,8 @@ fp_goto(fp::Context* cxt, fp::Table* tbl)
 }
 
 
+// -------------------------------------------------------------------------- //
+// Port and table operations
 
 // Returns the port matching the given name.
 fp::Port*
@@ -206,9 +211,10 @@ fp_del_flow(fp::Table* tbl, void* key)
 // Header and field bindings
 
 
+
 // Advances the current header offset by 'n' bytes.
 void
-fp_advance_header(fp::Context* cxt, int n)
+fp_advance_header(fp::Context* cxt, std::uint16_t n)
 {
   cxt->advance(n);
 }
@@ -226,7 +232,7 @@ fp_bind_header(fp::Context* cxt, int id)
 // packet data. Using the given header offset, field offset, and field
 // length we can grab exactly what we need.
 void
-fp_bind_field(fp::Context* cxt, int id, int off, int len)
+fp_bind_field(fp::Context* cxt, int id, std::uint16_t off, std::uint16_t len)
 {
   cxt->bind_field(id, off, len);
 }
