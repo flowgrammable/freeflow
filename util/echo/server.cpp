@@ -1,74 +1,20 @@
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netdb.h>
-
 #include <iostream>
 #include <string>
-#include <unistd.h>
-#include <cstring>
 #include <cstdlib>
-#include <vector>
-#include <algorithm>
+#include <signal.h>
+#include "socket.hpp"
 
-const int MAX_PACKET_SIZE = 1522;
-int const HELLO = 0xAAAA;
-int const GOODBYE = 0x5555;
+// Running flag.
+bool running;
 
-struct Socket
+// Signal handler, for more graceful termination
+void sig_handler(int sig)
 {
-  using Buffer = char[MAX_PACKET_SIZE];
-  using Clients = std::vector<int>;
-  using Address = struct sockaddr_in;
+  running = false;
+}
 
-  Socket(std::string const& binding, int port)
-    : port_(port), listen_(socket(AF_INET, SOCK_DGRAM, 0))
-  {
-    std::memset((struct sockaddr_in*)&addr_, 0, sizeof(addr_));
-    addr_.sin_family = AF_INET;
-    addr_.sin_addr.s_addr = htons(INADDR_ANY);
-    addr_.sin_port = htons(port);
-  }
-
-  inline void bind()
-  {
-    ::bind(listen_, (struct sockaddr*) &addr_, sizeof(addr_));
-  }
-
-  inline void listen()
-  {
-    ::listen(listen_, 1000);
-    recv_ = accept(listen_, (struct sockaddr*) NULL, NULL);
-  }
-
-  inline void clear_buff()
-  {
-    std::memset(buf_, 0, MAX_PACKET_SIZE);
-  }
-
-  inline void recv()
-  {
-    read(recv_, buf_, MAX_PACKET_SIZE);
-    if (std::memcmp(buf_, &HELLO, 2) == 0)
-      clients_.push_back(recv_);
-    else if (std::memcmp(buf_, &GOODBYE, 2) == 0)
-      clients_.erase(std::find(clients_.begin(), clients_.end(), recv_));
-  }
-
-  inline void send()
-  {
-    for (int dest : clients_)
-      write(dest, buf_, strlen(buf_) + 1);
-  }
-
-
-  Address addr_;
-  int     port_;
-  Buffer  buf_;
-  int     listen_;
-  int     recv_;
-  Clients clients_;
-};
-
+// The UDP echo server main program. Creates a server socket, opens it, and
+// runs until it receives an interrupt.
 int main(int argc, char* argv[])
 {
   if (argc < 2) {
@@ -78,20 +24,23 @@ int main(int argc, char* argv[])
   }
 
   // Create the socket on the port.
-  Socket sock("", atoi(argv[1]));
+  Socket* sock = new Server_socket(atoi(argv[1]));
   // Bind.
-  sock.bind();
-  // Listen.
-  sock.listen();
+  sock->open();
 
   // Start processing loop.
-  while(1)
+  signal(SIGINT, sig_handler);
+  running = true;
+  std::cerr << "Server up...\n";
+  while(running)
   {
-    sock.recv();
-    sock.send();
+    // Call 'send' if the call to 'recv' was successful (a message was found).
+    if (sock->recv())
+      sock->send();
   }
-
+  std::cerr << "Server down...\n";
   // Cleanup.
-
+  sock->close();
+  delete sock;
   return 0;
 }
