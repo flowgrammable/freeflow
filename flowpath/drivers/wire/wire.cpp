@@ -1,6 +1,8 @@
 #include "system.hpp"
 #include "dataplane.hpp"
 #include "port.hpp"
+#include "port_udp.hpp"
+#include "thread.hpp"
 
 #include <string>
 #include <iostream>
@@ -16,18 +18,25 @@ sig_handle(int sig)
   running = false;
 }
 
-int 
+int
 main()
 {
   signal(SIGINT, sig_handle);
   running = true;
 
   // Instantiate ports.
-  // TODO: Supply a bind address?
+  //
+  // P1 : Connected to an echo client.
   fp::Port* p1 = fp::create_port(fp::Port::Type::udp, ":5000");
   std::cerr << "Created port 'p1' with id '" << p1->id() << "'\n";
+  // Create a thread to service the port.
+  fp::Thread* t1 = new fp::Thread(p1->id(), p1->work_fn());
+
+  // P2 : Bound to a netcat UDP port; Acts as the entry point.
   fp::Port* p2 = fp::create_port(fp::Port::Type::udp, ":5001");
   std::cerr << "Created port 'p2' with id '" << p2->id() << "'\n";
+  // Create a thread to service the port.
+  fp::Thread* t2 = new fp::Thread(p2->id(), p2->work_fn());
 
   // Load the application library
   fp::load_application("apps/wire.app");
@@ -51,14 +60,22 @@ main()
   dp->up();
   std::cerr << "Data plane 'dp1' up\n";
 
+  // Start ports.
+  t1->run();
+  t2->run();
+
   // Loop forever.
-  // TODO: Implement graceful termination.
   while (running) { };
 
   // Stop the wire.
   dp->down();
+
+  // Stop the port threads.
+  t1->halt();
+  t2->halt();
+
   std::cerr << "Data plane 'dp1' down\n";
-  
+
   // TODO: Report some statistics?
   // dp->app()->statistics(); ?
 
@@ -71,6 +88,10 @@ main()
 
   fp::unload_application("apps/wire.app");
   std::cerr << "Unloaded application 'apps/wire.app'\n";
-  
+
+  // Delete port threads.
+  delete t1;
+  delete t2;
+
   return 0;
 }

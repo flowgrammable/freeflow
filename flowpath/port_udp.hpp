@@ -14,6 +14,9 @@
 namespace fp
 {
 
+// UDP Port thread work function.
+extern void* udp_work_fn(void*);
+
 class Port_udp : public Port
 {
 public:
@@ -23,13 +26,16 @@ public:
   Port_udp(Port::Id, std::string const&);
   ~Port_udp();
 
-  // Packet related funtions.  
+  // Packet related funtions.
   Context*  recv();
   int       send();
-  
+
   // Port state functions.
   int     open();
   void    close();
+
+  // Accessors.
+  Function work_fn() { return udp_work_fn; }
 
   // Data members.
   //

@@ -28,6 +28,7 @@ public:
   using Address = unsigned char const*;
   using Label = std::string;
   using Queue = Locking_queue<Context*>;
+  using Function = void*(*)(void*);
 
   // Port configuration.
   struct __attribute__((__packed__)) Configuration
@@ -36,7 +37,7 @@ public:
     uint8_t no_recv   : 1; // Drop all packets received by this port.
     uint8_t no_fwd    : 1; // Drop all packets sent from this port.
     uint8_t no_pkt_in : 1; // Do not send packet-in messages for port.
-    uint8_t unused    : 4;  
+    uint8_t unused    : 4;
   };
 
   // Ctor/Dtor.
@@ -57,11 +58,13 @@ public:
   virtual void      send(Context*);
   virtual void      drop(Context*);
   virtual void      close() = 0;
+  virtual Function  work_fn() = 0;
 
   // Set the ports state to 'up' or 'down'.
   void up();
   void down();
 
+  // Accessors.
   Id id() const;
 
   // Data members.
@@ -69,7 +72,7 @@ public:
   Address         addr_;      // The hardware address for the port.
   Label           name_;      // The name of the port.
   Configuration   config_;    // The current port configuration.
-  Queue           tx_queue_;  // The ports transmit (send) queue.  
+  Queue           tx_queue_;  // The ports transmit (send) queue.
 };
 
 
