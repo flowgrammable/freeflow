@@ -18,13 +18,13 @@ class Port_flood : public Port_udp
 public:
   using Port_udp::Port_udp;
   // Constructor/Destructor.
-  Port_flood(std::string const& addr) 
-    : Port_udp(0xffff, addr) 
+  Port_flood(std::string const& addr)
+    : Port_udp(0xffff, addr)
   { }
 
   ~Port_flood() { }
 
-  int   send();  
+  int   send();
 };
 
 // Global port table type.
@@ -58,10 +58,9 @@ public:
   value_type flood_port() const { return flood_port_; }
   value_type broad_port() const { return broad_port_; }
   value_type drop_port()  const { return drop_port_; }
-  
+
 
 private:
-  int size;
   store_type data_;
 
   // Reserved ports.

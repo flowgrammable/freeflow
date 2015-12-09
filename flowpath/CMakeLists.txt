@@ -30,23 +30,20 @@ add_subdirectory(drivers)
 # Tests.
 add_subdirectory(tests)
 
-# Lang.
-add_subdirectory(lang)
-
 # The flowpath runtime library.
 add_library(flowpath-rt SHARED
     application.cpp
     buffer.cpp
+    action.cpp
+    binding.cpp
     context.cpp
     dataplane.cpp
     flow.cpp
-    nbi.cpp
     packet.cpp
     port.cpp
     port_table.cpp
     port_udp.cpp
     queue.cpp
-    sbi.cpp
     system.cpp
     table.cpp
     thread.cpp

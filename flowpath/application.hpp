@@ -11,7 +11,7 @@ namespace fp
 {
 
 
-struct Port;
+class Port;
 struct Context;
 
 // The Library class represents a dynamically loaded application

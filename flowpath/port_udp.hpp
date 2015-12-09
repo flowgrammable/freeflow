@@ -6,9 +6,6 @@
 #include "context.hpp"
 #include "dataplane.hpp"
 
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/epoll.h>
 #include <string>
 
 namespace fp

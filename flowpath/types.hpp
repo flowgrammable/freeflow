@@ -1,14 +1,23 @@
 #ifndef FP_TYPES_HPP
 #define FP_TYPES_HPP
 
+// Defines common types in the system.
+
+#include <cstddef>
 #include <cstdint>
+
 
 namespace fp
 {
 
+// An integer value of 8 bits.
 using Byte = uint8_t;
+
+
+// FIXME: What are these?
 using begin = Byte* (*)();
 using end = Byte* (*)();
+
 
 // packed 24 bit integer
 // wraps a 32 bit integer
@@ -43,6 +52,8 @@ struct uint48_t {
 };
 #pragma pack(pop)
 
+
 } // end namespace fp
+
 
 #endif

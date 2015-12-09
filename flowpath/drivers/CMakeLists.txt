@@ -19,4 +19,3 @@ endmacro()
 
 add_subdirectory(hub)
 add_subdirectory(wire)
-add_subdirectory(sample)
