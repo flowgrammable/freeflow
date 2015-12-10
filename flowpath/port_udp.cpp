@@ -32,16 +32,16 @@ const int INIT_BUFF_SIZE = 2048;
 
 // UDP Port constructor. Parses the UDP address and port from
 // the input string given, allocates a new internal ID.
-Port_udp::Port_udp(Port::Id id, std::string const& str)
-  : Port(id)
+Port_udp::Port_udp(Port::Id id, std::string const& bind, std::string const& name)
+  : Port(id, name)
 {
-  auto idx = str.find(':');
+  auto idx = bind.find(':');
   // Check length of address.
   if (idx == std::string::npos)
     throw std::string("bad address form");
 
-  std::string addr = str.substr(0, idx);
-  std::string port = str.substr(idx + 1, str.length());
+  std::string addr = bind.substr(0, idx);
+  std::string port = bind.substr(idx + 1, bind.length());
   // Set the address, if given. Otherwise it is set to INADDR_ANY.
   if (addr.length() > 0) {
     if (inet_pton(AF_INET, addr.c_str(), &src_addr_) < 0)

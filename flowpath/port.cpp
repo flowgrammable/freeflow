@@ -12,8 +12,8 @@ namespace fp
 
 
 // Port constructor that sets ID.
-Port::Port(Port::Id id)
-  : id_(id)
+Port::Port(Port::Id id, Port::Label name)
+  : id_(id), name_(name)
 { }
 
 
@@ -34,7 +34,7 @@ Port::operator==(Port& other)
 }
 
 
-bool 
+bool
 Port::operator==(Port* other)
 {
   return this->id_ == other->id_;
@@ -55,15 +55,15 @@ Port::operator!=(Port& other)
 }
 
 
-bool 
+bool
 Port::operator!=(Port* other)
 {
   return !(this == other);
 }
 
 
-// Changes the port configuration to 'up'; that is, there are 
-// no flags set that would indicate the port is not able to 
+// Changes the port configuration to 'up'; that is, there are
+// no flags set that would indicate the port is not able to
 // function.
 void
 Port::up()

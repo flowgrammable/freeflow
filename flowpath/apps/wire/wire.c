@@ -1,12 +1,13 @@
 // Simple wire application.
-
 struct Context;
 
 extern int puts(const char*);
+extern void fp_output_port(struct Context*, const char*);
 
 void pipeline(struct Context* cxt)
 {
   puts("[wire] called pipeline\n");
+  fp_output_port(cxt, "");
 }
 
 void config(void)

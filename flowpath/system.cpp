@@ -160,7 +160,10 @@ fp_get_port(std::string const& name)
 void
 fp_output_port(fp::Context* cxt, std::string const& name)
 {
-  fp::port_table.find(name)->send(cxt);
+  // FIXME: A hack to get the 'wire' app running.
+  fp::port_table.find(cxt->out_port)->send(cxt);
+
+  //fp::port_table.find(name)->send(cxt);
 }
 
 

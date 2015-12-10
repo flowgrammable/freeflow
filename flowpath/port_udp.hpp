@@ -20,7 +20,7 @@ public:
   using Port::Port;
 
   // Constructors/Destructor.
-  Port_udp(Port::Id, std::string const&);
+  Port_udp(Port::Id, std::string const&, std::string const& = "");
   ~Port_udp();
 
   // Packet related funtions.

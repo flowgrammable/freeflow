@@ -30,14 +30,14 @@ Port_flood::send()
       // Skip the source port.
       if (p->id_ == cxt->in_port)
         continue;
-      
+
       // Send the packet to the next port.
-      int l_bytes = sendto(sock_fd_, cxt->packet_->buf_.data_, cxt->packet_->size_, 0, 
+      int l_bytes = sendto(sock_fd_, cxt->packet_->buf_.data_, cxt->packet_->size_, 0,
         (struct sockaddr*)&p->src_addr_, sizeof(struct sockaddr_in));
-    
+
       // Destroy the packet data.
       packet_destroy(cxt->packet_);
-      
+
       // Destroy the packet context.
       delete(cxt);
 
@@ -61,7 +61,7 @@ Port_table::Port_table()
 // Port table constructor with initial size.
 Port_table::Port_table(int size)
   : data_(size, nullptr)
-{ 
+{
   flood_port_ = new Port_flood(":8675");
   //flood_port_->thread_->assign(flood_port_->id_, flood);
   //broad_port_ = new Port_broad(":8674");
@@ -89,7 +89,7 @@ Port_table::alloc(Port::Type port_type, std::string const& args) -> value_type
   switch (port_type)
   {
     case Port::Type::udp:
-      data_[idx] = (value_type)new Port_udp(idx+1, args);
+      data_[idx] = (value_type)new Port_udp(idx+1, args, "");
     break;
   }
 
@@ -99,9 +99,9 @@ Port_table::alloc(Port::Type port_type, std::string const& args) -> value_type
 
 
 // Deallocates the internal port ID given.
-void     
+void
 Port_table::dealloc(Port::Id id)
-{  
+{
   if (data_[id-1])
     delete data_[id-1];
   data_[id-1] = nullptr;

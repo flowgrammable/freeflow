@@ -41,7 +41,7 @@ public:
   };
 
   // Ctor/Dtor.
-  Port(Id);
+  Port(Id, Label = "");
   virtual ~Port();
 
   // Equality semantics.

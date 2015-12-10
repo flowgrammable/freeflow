@@ -19,7 +19,7 @@ public:
   using Port_udp::Port_udp;
   // Constructor/Destructor.
   Port_flood(std::string const& addr)
-    : Port_udp(0xffff, addr)
+    : Port_udp(0xffff, addr, "")
   { }
 
   ~Port_flood() { }
