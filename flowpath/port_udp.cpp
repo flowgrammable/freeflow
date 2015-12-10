@@ -3,6 +3,7 @@
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <stdio.h>
 
 // FIXME: Apple uses kqueue instead of epoll.
 #if ! __APPLE__
@@ -37,14 +38,14 @@ Port_udp::Port_udp(Port::Id id, std::string const& str)
   auto idx = str.find(':');
   // Check length of address.
   if (idx == std::string::npos)
-    throw("bad address form");
+    throw std::string("bad address form");
 
   std::string addr = str.substr(0, idx);
   std::string port = str.substr(idx + 1, str.length());
   // Set the address, if given. Otherwise it is set to INADDR_ANY.
   if (addr.length() > 0) {
     if (inet_pton(AF_INET, addr.c_str(), &src_addr_) < 0)
-      throw("set socket address failed");
+      perror("set socket address failed");
   }
   else {
     src_addr_.sin_family = AF_INET;
@@ -53,7 +54,7 @@ Port_udp::Port_udp(Port::Id id, std::string const& str)
 
   // Check length of port arg.
   if (port.length() < 2)
-    throw("bad port form");
+    throw std::string("bad port form");
 
   // Set the port.
   int p = std::stoi(port, nullptr);
@@ -155,19 +156,23 @@ int
 Port_udp::open()
 {
   // Open the socket.
-  if ((sock_fd_ = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
+  if ((sock_fd_ = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+    perror("Socket");
     return -1;
+  }
 
   // Bind the socket to its address.
-  if (bind(sock_fd_, (struct sockaddr*)&src_addr_, sizeof(src_addr_) < 0))
+  if (bind(sock_fd_, (struct sockaddr*)&src_addr_, sizeof(src_addr_)) < 0) {
+    perror("Bind");
     return -1;
+  }
 
   // Set the port to be non-blocking.
   int flags = fcntl(sock_fd_, F_GETFL, 0);
   fcntl(sock_fd_, F_SETFL, flags | O_NONBLOCK);
 
   // Set the port to listen for incoming connections.
-  listen(sock_fd_, 5);
+  listen(sock_fd_, 1);
 
   return 0;
 }
@@ -199,7 +204,7 @@ udp_work_fn(void* arg)
   if ((epoll_fd = epoll_create1(0)) == -1)
     throw std::string("Error: UDP Port epoll create");
   // Listen for input events.
-  event.events = EPOLLIN;
+  event.events = EPOLLIN | EPOLLET;
   event.data.fd = sock_fd;
 
   if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, sock_fd, &event) == -1)
@@ -212,8 +217,10 @@ udp_work_fn(void* arg)
     for (int i = 0; i < num_fds; i++) {
       if (event_list[i].data.fd == sock_fd) {
         // We have a new client connecting. Add its FD to the pollset.
-        conn_fd = accept(sock_fd, (struct sockaddr*)&addr, &slen);
-
+        if ((conn_fd = accept(sock_fd, (struct sockaddr*)&addr, &slen)) == -1) {
+          std::cerr << "port [" << self->id() << "] error: UDP port accept\n";
+          continue;
+        }
         // Set the socket to be non-blocking.
         int flags = fcntl(conn_fd, F_GETFL, 0);
         fcntl(conn_fd, F_SETFL, flags | O_NONBLOCK);

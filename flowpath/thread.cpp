@@ -66,7 +66,7 @@ Thread::halt()
 	int* ret = new int();
 	if (pthread_join(thread_, (void**)&ret) != 0)
 		throw(std::string("failed to join thread"));
-	return *ret;
+	return 0;
 }
 
 

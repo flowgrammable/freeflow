@@ -1,6 +1,6 @@
 #include <dlfcn.h>
 #include <algorithm>
-
+#include <iostream>
 #include "application.hpp"
 
 namespace fp
@@ -9,7 +9,7 @@ namespace fp
 
 //
 Application::Application(std::string const& name)
-  : name_(name), state_(NEW), lib_(get_app_handle(name))
+  : name_(name), state_(NEW), lib_(get_app_handle(name)), num_ports_(0)
 {
   lib_.exec("ports", &num_ports_);
 }
@@ -26,6 +26,11 @@ Application::~Application()
 void
 Application::start()
 {
+  for (auto port : ports_)
+    if (port->open() == -1)
+      std::cerr << "Error: open port " << port->id() << '\n';
+  for (auto thread : port_threads_)
+    thread->run();
   state_ = RUNNING;
 }
 
@@ -34,6 +39,10 @@ Application::start()
 void
 Application::stop()
 {
+  for (auto port : ports_)
+    port->close();
+  for (auto thread : port_threads_)
+    thread->halt();
   state_ = STOPPED;
 }
 
@@ -44,8 +53,10 @@ Application::add_port(Port* p)
 {
   if (ports_.size() == num_ports_)
     throw std::string("All ports have been added");
-  else if (std::find(ports_.begin(), ports_.end(), p) == ports_.end())
+  else if (std::find(ports_.begin(), ports_.end(), p) == ports_.end()) {
     ports_.push_back(p);
+    port_threads_.push_back(new Thread(p->id(), p->work_fn()));
+  }
   else
     throw std::string("Port already exists");
 }
@@ -109,7 +120,7 @@ Library::Library(App_handle app)
   app_ = app;
   pipeline_ = (void (*)(Context*))get_sym_handle(app, "pipeline");
   config_ = (void (*)(void))get_sym_handle(app, "config");
-  port_ = (void (*)(int&))get_sym_handle(app, "port");
+  port_ = (void (*)(void*))get_sym_handle(app, "ports");
 }
 
 
@@ -126,8 +137,8 @@ Library::exec(std::string const& cmd, void* arg)
     pipeline_((Context*)arg);
   else if (cmd == "config")
     config_();
-  else if (cmd == "port")
-    port_((int&)arg);
+  else if (cmd == "ports")
+    port_(arg);
   else
     throw std::string("Application library error: Unknown command '" +
       cmd + "'");

@@ -74,8 +74,10 @@ Dataplane::down()
 void
 Dataplane::configure()
 {
-  if (app_->state() == Application::State::NEW)
+  if (app_->state() == Application::State::NEW) {
     app_->lib().exec("config");
+    app_->state_ = Application::State::READY;
+  }
   else
     throw std::string("Data plane has already been configured.");
 }

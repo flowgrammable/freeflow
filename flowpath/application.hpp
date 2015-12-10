@@ -13,6 +13,7 @@ namespace fp
 
 class Port;
 struct Context;
+struct Thread;
 
 // The Library class represents a dynamically loaded application
 // library that contains user provided definitions for application
@@ -22,14 +23,14 @@ struct Library
   using App_handle =  void*;
   using Pipeline_fn = void (*)(Context*);
   using Config_fn =   void (*)(void);
-  using Port_fn =     void (*)(int&);
+  using Port_fn =     void (*)(void*);
 
   // The user defined application functions.
   const std::string handles_[3] =
   {
     "pipeline",
     "config",
-    "port"
+    "ports"
   };
 
   Library(App_handle);
@@ -50,17 +51,6 @@ struct Application
   // State of the application
   enum State { NEW, READY, RUNNING, WAITING, STOPPED };
 
-  // Application name.
-  std::string name_;
-  // Application state.
-  State   state_;
-  // Application library.
-  Library lib_;
-
-  // Application port resources.
-  std::vector<Port*>  ports_;
-  int     num_ports_;
-
   // Constructors.
   Application(std::string const&);
   ~Application();
@@ -79,6 +69,20 @@ struct Application
   std::vector<Port*> ports() const;
   int num_ports() const;
   Library lib() const;
+
+  // Data members.
+
+  // Application name.
+  std::string name_;
+  // Application state.
+  State       state_;
+  // Application library.
+  Library     lib_;
+
+  // Application port resources.
+  std::vector<Port*>    ports_;
+  std::vector<Thread*>  port_threads_;
+  int     num_ports_;
 };
 
 void* get_sym_handle(void*, std::string const&);
