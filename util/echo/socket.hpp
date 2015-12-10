@@ -157,6 +157,7 @@ struct Client_socket: Socket
     // Connect to the server.
     if (connect(sock_, (const struct sockaddr*)&addr_, addr_len_) < 0)
         perror("ERR: Client connect\n");
+    #if 0
     else {
       // Send a 'hello' message.
       clear_buff();
@@ -164,18 +165,30 @@ struct Client_socket: Socket
       if (sendto(sock_, buf_, strlen(buf_) + 1, 0,
         (struct sockaddr*)&addr_, sizeof(addr_)) < 0)
         std::cerr << "ERR: Client sendto(HELLO)\n";
-      std::cerr << "Connected to server\n";
+      else {
+        clear_buff();
+        if (recvfrom(sock_, buf_, MAX_PACKET_SIZE, 0,
+          (struct sockaddr*)&addr_, &addr_len_) < 0) {
+          if (errno != EAGAIN && errno != EWOULDBLOCK)
+            perror("ERR: Client recvfrom\n");
+        }
+        else
+          std::cerr << "Connected to server\n";
+      }
     }
+    #endif
   }
 
   // Close the socket. Send a 'goodbye' message and close the file descriptor.
   void close()
   {
+    #if 0
     clear_buff();
     std::memset(buf_, GOODBYE, sizeof(GOODBYE));
     if (sendto(sock_, buf_, strlen(buf_) + 1, 0,
       (struct sockaddr*)&addr_, sizeof(addr_)) < 0)
       std::cerr << "ERR: Client sendto(GOODBYE)\n";
+    #endif
     ::close(sock_);
   }
 
@@ -198,8 +211,11 @@ struct Client_socket: Socket
         perror("ERR: Client recvfrom\n");
       return false;
     }
+    #if 0
     else
       std::cerr << buf_ << '\n';
+    #endif
+
     return true;
   }
 };

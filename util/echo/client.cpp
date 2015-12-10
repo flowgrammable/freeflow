@@ -32,10 +32,10 @@ int main(int argc, char* argv[])
   running = true;
   while(running)
   {
-    // Send the message.
-    sock->send();
-    // Get it back.
+    // Receive a message.
     sock->recv();
+    // Send it.
+    sock->send();
   }
   // Cleanup.
   sock->close();
