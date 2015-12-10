@@ -22,7 +22,7 @@ include_directories(${Boost_INCLUDE_DIRS})
 include_directories(.)
 
 # Applications.
-#add_subdirectory(apps)
+add_subdirectory(apps)
 
 # Drivers.
 add_subdirectory(drivers)
