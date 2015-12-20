@@ -49,15 +49,13 @@ struct Socket
   int       sock_;
 };
 
-// A UDP Echo Server socket.
+// A UDP Echo socket.
 struct Server_socket : Socket
 {
   using Socket::Socket;
-  using Client_list = std::vector<Socket::Address>;
 
   // Ctor. Establish port and create address.
-  Server_socket(int port)
-    : port_(port)
+  Server_socket(std::string const& addr, int port)
   {
     sock_ = socket(AF_INET, SOCK_DGRAM, 0);
     int optval = 1;
@@ -69,15 +67,14 @@ struct Server_socket : Socket
     addr_.sin_port = htons(port);
   }
 
-  // Puts the socket into a functional state; listening.
+  // Puts the socket into a functional state.
   void open()
   {
     if (::bind(sock_, (struct sockaddr*) &addr_, sizeof(addr_)) < 0)
-      perror("ERR: Binding server socket\n");
+      perror("Binding server socket\n");
     else {
       int flags = fcntl(sock_, F_GETFL, 0);
       fcntl(sock_, F_SETFL, flags | O_NONBLOCK);
-      listen(sock_, 5);
     }
   }
 
@@ -87,31 +84,28 @@ struct Server_socket : Socket
     ::close(sock_);
   }
 
-  // Attempts to read a new message. Since this has been configured to be a non-
-  // blocking socket, it will not wait if the recvfrom call fails (for expected
-  // reasons; EAGAIN || EWOULDBLOCK).
+  // Attempts to read a new message.
   bool recv()
   {
     // Clear the buffer and client addr struct.
-    clear_buff();
-    std::memset(&client_, 0, sizeof(client_));
-    // Attempt to receive.
-    if (recvfrom(sock_, buf_, MAX_PACKET_SIZE, 0,
-      (struct sockaddr*)&client_, &addr_len_) < 0) {
-      // If we end up here, there is no message or an error occurred.
-      if (errno != EAGAIN && errno != EWOULDBLOCK)
-        throw std::string("ERR: Recvfrom\n");
-      else
-        return false;
-    }
-    else {
-      // We have a new message.
-      if (std::memcmp(buf_, &HELLO, sizeof(HELLO)) == 0 ||
-        std::memcmp(buf_, &GOODBYE, sizeof(GOODBYE)) == 0)
-        return false;
-      else
-        return true;
-    }
+     clear_buff();
+     std::memset(&client_, 0, sizeof(client_));
+     // Attempt to receive.
+     if (recvfrom(sock_, buf_, MAX_PACKET_SIZE, 0,
+       (struct sockaddr*)&client_, &addr_len_) < 0) {
+       // If we end up here, there is no message or an error occurred.
+       if (errno != EAGAIN && errno != EWOULDBLOCK)
+         perror("Server recvfrom");
+       return false;
+     }
+     else {
+       // We have a new message.
+       if (std::memcmp(buf_, &HELLO, sizeof(HELLO)) == 0 ||
+         std::memcmp(buf_, &GOODBYE, sizeof(GOODBYE)) == 0)
+         return false;
+       else
+         return true;
+     }
   }
 
   // Sends the previously received message. This assumes that the call to 'recv'
@@ -121,20 +115,80 @@ struct Server_socket : Socket
   {
     if (sendto(sock_, buf_, strlen(buf_) + 1, 0,
       (struct sockaddr*)&client_, addr_len_) < 0) {
-      std::cerr << "ERR: Server sendto\n";
+      perror("Server sendto");
       return false;
     }
     return true;
   }
 
-  // The port.
-  int             port_;
-  // Client address.
-  Socket::Address client_;
+  Address client_;
 };
 
 
-// A UDP Echo Client socket.
+// A TCP Echo socket. Connects to a host address and repeats messages received
+// back to it.
+struct Echo_socket: Socket
+{
+  using Socket::Socket;
+
+  // Ctor. Create the socket and resolve the host address.
+  Echo_socket(std::string const& host_addr, int port)
+  {
+    sock_ = socket(AF_INET, SOCK_STREAM, 0);
+    std::memset(&addr_, 0, sizeof(addr_));
+    struct hostent* host = gethostbyname(host_addr.c_str());
+    addr_.sin_family = AF_INET;
+    std::memcpy(&addr_.sin_addr.s_addr, host->h_addr, host->h_length);
+    addr_.sin_port = htons(port);
+  }
+
+  // Puts the socket into a functional state; read from stdin and write to
+  // the server address.
+  void open()
+  {
+    //int flags = fcntl(sock_, F_GETFL, 0);
+    //fcntl(sock_, F_SETFL, flags | O_NONBLOCK);
+    // Connect to the server.
+    if (connect(sock_, (const struct sockaddr*)&addr_, addr_len_) < 0)
+        perror("ERR: Echo connect\n");
+  }
+
+  // Close the socket. Send a 'goodbye' message and close the file descriptor.
+  void close()
+  {
+    ::close(sock_);
+  }
+
+  // Send a message to the server.
+  bool send()
+  {
+    if (write(sock_, buf_, std::strlen(buf_) + 1) < 0) {
+      perror("ERR: Echo write");
+      return false;
+    }
+    else
+      return true;
+  }
+
+  // Receive a message from the server.
+  bool recv()
+  {
+    clear_buff();
+    struct sockaddr_in recv_addr;
+    std::memset(&recv_addr, 0, sizeof(recv_addr));
+    if (read(sock_, buf_, MAX_PACKET_SIZE) < 0) {
+      perror("ERR: Echo read\n");
+      return false;
+    }
+    else {
+      std::cerr << buf_ << '\n';
+      return true;
+    }
+  }
+};
+
+// A UDP Echo Client socket. Sends a message to a host and gets it back, printing
+// to stderr.
 struct Client_socket: Socket
 {
   using Socket::Socket;
@@ -154,41 +208,16 @@ struct Client_socket: Socket
   // the server address.
   void open()
   {
+    int flags = fcntl(sock_, F_GETFL, 0);
+    fcntl(sock_, F_SETFL, flags | O_NONBLOCK);
     // Connect to the server.
     if (connect(sock_, (const struct sockaddr*)&addr_, addr_len_) < 0)
-        perror("ERR: Client connect\n");
-    #if 0
-    else {
-      // Send a 'hello' message.
-      clear_buff();
-      std::memset(buf_, HELLO, sizeof(HELLO));
-      if (sendto(sock_, buf_, strlen(buf_) + 1, 0,
-        (struct sockaddr*)&addr_, sizeof(addr_)) < 0)
-        std::cerr << "ERR: Client sendto(HELLO)\n";
-      else {
-        clear_buff();
-        if (recvfrom(sock_, buf_, MAX_PACKET_SIZE, 0,
-          (struct sockaddr*)&addr_, &addr_len_) < 0) {
-          if (errno != EAGAIN && errno != EWOULDBLOCK)
-            perror("ERR: Client recvfrom\n");
-        }
-        else
-          std::cerr << "Connected to server\n";
-      }
-    }
-    #endif
+        perror("Client_socket connect\n");
   }
 
   // Close the socket. Send a 'goodbye' message and close the file descriptor.
   void close()
   {
-    #if 0
-    clear_buff();
-    std::memset(buf_, GOODBYE, sizeof(GOODBYE));
-    if (sendto(sock_, buf_, strlen(buf_) + 1, 0,
-      (struct sockaddr*)&addr_, sizeof(addr_)) < 0)
-      std::cerr << "ERR: Client sendto(GOODBYE)\n";
-    #endif
     ::close(sock_);
   }
 
@@ -196,26 +225,28 @@ struct Client_socket: Socket
   bool send()
   {
     if (sendto(sock_, buf_, std::strlen(buf_) + 1, 0,
-      (struct sockaddr*)&addr_, sizeof(addr_)) < 0)
-      std::cerr << "ERR: Client send\n";
-    return true;
+      (struct sockaddr*)&addr_, sizeof(addr_)) < 0) {
+      perror("Client_socket send");
+      return false;
+    }
+    else
+      return true;
   }
 
   // Receive a message from the server.
   bool recv()
   {
     clear_buff();
+    struct sockaddr_in recv_addr;
+    std::memset(&recv_addr, 0, sizeof(recv_addr));
     if (recvfrom(sock_, buf_, MAX_PACKET_SIZE, 0,
-      (struct sockaddr*)&addr_, &addr_len_) < 0) {
-      if (errno != EAGAIN && errno != EWOULDBLOCK)
-        perror("ERR: Client recvfrom\n");
+      (struct sockaddr*)&recv_addr, &addr_len_) < 0) {
+      perror("Client_socket recvfrom\n");
       return false;
     }
-    #if 0
-    else
+    else {
       std::cerr << buf_ << '\n';
-    #endif
-
-    return true;
+      return true;
+    }
   }
 };

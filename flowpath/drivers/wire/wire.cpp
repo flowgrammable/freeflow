@@ -1,13 +1,13 @@
 #include "system.hpp"
 #include "dataplane.hpp"
 #include "port.hpp"
-#include "port_udp.hpp"
+#include "port_tcp.hpp"
 
 #include <string>
 #include <iostream>
 #include <signal.h>
 
-// Emulate a 2 port wire running over UDP ports.
+// Emulate a 2 port wire running over TCP ports.
 
 static bool running;
 
@@ -21,18 +21,20 @@ int
 main()
 {
   signal(SIGINT, sig_handle);
+  signal(SIGKILL, sig_handle);
+  signal(SIGHUP, sig_handle);
   running = true;
   try
   {
     // Instantiate ports.
     //
     // P1 : Connected to an echo client.
-    fp::Port* p1 = fp::create_port(fp::Port::Type::udp, ":5000");
+    fp::Port* p1 = fp::create_port(fp::Port::Type::tcp, ":5000");
     std::cerr << "Created port 'p1' with id '" << p1->id() << "'\n";
 
 
     // P2 : Bound to a netcat UDP port; Acts as the entry point.
-    fp::Port* p2 = fp::create_port(fp::Port::Type::udp, ":5001");
+    fp::Port* p2 = fp::create_port(fp::Port::Type::tcp, ":5001");
     std::cerr << "Created port 'p2' with id '" << p2->id() << "'\n";
 
 

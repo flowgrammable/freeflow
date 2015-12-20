@@ -13,9 +13,8 @@ void sig_handler(int sig)
   running = false;
 }
 
-// The UDP echo client main program. Creates a client socket bound to the given
-// server address, and transmits messages from stdin to the server. When an
-// interrupt is received, it will shutdown.
+// The UDP echo client main program. Creates a client socket connected to the given
+// server address and bounces the message back at it.
 int main(int argc, char* argv[])
 {
   if (argc != 3) {
@@ -32,9 +31,8 @@ int main(int argc, char* argv[])
   running = true;
   while(running)
   {
-    // Receive a message.
-    sock->recv();
-    // Send it.
+    sock->clear_buff();
+    std::cin.getline(sock->buf_, 2048);
     sock->send();
   }
   // Cleanup.

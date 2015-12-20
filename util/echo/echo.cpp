@@ -1,7 +1,12 @@
 #include <iostream>
 #include <string>
 #include <cstdlib>
+#include <unistd.h>
 #include <signal.h>
+#include <sys/select.h>
+#include <sys/time.h>
+#include <sys/types.h>
+
 #include "socket.hpp"
 
 // Running flag.
@@ -24,21 +29,32 @@ int main(int argc, char* argv[])
   }
 
   // Create the socket on the port.
-  Socket* sock = new Server_socket(atoi(argv[1]));
+  Socket* sock = new Echo_socket(argv[1], atoi(argv[2]));
   // Bind.
   sock->open();
+
+  // Setup select.
+  fd_set fdset;
+  struct timeval tv;
+
+  FD_ZERO(&fdset);
+  FD_SET(sock->sock_, &fdset);
+
+  tv.tv_sec = 4;
+  tv.tv_usec = 0;
 
   // Start processing loop.
   signal(SIGINT, sig_handler);
   running = true;
-  std::cerr << "Server up...\n";
+  std::cerr << "Echo up...\n";
   while(running)
   {
-    // Call 'send' if the call to 'recv' was successful (a message was found).
-    if (sock->recv())
+    if (select(1, &fdset, nullptr, nullptr, &tv)) {
+      sock->recv();
       sock->send();
+    }
   }
-  std::cerr << "Server down...\n";
+  std::cerr << "Echo down...\n";
   // Cleanup.
   sock->close();
   delete sock;
