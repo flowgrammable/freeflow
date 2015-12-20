@@ -42,6 +42,7 @@ add_library(flowpath-rt SHARED
     packet.cpp
     port.cpp
     port_table.cpp
+    port_tcp.cpp
     port_udp.cpp
     queue.cpp
     system.cpp

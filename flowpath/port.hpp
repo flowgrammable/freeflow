@@ -21,7 +21,7 @@ struct Context;
 class Port
 {
 public:
-  enum Type { udp };
+  enum Type { udp, tcp };
 
   // Port specific types.
   using Id = unsigned int;

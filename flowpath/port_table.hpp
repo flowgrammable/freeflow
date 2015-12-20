@@ -3,6 +3,7 @@
 
 #include "port.hpp"
 #include "port_udp.hpp"
+#include "port_tcp.hpp"
 
 #include <string>
 #include <vector>

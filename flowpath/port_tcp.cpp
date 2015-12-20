@@ -1,4 +1,4 @@
-#include "port_udp.hpp"
+#include "port_tcp.hpp"
 #include "port_table.hpp"
 
 #include <arpa/inet.h>
@@ -31,9 +31,9 @@ extern Port_table port_table;
 const int INIT_BUFF_SIZE = 2048;
 
 
-// UDP Port constructor. Parses the UDP address and port from
+// TCP Port constructor. Parses the TCP address and port from
 // the input string given, allocates a new internal ID.
-Port_udp::Port_udp(Port::Id id, std::string const& bind, std::string const& name)
+Port_tcp::Port_tcp(Port::Id id, std::string const& bind, std::string const& name)
   : Port(id, name)
 {
   auto idx = bind.find(':');
@@ -62,9 +62,9 @@ Port_udp::Port_udp(Port::Id id, std::string const& bind, std::string const& name
   src_addr_.sin_port = htons(p);
 
   // Create the socket.
-  if ((sock_fd_ = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+  if ((sock_fd_ = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
     perror(std::string("port[" + std::to_string(id_) + "] socket").c_str());
-    throw std::string("Port_udp::Ctor");
+    throw std::string("Port_tcp::Ctor");
   }
 
   // Additional socket options.
@@ -75,30 +75,25 @@ Port_udp::Port_udp(Port::Id id, std::string const& bind, std::string const& name
 
 
 // UDP Port destructor. Releases the allocated ID.
-Port_udp::~Port_udp()
+Port_tcp::~Port_tcp()
 { }
 
 
 // Read a packet from the input buffer.
 Context*
-Port_udp::recv()
+Port_tcp::recv()
 {
   if (config_.down)
     throw std::string("Port down");
 
   char buff[INIT_BUFF_SIZE];
-  socklen_t slen = sizeof(dst_addr_);
-  std::memset(&dst_addr_, 0, sizeof(dst_addr_));
   // Receive data.
-  int bytes = recvfrom(sock_fd_, buff, INIT_BUFF_SIZE, 0,
-    (struct sockaddr*)&dst_addr_, &slen);
-
+  int bytes = read(io_fd_, buff, INIT_BUFF_SIZE);
 
   if (bytes < 0) {
     perror(std::string("port[" + std::to_string(id_) + "] recvfrom").c_str());
     return nullptr;
   }
-
 
   // If we receive a 0-byte packet, the dest has closed.
   // Set the port config to reflect this and return nullptr.
@@ -133,7 +128,7 @@ Port_udp::recv()
 
 // Write a packet to the output buffer.
 int
-Port_udp::send()
+Port_tcp::send()
 {
   // Check that this port is usable.
   if (config_.down)
@@ -144,8 +139,7 @@ Port_udp::send()
   Context* cxt = nullptr;
   while ((cxt = tx_queue_.dequeue())) {
     // Send the packet.
-    int l_bytes = sendto(sock_fd_, cxt->packet_->buf_.data_, cxt->packet_->size_, 0,
-      (struct sockaddr*)&dst_addr_, sizeof(dst_addr_));
+    int l_bytes = write(io_fd_, cxt->packet_->buf_.data_, cxt->packet_->size_);
 
     if (bytes < 0)
       continue;
@@ -170,7 +164,7 @@ Port_udp::send()
 // Open the port. Creates a socket and binds it to the
 // sockaddr data member.
 int
-Port_udp::open()
+Port_tcp::open()
 {
   // Bind the socket to its address.
   if (::bind(sock_fd_, (struct sockaddr*)&src_addr_, sizeof(src_addr_)) < 0) {
@@ -182,9 +176,8 @@ Port_udp::open()
   int flags = fcntl(sock_fd_, F_GETFL, 0);
   fcntl(sock_fd_, F_SETFL, flags | O_NONBLOCK);
 
-  // NOTE: UDP sockets cannot be put into a 'listening' state, as they are
-  // connectionless. Normally we would set the into a listening state at this
-  // point.
+  // Put the socket into a listening state.
+  listen(sock_fd_, 10);
 
   return 0;
 }
@@ -192,19 +185,19 @@ Port_udp::open()
 
 // Close the port (socket).
 void
-Port_udp::close()
+Port_tcp::close()
 {
   ::close((int)sock_fd_);
 }
 
 
-// UDP Port thread work function. Expects the internal port id to be passed
+// TCP Port thread work function. Expects the internal port id to be passed
 // as an argument, which is used to drive that port.
 void*
-udp_work_fn(void* arg)
+tcp_work_fn(void* arg)
 {
   // Grab a pointer to the port object you are driving.
-  Port_udp* self = (Port_udp*)port_table.find(*((int*)arg));
+  Port_tcp* self = (Port_tcp*)port_table.find(*((int*)arg));
 
   // Setup epoll.
   struct epoll_event event, event_list[10];
@@ -221,19 +214,49 @@ udp_work_fn(void* arg)
   event.data.fd = sock_fd;
 
   if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, sock_fd, &event) == -1)
-  perror(std::string("port[" + std::to_string(self->id()) +
-    "] epoll_ctl_add").c_str());
+    perror(std::string("port[" + std::to_string(self->id()) +
+      "] epoll_ctl_add").c_str());
 
   // Run while the FD is valid.
   while (fcntl(sock_fd, F_GETFD) != EBADF) {
     res = epoll_wait(epoll_fd, event_list, 10, 1000);
 
     // Receive messages/report errors.
-    if (res < 0)
-    perror(std::string("port[" + std::to_string(self->id()) +
-      "] epoll_wait").c_str());
-    else if (res > 0)
-      self->recv();
+    if (res < 0) {
+      perror(std::string("port[" + std::to_string(self->id()) +
+        "]").c_str());
+      continue;
+    }
+    else {
+      for (int i = 0; i < res; i++) {
+        if (event_list[i].data.fd == sock_fd) {
+          // We have a new connection coming in.
+          conn_fd = accept(sock_fd, (struct sockaddr*)&addr, &slen);
+          if (conn_fd == -1) {
+            perror(std::string("port[" + std::to_string(self->id()) +
+              "]").c_str());
+            continue;
+          }
+          else {
+            // Set the socket to be non-blocking.
+            int flags = fcntl(conn_fd, F_GETFL, 0);
+            fcntl(conn_fd, F_SETFL, flags | O_NONBLOCK);
+            // Add to the epoll set.
+            event.events = EPOLLIN | EPOLLET;
+            event.data.fd = conn_fd;
+            if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, conn_fd, &event) == -1)
+              perror(std::string("port[" + std::to_string(self->id()) +
+                "]").c_str());
+          }
+        }
+        else {
+          // A message from a known client has been received. Process it.
+          self->io_fd_ = event_list[i].data.fd;
+          Context* cxt = self->recv();
+          thread_pool.assign(new Task("pipeline", cxt));
+        }
+      }
+    }
     // Send any packets buffered for TX.
     self->send();
   }

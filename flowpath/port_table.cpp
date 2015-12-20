@@ -91,6 +91,9 @@ Port_table::alloc(Port::Type port_type, std::string const& args) -> value_type
     case Port::Type::udp:
       data_[idx] = (value_type)new Port_udp(idx+1, args, "");
     break;
+    case Port::Type::tcp:
+      data_[idx] = (value_type)new Port_tcp(idx+1, args, "");
+    break;
   }
 
   // Return a pointer to the newly allocated port object.
