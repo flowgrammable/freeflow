@@ -94,13 +94,6 @@ struct Context
   void            write_metadata(uint64_t);
   Metadata const& read_metadata();
 
-  // only the application context defines these.
-  // these virtual functions merely provide an interface
-
-  // FIXME: Implement these.
-  std::pair<Byte*, int> read_field(uint32_t f) { return {}; }
-  std::pair<Byte*, int> read_header(uint32_t h) { return {}; }
-
   // Aciton interface
   void apply_action(Action a);
   void write_action(Action a);
@@ -110,13 +103,8 @@ struct Context
   // FIXME: Implement me.
   void bind_header(int);
   void bind_field(int, std::uint16_t, std::uint16_t);
-  std::uint16_t get_header(int) const { return 0; }
-  std::uint16_t get_field(int) const { return 0; }
-
-  void add_field_binding(uint32_t f, uint16_t o, uint16_t l) { }
-  void pop_field_binding(uint32_t f) { }
-  void add_header_binding(uint32_t h, uint16_t o, uint16_t l) { }
-  void pop_header_binding(uint32_t h) { }
+  Byte const* read_field(std::uint16_t) const;
+  Byte*       read_field(std::uint16_t);
 
   Packet*         packet_;
   Metadata        metadata_;
@@ -197,17 +185,33 @@ Context::clear_actions()
   actions_.clear();
 }
 
-inline void 
-Context::bind_header(int id) 
-{ 
+inline void
+Context::bind_header(int id)
+{
   hdr_.push(id, offset());
 }
 
 
-inline void 
+inline void
 Context::bind_field(int id, std::uint16_t off, std::uint16_t len)
 {
   fld_.push(id, {off, len});
+}
+
+
+// Returns a pointer to a given field within the current header
+inline Byte const*
+Context::read_field(std::uint16_t off) const
+{
+  return packet_->data() + offset() + off;
+}
+
+
+// Returns a pointer to a given field within the current header
+inline Byte*
+Context::read_field(std::uint16_t off)
+{
+  return packet_->data() + offset() + off;
 }
 
 

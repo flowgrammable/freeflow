@@ -158,12 +158,9 @@ fp_get_port(std::string const& name)
 
 // Outputs the contexts packet on the port with the matching name.
 void
-fp_output_port(fp::Context* cxt, std::string const& name)
+fp_output_port(fp::Context* cxt, fp::Port* p)
 {
-  // FIXME: A hack to get the 'wire' app running.
-  fp::port_table.find(cxt->out_port)->send(cxt);
-
-  //fp::port_table.find(name)->send(cxt);
+  p->send(cxt);
 }
 
 
@@ -234,20 +231,13 @@ fp_bind_header(fp::Context* cxt, int id)
 // Binds a given field index to a section in the packet contexts raw
 // packet data. Using the given header offset, field offset, and field
 // length we can grab exactly what we need.
-void
+//
+// Returns the pointer to the byte at that specific location
+fp::Byte*
 fp_bind_field(fp::Context* cxt, int id, std::uint16_t off, std::uint16_t len)
 {
   cxt->bind_field(id, off, len);
-}
-
-
-// Loads the field from the context.
-//
-// FIXME: What does this actually do?
-void
-fp_load(fp::Context* cxt, int field)
-{
-
+  return cxt->read_field(off);
 }
 
 
