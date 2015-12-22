@@ -8,15 +8,31 @@
 extern "C"
 {
 
-void           fp_apply(fp::Context*, fp::Action);
-void           fp_write(fp::Context*, fp::Action);
+// Apply actions.
+void           fp_drop(fp::Context*);
+void           fp_flood(fp::Context*);
+void           fp_set_field(fp::Context*, int, void*);
 void           fp_clear(fp::Context*);
 void           fp_goto(fp::Context*, fp::Table*);
+void           fp_output_port(fp::Context*, fp::Port*);
+
+// Write actions.
+void           fp_write_drop(fp::Context*);
+void           fp_write_flood(fp::Context*);
+void           fp_write_set_field(fp::Context*, int, void*);
+void           fp_write_clear(fp::Context*);
+void           fp_write_goto(fp::Context*, fp::Table*);
+void           fp_write_output_port(fp::Context*, fp::Port*);
+
+// FIXME: avoiding these for now since supporting this would involve
+// importing knowledge of the structure of actions into steve
+// void           fp_apply(fp::Context*, fp::Action);
+// void           fp_write(fp::Context*, fp::Action);
 
 // System queries.
 fp::Dataplane* fp_get_dataplane(std::string const&);
 fp::Port*      fp_get_port(std::string const&);
-void           fp_output_port(fp::Context*, fp::Port*);
+void           fp_gather(fp::Context*, int, ...);
 
 // Flow tables.
 fp::Table*     fp_create_table(fp::Dataplane*, int, int, fp::Table::Type);
@@ -28,6 +44,7 @@ void           fp_remove_flow(fp::Table*, void*);
 void           fp_advance_header(fp::Context*, std::uint16_t);
 void           fp_bind_header(fp::Context*, int);
 fp::Byte*      fp_bind_field(fp::Context*, int, std::uint16_t, std::uint16_t);
+
 
 } // extern "C"
 
