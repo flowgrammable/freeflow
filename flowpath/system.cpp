@@ -213,7 +213,14 @@ fp_add_flow(fp::Table* tbl, void* key, void* fn)
 void
 fp_del_flow(fp::Table* tbl, void* key)
 {
-
+  // get the length of the table's expected key
+  int key_size = tbl->key_size();
+  // cast the key to Byte*
+  fp::Byte* buf = reinterpret_cast<fp::Byte*>(key);
+  // construct a key object
+  fp::Key k(buf, key_size);
+  // delete the key
+  tbl->erase(k);
 }
 
 
