@@ -13,7 +13,7 @@ void           fp_drop(fp::Context*);
 void           fp_flood(fp::Context*);
 void           fp_set_field(fp::Context*, int, void*);
 void           fp_clear(fp::Context*);
-void           fp_goto(fp::Context*, fp::Table*);
+void           fp_goto_table(fp::Context*, fp::Table*, int, ...);
 void           fp_output_port(fp::Context*, fp::Port*);
 
 // Write actions.
@@ -30,7 +30,7 @@ void           fp_write(fp::Context*, fp::Action);
 // System queries.
 fp::Dataplane* fp_get_dataplane(std::string const&);
 fp::Port*      fp_get_port(char const*);
-void           fp_gather(fp::Context*, int, ...);
+fp::Key        fp_gather(fp::Context*, int, int, va_list);
 
 // Flow tables.
 fp::Table*     fp_create_table(fp::Dataplane*, int, int, fp::Table::Type);

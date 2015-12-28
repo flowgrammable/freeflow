@@ -103,8 +103,9 @@ struct Context
   // FIXME: Implement me.
   void bind_header(int);
   void bind_field(int, std::uint16_t, std::uint16_t);
-  Byte const* read_field(std::uint16_t) const;
-  Byte*       read_field(std::uint16_t);
+  Byte const* get_field(std::uint16_t) const;
+  Byte*       get_field(std::uint16_t);
+  Binding     get_field_binding(int) const;
 
   Packet*         packet_;
   Metadata        metadata_;
@@ -199,19 +200,27 @@ Context::bind_field(int id, std::uint16_t off, std::uint16_t len)
 }
 
 
-// Returns a pointer to a given field within the current header
+// Returns a pointer to a given field at the absolute offset.
 inline Byte const*
-Context::read_field(std::uint16_t off) const
+Context::get_field(std::uint16_t off) const
 {
-  return packet_->data() + offset() + off;
+  return packet_->data() + off;
 }
 
 
-// Returns a pointer to a given field within the current header
+// Returns a pointer to a given field at the absolute offset.
 inline Byte*
-Context::read_field(std::uint16_t off)
+Context::get_field(std::uint16_t off)
 {
-  return packet_->data() + offset() + off;
+  return packet_->data() + off;
+}
+
+
+// Returns the binding for the given field.
+inline Binding
+Context::get_field_binding(int fld) const
+{
+  return fld_[fld].top();
 }
 
 

@@ -1,5 +1,6 @@
 #include <exception>
 #include <unordered_map>
+#include <cstdarg>
 
 #include "system.hpp"
 #include "port_table.hpp"
@@ -139,10 +140,19 @@ fp_clear(fp::Context* cxt)
 
 
 // Dispatches the given context to the given table, if it exists.
+// Accepts a variadic list of fields needed to construct a key to
+// match against the table.
 void
-fp_goto(fp::Context* cxt, fp::Table* tbl)
+fp_goto_table(fp::Context* cxt, fp::Table* tbl, int n, ...)
 {
-
+  va_list args;
+  va_start(args, n);
+  fp::Key key = fp_gather(cxt, tbl->key_size(), n, args);
+  va_end(args);
+  // find the flow
+  fp::Flow const& flow = tbl->find(key);
+  // execute the flow function
+  flow.instr_(tbl, cxt);
 }
 
 
@@ -162,6 +172,32 @@ void
 fp_output_port(fp::Context* cxt, fp::Port* p)
 {
   p->send(cxt);
+}
+
+
+// Copies the values within 'n' fields into a byte buffer
+// and constructs a key from it.
+fp::Key
+fp_gather(fp::Context* cxt, int key_width, int n, va_list args)
+{
+  // FIXME: We're using a fixed size key of 128 bytes right now
+  // apparently. This should probably be dynamic.
+  fp::Byte buf[fp::key_size];
+  // Iterate through the fields given in args and copy their
+  // values into a byte buffer.
+  int i = 0;
+  int j = 0;
+  while (i < n) {
+    int f = va_arg(args, int);
+    // Lookup the field in the context.
+    fp::Binding b = cxt->get_field_binding(f);
+    fp::Byte* p = cxt->get_field(b.offset);
+    // Copy the field into the buffer.
+    std::copy(p, p + b.length, &buf[j]);
+    j += b.length;
+  }
+
+  return fp::Key(buf, key_width);
 }
 
 
@@ -257,15 +293,23 @@ fp_bind_header(fp::Context* cxt, int id)
 
 
 // Binds a given field index to a section in the packet contexts raw
-// packet data. Using the given header offset, field offset, and field
+// packet data. Using the current cxt offset, relative field offset, and field
 // length we can grab exactly what we need.
 //
 // Returns the pointer to the byte at that specific location
 fp::Byte*
 fp_bind_field(fp::Context* cxt, int id, std::uint16_t off, std::uint16_t len)
 {
-  cxt->bind_field(id, off, len);
-  return cxt->read_field(off);
+  // Get field requires an absolute offset which is the context's current offset
+  // plus the relative offset passed to this function.
+  int abs_off = cxt->offset() + off;
+  // We bind fields using their absolute offset since this is the only way we
+  // can recover the absolute offset when we need to look up the binding later.
+  //
+  // FIXME: There needs to be a way to store the relative offset instead of the
+  // absolute offset.
+  cxt->bind_field(id, abs_off, len);
+  return cxt->get_field(abs_off);
 }
 
 

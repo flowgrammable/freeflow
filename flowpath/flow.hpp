@@ -15,6 +15,9 @@ struct Table;
 // be executed on match.
 using Flow_instructions = void (*)(Table*, Context*);
 
+// Default miss case.
+void Drop_miss(Table*, Context*);
+
 
 // The flow counters mantain counts on matches.
 //
@@ -33,7 +36,9 @@ struct Flow_timeouts
 // A flow is an entry in a flow table.
 struct Flow
 {
-  Flow() = default;
+  Flow()
+    : pri_(0), count_(), instr_(Drop_miss), time_(), cookie_(0), flags_(0)
+  { }
 
   Flow(std::size_t pri, Flow_counters count, Flow_instructions instr,
        Flow_timeouts time, std::size_t cookie, std::size_t flags)
