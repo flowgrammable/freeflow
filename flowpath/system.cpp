@@ -113,6 +113,7 @@ extern "C"
 // -------------------------------------------------------------------------- //
 // Control instructions
 
+
 // Apply the given action to the context.
 void
 fp_apply(fp::Context* cxt, fp::Action a)
@@ -150,7 +151,7 @@ fp_goto(fp::Context* cxt, fp::Table* tbl)
 
 // Returns the port matching the given name.
 fp::Port*
-fp_get_port(std::string const& name)
+fp_get_port(char const* name)
 {
   return fp::port_table.find(name);
 }

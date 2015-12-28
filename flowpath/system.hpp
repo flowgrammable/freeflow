@@ -24,14 +24,12 @@ void           fp_write_clear(fp::Context*);
 void           fp_write_goto(fp::Context*, fp::Table*);
 void           fp_write_output_port(fp::Context*, fp::Port*);
 
-// FIXME: avoiding these for now since supporting this would involve
-// importing knowledge of the structure of actions into steve
-// void           fp_apply(fp::Context*, fp::Action);
-// void           fp_write(fp::Context*, fp::Action);
+void           fp_apply(fp::Context*, fp::Action);
+void           fp_write(fp::Context*, fp::Action);
 
 // System queries.
 fp::Dataplane* fp_get_dataplane(std::string const&);
-fp::Port*      fp_get_port(std::string const&);
+fp::Port*      fp_get_port(char const*);
 void           fp_gather(fp::Context*, int, ...);
 
 // Flow tables.
