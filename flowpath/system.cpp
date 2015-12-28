@@ -175,7 +175,7 @@ fp_create_table(fp::Dataplane* dp, int size, int key_width, fp::Table::Type type
   {
     case fp::Table::Type::EXACT:
     // Make a new hash table.
-    tbl = new fp::Hash_table(size);
+    tbl = new fp::Hash_table(size, key_width);
     dp->tables().push_back(tbl);
     break;
     case fp::Table::Type::PREFIX:
@@ -196,7 +196,8 @@ fp_create_table(fp::Dataplane* dp, int size, int key_width, fp::Table::Type type
 void
 fp_add_flow(fp::Table* tbl, void* key, void* fn)
 {
-
+  // get the length of the table's expected key
+  int key_size = tbl->key_size();
 }
 
 

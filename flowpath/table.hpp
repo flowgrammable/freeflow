@@ -70,12 +70,22 @@ struct Table
 {
   enum Type { EXACT, PREFIX, WILDCARD };
 
+  Table(Type t, int key_size)
+    : type_(t), key_size_(key_size)
+  { }
+
   virtual ~Table() { }
 
   virtual Flow& find(Key const&) = 0;
   virtual Flow const& find(Key const&) const = 0;
   virtual void insert(Key const&, Flow const&) = 0;
   virtual void erase(Key const&) = 0;
+
+  Type type()     const { return type_; }
+  int  key_size() const { return key_size_; }
+
+  Type type_;
+  int key_size_;
 };
 
 
@@ -93,7 +103,11 @@ struct Table
 // problem?
 struct Hash_table : Table, private std::unordered_map<Key, Flow, Key_hash>
 {
-  using std::unordered_map<Key, Flow, Key_hash>::unordered_map;
+  using Map = std::unordered_map<Key, Flow, Key_hash>;
+
+  Hash_table(int size, int key_size)
+    : Table(Table::EXACT, key_size), Map(size)
+  { }
 
   Flow&       find(Key const&);
   Flow const& find(Key const&) const;
