@@ -209,6 +209,17 @@ fp_add_flow(fp::Table* tbl, void* key, void* fn)
 }
 
 
+// Adds the miss case for the table.
+void
+fp_add_miss(fp::Table* tbl, void* fn)
+{
+  // cast the flow into a flow instruction
+  fp::Flow_instructions instr = reinterpret_cast<fp::Flow_instructions>(fn);
+  fp::Flow flow(0, fp::Flow_counters(), instr, fp::Flow_timeouts(), 0, 0);
+  tbl->insert_miss(flow);
+}
+
+
 // Removes the given key from the given table, if it exists.
 void
 fp_del_flow(fp::Table* tbl, void* key)

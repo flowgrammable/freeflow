@@ -80,12 +80,15 @@ struct Table
   virtual Flow const& find(Key const&) const = 0;
   virtual void insert(Key const&, Flow const&) = 0;
   virtual void erase(Key const&) = 0;
+  void insert_miss(Flow const& f) { miss_ = f; }
 
   Type type()     const { return type_; }
   int  key_size() const { return key_size_; }
+  Flow miss()     const { return miss_; }
 
   Type type_;
   int key_size_;
+  Flow miss_;   // The miss rule
 };
 
 
@@ -114,9 +117,8 @@ struct Hash_table : Table, private std::unordered_map<Key, Flow, Key_hash>
 
   void insert(Key const&, Flow const&);
   void erase(Key const&);
-
-  Flow miss_;   // The miss rule
 };
+
 
 
 } // end namespace fp

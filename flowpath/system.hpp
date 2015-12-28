@@ -36,6 +36,7 @@ void           fp_gather(fp::Context*, int, ...);
 fp::Table*     fp_create_table(fp::Dataplane*, int, int, fp::Table::Type);
 void           fp_delete_table(fp::Dataplane*, fp::Table*);
 void           fp_add_flow(fp::Table*, void*, void*);
+void           fp_add_miss(fp::Table*, void*);
 void           fp_remove_flow(fp::Table*, void*);
 
 // Header tracking.
