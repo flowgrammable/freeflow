@@ -9,10 +9,11 @@ namespace fp
 
 struct Dataplane;
 struct Context;
+struct Table;
 
 // Flow instructions are a pointer to a function to
 // be executed on match.
-using Flow_instructions = void (*)(Dataplane&, Context&);
+using Flow_instructions = void (*)(Table*, Context*);
 
 
 // The flow counters mantain counts on matches.
@@ -32,12 +33,20 @@ struct Flow_timeouts
 // A flow is an entry in a flow table.
 struct Flow
 {
+  Flow() = default;
+
+  Flow(std::size_t pri, Flow_counters count, Flow_instructions instr,
+       Flow_timeouts time, std::size_t cookie, std::size_t flags)
+    : pri_(pri), count_(count), instr_(instr), time_(time), cookie_(cookie),
+      flags_(flags)
+  { }
+
   std::size_t       pri_;
   Flow_counters     count_;
   Flow_instructions instr_;
   Flow_timeouts     time_;
   std::size_t       cookie_;
-  std::size_t       flags;
+  std::size_t       flags_;
 };
 
 

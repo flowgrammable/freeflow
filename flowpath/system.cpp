@@ -198,6 +198,14 @@ fp_add_flow(fp::Table* tbl, void* key, void* fn)
 {
   // get the length of the table's expected key
   int key_size = tbl->key_size();
+  // cast the key to Byte*
+  fp::Byte* buf = reinterpret_cast<fp::Byte*>(key);
+  // construct a key object
+  fp::Key k(buf, key_size);
+  // cast the flow into a flow instruction
+  fp::Flow_instructions instr = reinterpret_cast<fp::Flow_instructions>(fn);
+  fp::Flow flow(0, fp::Flow_counters(), instr, fp::Flow_timeouts(), 0, 0);
+  tbl->insert(k, flow);
 }
 
 
