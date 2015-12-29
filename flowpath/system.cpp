@@ -223,14 +223,14 @@ fp_gather(fp::Context* cxt, int key_width, int n, va_list args)
 // Creates a new table in the given data plane with the given size,
 // key width, and table type.
 fp::Table*
-fp_create_table(fp::Dataplane* dp, int size, int key_width, fp::Table::Type type)
+fp_create_table(fp::Dataplane* dp, int id, int size, int key_width, fp::Table::Type type)
 {
   fp::Table* tbl = nullptr;
   switch (type)
   {
     case fp::Table::Type::EXACT:
     // Make a new hash table.
-    tbl = new fp::Hash_table(size, key_width);
+    tbl = new fp::Hash_table(id, size, key_width);
     dp->tables().push_back(tbl);
     break;
     case fp::Table::Type::PREFIX:

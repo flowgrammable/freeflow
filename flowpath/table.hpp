@@ -70,8 +70,8 @@ struct Table
 {
   enum Type { EXACT, PREFIX, WILDCARD };
 
-  Table(Type t, int k)
-    : type_(t), key_size_(k), miss_()
+  Table(Type t, int id, int k)
+    : type_(t), id_(id), key_size_(k), miss_()
   { }
 
   virtual ~Table() { }
@@ -85,8 +85,10 @@ struct Table
   Type type()     const { return type_; }
   int  key_size() const { return key_size_; }
   Flow miss()     const { return miss_; }
+  int  id()       const { return id_; }
 
   Type type_;
+  int id_;
   int key_size_;
   // NOTE: The default constructed Flow contains the miss rule as its instruction.
   Flow miss_;   // The miss rule
@@ -109,8 +111,8 @@ struct Hash_table : Table, private std::unordered_map<Key, Flow, Key_hash>
 {
   using Map = std::unordered_map<Key, Flow, Key_hash>;
 
-  Hash_table(int size, int k)
-    : Table(Table::EXACT, k), Map(size)
+  Hash_table(int id, int size, int k)
+    : Table(Table::EXACT, id, k), Map(size)
   { }
 
   Flow&       find(Key const&);
