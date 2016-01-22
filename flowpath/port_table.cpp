@@ -89,10 +89,10 @@ Port_table::alloc(Port::Type port_type, std::string const& args) -> value_type
   switch (port_type)
   {
     case Port::Type::udp:
-      data_[idx] = (value_type)new Port_udp(idx+1, args, "");
+      data_[idx] = (value_type)new Port_udp(idx+1, args);
     break;
     case Port::Type::tcp:
-      data_[idx] = (value_type)new Port_tcp(idx+1, args, "");
+      data_[idx] = (value_type)new Port_tcp(idx+1, args);
     break;
   }
 
@@ -138,7 +138,7 @@ auto
 Port_table::find(std::string const& name) -> value_type
 {
   auto res = std::find(data_.begin(), data_.end(), name);
-  if (res == data_.end())
+  if (res != data_.end())
     return *res;
   else if (name == "flood")
     return flood_port();

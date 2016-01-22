@@ -1,5 +1,7 @@
 #include "buffer.hpp"
 
+#include <string.h>
+
 namespace fp
 {
 
@@ -10,7 +12,8 @@ namespace Buffer
 // Ctor for the base packet buffer.
 Base::Base(unsigned char* data)
 {
-  data_ = data;
+  memset(data_, 0, 1024);
+  memcpy(data_, data, sizeof(data));
 }
 
 

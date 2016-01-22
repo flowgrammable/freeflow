@@ -33,16 +33,18 @@ const int INIT_BUFF_SIZE = 2048;
 
 // TCP Port constructor. Parses the TCP address and port from
 // the input string given, allocates a new internal ID.
-Port_tcp::Port_tcp(Port::Id id, std::string const& bind, std::string const& name)
-  : Port(id, name)
+Port_tcp::Port_tcp(Port::Id id, std::string const& args)
+  : Port(id, "")
 {
-  auto idx = bind.find(':');
+  auto bind_port = args.find(':');
+  auto name_off = args.find(';');
   // Check length of address.
-  if (idx == std::string::npos)
+  if (bind_port == std::string::npos)
     throw std::string("bad address form");
 
-  std::string addr = bind.substr(0, idx);
-  std::string port = bind.substr(idx + 1, bind.length());
+  std::string addr = args.substr(0, bind_port);
+  std::string port = args.substr(bind_port + 1, args.find(';'));
+  std::string name = args.substr(name_off + 1, args.length());
   // Set the address, if given. Otherwise it is set to INADDR_ANY.
   if (addr.length() > 0) {
     if (inet_pton(AF_INET, addr.c_str(), &src_addr_) < 0)
@@ -60,6 +62,9 @@ Port_tcp::Port_tcp(Port::Id id, std::string const& bind, std::string const& name
   // Set the port.
   int p = std::stoi(port, nullptr);
   src_addr_.sin_port = htons(p);
+
+  // Set the port name.
+  name_ = name;
 
   // Create the socket.
   if ((sock_fd_ = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -248,13 +253,12 @@ tcp_work_fn(void* arg)
               perror(std::string("port[" + std::to_string(self->id()) +
                 "]").c_str());
           }
-        }
+        } // End if new connection.
         else {
           // A message from a known client has been received. Process it.
           self->io_fd_ = event_list[i].data.fd;
-          Context* cxt = self->recv();
-          thread_pool.assign(new Task("pipeline", cxt));
-        }
+          thread_pool.assign(new Task("pipeline", self->recv()));
+        } // End else known connection.
       }
     }
     // Send any packets buffered for TX.

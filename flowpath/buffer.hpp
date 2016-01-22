@@ -14,7 +14,7 @@ struct Base
   Base(uint8_t*);
   virtual ~Base();
 
-  uint8_t* data_;
+  uint8_t data_[1024];
 };
 
 

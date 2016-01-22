@@ -114,7 +114,7 @@ destroy(Thread::Attribute* attr)
 
 
 // A thread pool instruction entry. Contains a function to be
-// called, the arguments needed, and the resulting value.
+// called, the arguments needed.
 struct Task
 {
 	using Label = std::string;

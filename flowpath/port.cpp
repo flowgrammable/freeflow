@@ -12,7 +12,7 @@ namespace fp
 
 
 // Port constructor that sets ID.
-Port::Port(Port::Id id, Port::Label name)
+Port::Port(Port::Id id, std::string const& name)
   : id_(id), name_(name)
 { }
 
@@ -104,5 +104,12 @@ Port::id() const
   return id_;
 }
 
+
+// Gets the port name.
+Port::Label
+Port::name() const
+{
+  return name_;
+}
 
 } // end namespace FP

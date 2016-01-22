@@ -29,13 +29,13 @@ main()
     // Instantiate ports.
     //
     // P1 : Connected to an echo client.
-    fp::Port* p1 = fp::create_port(fp::Port::Type::tcp, ":5000");
-    std::cerr << "Created port 'p1' with id '" << p1->id() << "'\n";
+    fp::Port* p1 = fp::create_port(fp::Port::Type::tcp, ":5000;p1");
+    std::cerr << "Created port " << p1->name() << " with id '" << p1->id() << "'\n";
 
 
-    // P2 : Bound to a netcat UDP port; Acts as the entry point.
-    fp::Port* p2 = fp::create_port(fp::Port::Type::tcp, ":5001");
-    std::cerr << "Created port 'p2' with id '" << p2->id() << "'\n";
+    // P2 : Bound to a netcat TCP port; Acts as the entry point.
+    fp::Port* p2 = fp::create_port(fp::Port::Type::tcp, ":5001;p2");
+    std::cerr << "Created port " << p2->name() << " with id '" << p2->id() << "'\n";
 
 
     // Load the application library

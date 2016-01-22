@@ -41,7 +41,7 @@ public:
   };
 
   // Ctor/Dtor.
-  Port(Id, Label = "");
+  Port(Id, std::string const& = "");
   virtual ~Port();
 
   // Equality semantics.
@@ -66,6 +66,7 @@ public:
 
   // Accessors.
   Id id() const;
+  Label name() const;
 
   // Data members.
   Id              id_;        // The internal port ID.

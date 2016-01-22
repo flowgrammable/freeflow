@@ -20,7 +20,7 @@ public:
   using Port::Port;
 
   // Constructors/Destructor.
-  Port_udp(Port::Id, std::string const&, std::string const& = "");
+  Port_udp(Port::Id, std::string const&);
   ~Port_udp();
 
   // Packet related funtions.
@@ -41,6 +41,12 @@ public:
   // Socket addresses.
   struct sockaddr_in src_addr_;
   struct sockaddr_in dst_addr_;
+  // Message containers.
+  struct mmsghdr     messages_[16];
+  struct iovec       iovecs_[16];
+  char               in_buffers_[16][512];
+  char               out_buffers_[16][512];
+  struct timespec    timeout_;
 };
 
 } // end namespace fp

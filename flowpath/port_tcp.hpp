@@ -20,7 +20,7 @@ public:
   using Port::Port;
 
   // Constructors/Destructor.
-  Port_tcp(Port::Id, std::string const&, std::string const& = "");
+  Port_tcp(Port::Id, std::string const&);
   ~Port_tcp();
 
   // Packet related funtions.

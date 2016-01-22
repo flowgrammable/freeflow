@@ -186,7 +186,7 @@ fp_get_port(char const* name)
 }
 
 
-// Outputs the contexts packet on the port with the matching name.
+// Outputs the contexts packet on the port.
 void
 fp_output_port(fp::Context* cxt, fp::Port* p)
 {
