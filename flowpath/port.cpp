@@ -70,6 +70,8 @@ Port::up()
 {
   // Clear the bitfield (uint8_t).
   *(uint8_t*)(&config_) = 0;
+  // Clear statistics.
+  stats_.byt_tx = stats_.byt_rx = stats_.pkt_tx = stats_.pkt_rx = 0;
 }
 
 
@@ -110,6 +112,13 @@ Port::Label
 Port::name() const
 {
   return name_;
+}
+
+// Gets the port statistics.
+Port::Statistics
+Port::stats() const
+{
+  return stats_;
 }
 
 } // end namespace FP

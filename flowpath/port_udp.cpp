@@ -49,7 +49,7 @@ Port_udp::Port_udp(Port::Id id, std::string const& args)
   // Set the address, if given. Otherwise it is set to INADDR_ANY.
   if (addr.length() > 0) {
     if (inet_pton(AF_INET, addr.c_str(), &src_addr_) < 0)
-      perror("set socket address failed");
+      perror(std::string("port[" + std::to_string(id_) + "] set src addr").c_str());
   }
   else {
     src_addr_.sin_family = AF_INET;
@@ -77,6 +77,16 @@ Port_udp::Port_udp(Port::Id id, std::string const& args)
   int optval = 1;
   setsockopt(sock_fd_, SOL_SOCKET, SO_REUSEADDR, (const void*)&optval,
     sizeof(int));
+
+  // FIXME: For now, we will hardcode a destination address for the UDP ports.
+  // this needs to be fixed with some sort of configuration.
+  //
+  // Possibly look at this to fix this:
+  // http://stackoverflow.com/questions/5281409/get-destination-address-of-a-received-udp-packet
+  if (inet_pton(AF_INET, std::string("localhost").c_str(), &dst_addr_) < 0)
+    perror(std::string("port[" + std::to_string(id_) + "] set dst addr").c_str());
+  dst_addr_.sin_port = htons(5003);
+  send_fd_ = socket(AF_INET, SOCK_DGRAM, 0);  
 }
 
 
@@ -90,9 +100,9 @@ Port_udp::~Port_udp()
 int
 Port_udp::open()
 {
-  // Bind the socket to its address.
+  // Bind the socket to its source address.
   if (::bind(sock_fd_, (struct sockaddr*)&src_addr_, sizeof(src_addr_)) < 0) {
-    perror(std::string("port[" + std::to_string(id_) + "] bind").c_str());
+    perror(std::string("port[" + std::to_string(id_) + "] bind src addr").c_str());
     return -1;
   }
 
@@ -140,8 +150,8 @@ Port_udp::recv()
   if (config_.down)
     throw std::string("Port down");
 
-  // Receive data. Wait for 16 messages to arrive or timeout at 1 second.
-  int num_msg = recvmmsg(sock_fd_, messages_, 16, 0, &timeout_);
+  // Receive data. Wait for 2048 messages to arrive or timeout at 1 second.
+  int num_msg = recvmmsg(sock_fd_, messages_, 2048, 0, &timeout_);
 
   // Check for errors.
   if (num_msg == -1) {
@@ -170,13 +180,16 @@ Port_udp::recv()
   // at link time when we are giving definitions to other unknowns.
   int max_headers = 0;
   int max_fields = 0;
-
+  uint64_t bytes = 0;
   // Process messages.
   for (int i = 0; i < num_msg; i++) {
-    Packet* pkt = packet_create((unsigned char*)&in_buffers_[i], 512, 0, nullptr, FP_BUF_ALLOC);
+    bytes += messages_[i].msg_len;
+    Packet* pkt = packet_create((unsigned char*)&in_buffers_[i], 1024, 0, nullptr, FP_BUF_ALLOC);
     Context* cxt = new Context(pkt, id_, id_, 0, max_headers, max_fields);
     thread_pool.assign(new Task("pipeline", cxt));
   }
+  stats_.pkt_rx += num_msg;
+  stats_.byt_rx += bytes;
 
   return nullptr;
 }
@@ -189,30 +202,70 @@ Port_udp::send()
   // Check that this port is usable.
   if (config_.down)
     throw std::string("port down");
-  int bytes = 0;
+  uint64_t bytes = 0;
+  // Check if any to send.
+  int len = tx_queue_.size();
+  if (len) {
+    /*
+    if (connect(send_fd_, (struct sockaddr*)&dst_addr_, sizeof(dst_addr_)) < 0) {
+      perror(std::string("port[" + std::to_string(id_) + "] connect").c_str());
+      throw std::string("Connect failed");
+    }
+    // Clear message buffers.
+    memset(messages_, 0, sizeof(messages_));
+    memset(iovecs_, 0, sizeof(iovecs_));
 
-  // Get the next packet.
-  Context* cxt = nullptr;
-  while ((cxt = tx_queue_.dequeue())) {
-    // Send the packet.
-    int l_bytes = sendto(sock_fd_, cxt->packet_->buf_.data_, cxt->packet_->size_, 0,
-      (struct sockaddr*)&dst_addr_, sizeof(dst_addr_));
+    // Get the next packet.
+    
+    
+    //std::vector<Context*> cxt_list;
+    */
+    Context* cxt;
 
-    if (bytes < 0)
-      continue;
+    for (int i = 0; i < len; i++) {
+      cxt = tx_queue_.dequeue();
 
-    // TODO: What do we do if we send 0 bytes?
-    if (bytes == 0)
-      continue;
+      long res = sendto(send_fd_, cxt->packet_->data(), sizeof(cxt->packet_->data()),
+        0, (struct sockaddr*)&dst_addr_, sizeof(dst_addr_));
+      if (res < 0) {
+        perror(std::string("port[" + std::to_string(id_) + "] sendto").c_str());
+        throw std::string("");
+      }
+      else
+        bytes += res; 
+      packet_destroy(cxt->packet_);
+      delete cxt;
+      /*
+      // Assign the packet data to a slot in the outboud buffer.
+      iovecs_[i].iov_base = cxt->packet_->data();
+      iovecs_[i].iov_len = sizeof(cxt->packet_->data());
 
-    // Destroy the packet data.
-    packet_destroy(cxt->packet_);
+      messages_[i].msg_hdr.msg_iov = &iovecs_[i];
+      messages_[i].msg_hdr.msg_iovlen = 1;
 
-    // Destroy the packet context.
-    delete cxt;
+      // Add the context to a delete list for after the send.
+      //cxt_list.push_back(cxt);
+      */
+    }
 
-    bytes += l_bytes;
+    /*
+    // Send the packets.
+    int num_sent = sendmmsg(send_fd_, messages_, len, 0);
+
+    // Check for errors.
+    if (num_sent == -1)
+      perror(std::string("port[" + std::to_string(id_) + "] sendmmsg").c_str());
+
+    // Get how many bytes were sent.    
+    for (int i = 0; i < len; i++) {
+      bytes += messages_[i].msg_len;
+    }
+    */
+    // Update port stats.
+    stats_.pkt_tx += len;
+    stats_.byt_tx += bytes;
   }
+  
   // Return number of bytes sent.
   return bytes;
 }
@@ -226,10 +279,11 @@ udp_work_fn(void* arg)
 {
   // Grab a pointer to the port object you are driving.
   Port_udp* self = (Port_udp*)port_table.find(*((int*)arg));
-  int sock_fd = self->sock_fd_;
+  //int sock_fd = self->sock_fd_;
 
   // Run while the FD is valid.
-  while (fcntl(sock_fd, F_GETFD) != EBADF) {
+  //while (fcntl(sock_fd, F_GETFD) != EBADF) {
+  while (!self->config_.down) {
     // Receive.
     self->recv();
     // Send.

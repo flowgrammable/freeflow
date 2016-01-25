@@ -40,6 +40,20 @@ public:
     uint8_t unused    : 4;
   };
 
+  // Port statistics.
+  struct Statistics
+  {
+    Statistics()
+      : pkt_rx(0), pkt_tx(0), byt_rx(0), byt_tx(0)
+    { }
+
+    // Packet statistics.
+    uint64_t pkt_rx;
+    uint64_t pkt_tx;
+    uint64_t byt_rx;
+    uint64_t byt_tx;
+  };
+
   // Ctor/Dtor.
   Port(Id, std::string const& = "");
   virtual ~Port();
@@ -55,23 +69,27 @@ public:
   virtual int       open() = 0;
   virtual Context*  recv() = 0;
   virtual int       send() = 0;
-  virtual void      send(Context*);
-  virtual void      drop(Context*);
   virtual void      close() = 0;
   virtual Function  work_fn() = 0;
+
+  // Functions derived ports aren't responsible for defining.
+  void send(Context*);
+  void drop(Context*);
 
   // Set the ports state to 'up' or 'down'.
   void up();
   void down();
 
   // Accessors.
-  Id id() const;
-  Label name() const;
+  Id          id() const;
+  Label       name() const;
+  Statistics  stats() const;
 
   // Data members.
   Id              id_;        // The internal port ID.
   Address         addr_;      // The hardware address for the port.
   Label           name_;      // The name of the port.
+  Statistics      stats_;
   Configuration   config_;    // The current port configuration.
   Queue           tx_queue_;  // The ports transmit (send) queue.
 };

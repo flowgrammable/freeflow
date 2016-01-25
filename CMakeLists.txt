@@ -17,7 +17,7 @@ endif()
 
 # C/C++ build flags.
 set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -Wall")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -pthread -g")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -pthread -O3")
 
 
 # Require Boost C++ Libraries.

@@ -12,7 +12,7 @@ namespace Buffer
 // Ctor for the base packet buffer.
 Base::Base(unsigned char* data)
 {
-  memset(data_, 0, 1024);
+  data_ = new uint8_t[1024];
   memcpy(data_, data, sizeof(data));
 }
 
@@ -20,8 +20,7 @@ Base::Base(unsigned char* data)
 // Virtual Dtor for base packet buffer.
 Base::~Base()
 {
-  if (data_)
-    delete[] data_;
+  delete[] data_;
 }
 
 } // end namespace buffer

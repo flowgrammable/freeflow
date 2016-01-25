@@ -144,7 +144,7 @@ Port_tcp::send()
   Context* cxt = nullptr;
   while ((cxt = tx_queue_.dequeue())) {
     // Send the packet.
-    int l_bytes = write(io_fd_, cxt->packet_->buf_.data_, cxt->packet_->size_);
+    int l_bytes = write(io_fd_, cxt->packet_->data(), cxt->packet_->size_);
 
     if (bytes < 0)
       continue;
