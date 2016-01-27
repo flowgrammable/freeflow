@@ -47,12 +47,12 @@ Port_udp::Port_udp(Port::Id id, std::string const& args)
   std::string port = args.substr(bind_port + 1, args.find(';'));
   std::string name = args.substr(name_off + 1, args.length());
   // Set the address, if given. Otherwise it is set to INADDR_ANY.
+  src_addr_.sin_family = AF_INET;
   if (addr.length() > 0) {
-    if (inet_pton(AF_INET, addr.c_str(), &src_addr_) < 0)
+    if (inet_pton(AF_INET, addr.c_str(), &src_addr_.sin_addr) < 0)
       perror(std::string("port[" + std::to_string(id_) + "] set src addr").c_str());
   }
-  else {
-    src_addr_.sin_family = AF_INET;
+  else {    
     src_addr_.sin_addr.s_addr = htons(INADDR_ANY);
   }
 
@@ -83,7 +83,8 @@ Port_udp::Port_udp(Port::Id id, std::string const& args)
   //
   // Possibly look at this to fix this:
   // http://stackoverflow.com/questions/5281409/get-destination-address-of-a-received-udp-packet
-  if (inet_pton(AF_INET, std::string("localhost").c_str(), &dst_addr_) < 0)
+  dst_addr_.sin_family = AF_INET;
+  if (inet_pton(AF_INET, "10.0.1.2", &dst_addr_.sin_addr) < 0)
     perror(std::string("port[" + std::to_string(id_) + "] set dst addr").c_str());
   dst_addr_.sin_port = htons(5003);
   send_fd_ = socket(AF_INET, SOCK_DGRAM, 0);  
