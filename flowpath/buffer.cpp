@@ -10,10 +10,10 @@ namespace Buffer
 {
 
 // Ctor for the base packet buffer.
-Base::Base(unsigned char* data)
+Base::Base(unsigned char* data, size_t len)
 {
-  data_ = new uint8_t[1024];
-  memcpy(data_, data, sizeof(data));
+  data_ = new uint8_t[len];
+  memcpy(data_, data, len);
 }
 
 

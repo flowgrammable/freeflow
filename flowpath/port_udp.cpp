@@ -27,10 +27,6 @@ namespace fp
 
 extern Port_table port_table;
 
-
-const int INIT_BUFF_SIZE = 2048;
-
-
 // UDP Port constructor. Parses the UDP address and port from
 // the input string given, allocates a new internal ID.
 Port_udp::Port_udp(Port::Id id, std::string const& args)
@@ -47,12 +43,12 @@ Port_udp::Port_udp(Port::Id id, std::string const& args)
   std::string port = args.substr(bind_port + 1, args.find(';'));
   std::string name = args.substr(name_off + 1, args.length());
   // Set the address, if given. Otherwise it is set to INADDR_ANY.
+  src_addr_.sin_family = AF_INET;
   if (addr.length() > 0) {
-    if (inet_pton(AF_INET, addr.c_str(), &src_addr_) < 0)
+    if (inet_pton(AF_INET, addr.c_str(), &src_addr_.sin_addr) < 0)
       perror(std::string("port[" + std::to_string(id_) + "] set src addr").c_str());
   }
-  else {
-    src_addr_.sin_family = AF_INET;
+  else {    
     src_addr_.sin_addr.s_addr = htons(INADDR_ANY);
   }
 
@@ -68,14 +64,14 @@ Port_udp::Port_udp(Port::Id id, std::string const& args)
   name_ = name;
 
   // Create the socket.
-  if ((sock_fd_ = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+  if ((fd_ = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
     perror(std::string("port[" + std::to_string(id_) + "] socket").c_str());
     throw std::string("Port_udp::Ctor");
   }
 
   // Additional socket options.
   int optval = 1;
-  setsockopt(sock_fd_, SOL_SOCKET, SO_REUSEADDR, (const void*)&optval,
+  setsockopt(fd_, SOL_SOCKET, SO_REUSEADDR, (const void*)&optval,
     sizeof(int));
 
   // FIXME: For now, we will hardcode a destination address for the UDP ports.
@@ -83,10 +79,9 @@ Port_udp::Port_udp(Port::Id id, std::string const& args)
   //
   // Possibly look at this to fix this:
   // http://stackoverflow.com/questions/5281409/get-destination-address-of-a-received-udp-packet
-  if (inet_pton(AF_INET, std::string("localhost").c_str(), &dst_addr_) < 0)
-    perror(std::string("port[" + std::to_string(id_) + "] set dst addr").c_str());
-  dst_addr_.sin_port = htons(5003);
-  send_fd_ = socket(AF_INET, SOCK_DGRAM, 0);  
+  dst_addr_.sin_family = AF_INET;
+  dst_addr_.sin_addr.s_addr = htons(INADDR_ANY);
+  dst_addr_.sin_port = htons(5003);  
 }
 
 
@@ -101,14 +96,14 @@ int
 Port_udp::open()
 {
   // Bind the socket to its source address.
-  if (::bind(sock_fd_, (struct sockaddr*)&src_addr_, sizeof(src_addr_)) < 0) {
+  if (::bind(fd_, (struct sockaddr*)&src_addr_, sizeof(src_addr_)) < 0) {
     perror(std::string("port[" + std::to_string(id_) + "] bind src addr").c_str());
     return -1;
   }
 
   // Set the socket to be non-blocking.
-  int flags = fcntl(sock_fd_, F_GETFL, 0);
-  fcntl(sock_fd_, F_SETFL, flags | O_NONBLOCK);
+  int flags = fcntl(fd_, F_GETFL, 0);
+  fcntl(fd_, F_SETFL, flags | O_NONBLOCK);
 
   // NOTE: UDP sockets cannot be put into a 'listening' state, as they are
   // connectionless. Normally we would set the into a listening state at this
@@ -120,9 +115,9 @@ Port_udp::open()
   memset(messages_, 0, sizeof(messages_));
 
   // Initialize IOVecs
-  for (int i = 0; i < 16; i++) {
-    iovecs_[i].iov_base  = in_buffers_[i];
-    iovecs_[i].iov_len   = 512;
+  for (int i = 0; i < MSG_SIZE; i++) {
+    iovecs_[i].iov_base  = buffer_[i];
+    iovecs_[i].iov_len   = BUF_SIZE;
     messages_[i].msg_hdr.msg_iov = &iovecs_[i];
     messages_[i].msg_hdr.msg_iovlen  = 1;
   }
@@ -139,7 +134,7 @@ Port_udp::open()
 void
 Port_udp::close()
 {
-  ::close((int)sock_fd_);
+  ::close((int)fd_);
 }
 
 
@@ -150,8 +145,8 @@ Port_udp::recv()
   if (config_.down)
     throw std::string("Port down");
 
-  // Receive data. Wait for 2048 messages to arrive or timeout at 1 second.
-  int num_msg = recvmmsg(sock_fd_, messages_, 2048, 0, &timeout_);
+  // Receive data. Wait for messages to arrive or timeout at 1 second.
+  int num_msg = recvmmsg(fd_, messages_, MSG_SIZE, MSG_WAITFORONE, &timeout_);
 
   // Check for errors.
   if (num_msg == -1) {
@@ -184,7 +179,7 @@ Port_udp::recv()
   // Process messages.
   for (int i = 0; i < num_msg; i++) {
     bytes += messages_[i].msg_len;
-    Packet* pkt = packet_create((unsigned char*)&in_buffers_[i], 1024, 0, nullptr, FP_BUF_ALLOC);
+    Packet* pkt = packet_create((unsigned char*)&buffer_[i], messages_[i].msg_len, 0, nullptr, FP_BUF_ALLOC);
     Context* cxt = new Context(pkt, id_, id_, 0, max_headers, max_fields);
     thread_pool.assign(new Task("pipeline", cxt));
   }
@@ -225,7 +220,7 @@ Port_udp::send()
     for (int i = 0; i < len; i++) {
       cxt = tx_queue_.dequeue();
 
-      long res = sendto(send_fd_, cxt->packet_->data(), sizeof(cxt->packet_->data()),
+      long res = sendto(fd_, cxt->packet_->data(), sizeof(cxt->packet_->data()),
         0, (struct sockaddr*)&dst_addr_, sizeof(dst_addr_));
       if (res < 0) {
         perror(std::string("port[" + std::to_string(id_) + "] sendto").c_str());
@@ -268,28 +263,6 @@ Port_udp::send()
   
   // Return number of bytes sent.
   return bytes;
-}
-
-
-
-// UDP Port thread work function. Expects the internal port id to be passed
-// as an argument, which is used to drive that port.
-void*
-udp_work_fn(void* arg)
-{
-  // Grab a pointer to the port object you are driving.
-  Port_udp* self = (Port_udp*)port_table.find(*((int*)arg));
-  //int sock_fd = self->sock_fd_;
-
-  // Run while the FD is valid.
-  //while (fcntl(sock_fd, F_GETFD) != EBADF) {
-  while (!self->config_.down) {
-    // Receive.
-    self->recv();
-    // Send.
-    self->send();
-  }
-  return 0;
 }
 
 

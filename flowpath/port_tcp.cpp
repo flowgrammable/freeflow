@@ -52,7 +52,7 @@ Port_tcp::Port_tcp(Port::Id id, std::string const& args)
   }
   else {
     src_addr_.sin_family = AF_INET;
-    src_addr_.sin_addr.s_addr = htons(INADDR_ANY);
+    src_addr_.sin_addr.s_addr = htons(INADDR_LOOPBACK);
   }
 
   // Check length of port arg.
@@ -67,14 +67,14 @@ Port_tcp::Port_tcp(Port::Id id, std::string const& args)
   name_ = name;
 
   // Create the socket.
-  if ((sock_fd_ = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+  if ((fd_ = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
     perror(std::string("port[" + std::to_string(id_) + "] socket").c_str());
     throw std::string("Port_tcp::Ctor");
   }
 
   // Additional socket options.
   int optval = 1;
-  setsockopt(sock_fd_, SOL_SOCKET, SO_REUSEADDR, (const void*)&optval,
+  setsockopt(fd_, SOL_SOCKET, SO_REUSEADDR, (const void*)&optval,
     sizeof(int));
 }
 
@@ -82,6 +82,36 @@ Port_tcp::Port_tcp(Port::Id id, std::string const& args)
 // UDP Port destructor. Releases the allocated ID.
 Port_tcp::~Port_tcp()
 { }
+
+
+// Open the port. Creates a socket and binds it to the
+// sockaddr data member.
+int
+Port_tcp::open()
+{
+  // Bind the socket to its address.
+  if (::bind(fd_, (struct sockaddr*)&src_addr_, sizeof(src_addr_)) < 0) {
+    perror(std::string("port[" + std::to_string(id_) + "] bind").c_str());
+    return -1;
+  }
+
+  // Set the socket to be non-blocking.
+  int flags = fcntl(fd_, F_GETFL, 0);
+  fcntl(fd_, F_SETFL, flags | O_NONBLOCK);
+
+  // Put the socket into a listening state.
+  listen(fd_, 10);
+
+  return 0;
+}
+
+
+// Close the port (socket).
+void
+Port_tcp::close()
+{
+  ::close((int)fd_);
+}
 
 
 // Read a packet from the input buffer.
@@ -93,7 +123,7 @@ Port_tcp::recv()
 
   char buff[INIT_BUFF_SIZE];
   // Receive data.
-  int bytes = read(io_fd_, buff, INIT_BUFF_SIZE);
+  int bytes = read(fd_, buff, INIT_BUFF_SIZE);
 
   if (bytes < 0) {
     perror(std::string("port[" + std::to_string(id_) + "] recvfrom").c_str());
@@ -144,7 +174,7 @@ Port_tcp::send()
   Context* cxt = nullptr;
   while ((cxt = tx_queue_.dequeue())) {
     // Send the packet.
-    int l_bytes = write(io_fd_, cxt->packet_->data(), cxt->packet_->size_);
+    int l_bytes = write(fd_, cxt->packet_->data(), cxt->packet_->size_);
 
     if (bytes < 0)
       continue;
@@ -165,37 +195,7 @@ Port_tcp::send()
   return bytes;
 }
 
-
-// Open the port. Creates a socket and binds it to the
-// sockaddr data member.
-int
-Port_tcp::open()
-{
-  // Bind the socket to its address.
-  if (::bind(sock_fd_, (struct sockaddr*)&src_addr_, sizeof(src_addr_)) < 0) {
-    perror(std::string("port[" + std::to_string(id_) + "] bind").c_str());
-    return -1;
-  }
-
-  // Set the socket to be non-blocking.
-  int flags = fcntl(sock_fd_, F_GETFL, 0);
-  fcntl(sock_fd_, F_SETFL, flags | O_NONBLOCK);
-
-  // Put the socket into a listening state.
-  listen(sock_fd_, 10);
-
-  return 0;
-}
-
-
-// Close the port (socket).
-void
-Port_tcp::close()
-{
-  ::close((int)sock_fd_);
-}
-
-
+#if 0
 // TCP Port thread work function. Expects the internal port id to be passed
 // as an argument, which is used to drive that port.
 void*
@@ -209,7 +209,7 @@ tcp_work_fn(void* arg)
   struct sockaddr_in addr = self->dst_addr_;
   socklen_t slen = sizeof(addr);
   int sock_fd, conn_fd, epoll_fd, res;
-  sock_fd = self->sock_fd_;
+  sock_fd = self->fd_;
 
   if ((epoll_fd = epoll_create1(0)) == -1)
     perror(std::string("port[" + std::to_string(self->id()) +
@@ -256,7 +256,7 @@ tcp_work_fn(void* arg)
         } // End if new connection.
         else {
           // A message from a known client has been received. Process it.
-          self->io_fd_ = event_list[i].data.fd;
+          self->fd_ = event_list[i].data.fd;
           thread_pool.assign(new Task("pipeline", self->recv()));
         } // End else known connection.
       }
@@ -266,6 +266,6 @@ tcp_work_fn(void* arg)
   }
   return 0;
 }
-
+#endif
 
 } // end namespace fp

@@ -6,6 +6,12 @@
 #include <algorithm>
 #include <iterator>
 
+// FIXME: Apple uses kqueue instead of epoll.
+#if ! __APPLE__
+#  include <sys/epoll.h>
+#endif
+#include <fcntl.h>
+
 namespace fp
 {
 
@@ -17,36 +23,38 @@ Port_flood::send()
   // Check that this port is usable.
   if (config_.down)
     throw("port down");
-
-  // Get the next packet to send.
+  #if 0
+  // Setup locals.
   Context* cxt = nullptr;
   int bytes = 0;
-  while ((cxt = tx_queue_.dequeue())) {
+  int len = tx_queue_.size();
+  for (int i = 0; i < len; i++) {
+    // Get the next packet to send.
+    cxt = tx_queue_.dequeue();
+
     // Iterator over ports
     auto iter = port_table.list().begin();
     while (++iter != port_table.list().end()) {
-      Port_udp* p = (Port_udp*)*iter;
-
       // Skip the source port.
-      if (p->id_ == cxt->in_port)
+      if (iter->id() == cxt->in_port)
         continue;
 
       // Send the packet to the next port.
-      int l_bytes = sendto(sock_fd_, cxt->packet_->buf_->data_, cxt->packet_->size_, 0,
-        (struct sockaddr*)&p->src_addr_, sizeof(struct sockaddr_in));
-
-      // Destroy the packet data.
-      packet_destroy(cxt->packet_);
-
-      // Destroy the packet context.
-      delete(cxt);
-
+      // FIXME: Implement this.
+      
       // Update number of bytes sent.
       bytes += l_bytes;
     }
+    // Destroy the packet data.
+    packet_destroy(cxt->packet_);
+
+    // Destroy the packet context.
+    delete(cxt);
   }
   // Return number of bytes sent.
   return bytes;
+  #endif
+  return 0;
 }
 
 
@@ -155,6 +163,67 @@ auto
 Port_table::list() -> store_type
 {
   return data_;
+}
+
+
+void
+port_mgr_work()
+{
+  // Setup epoll to watch multiple ports.
+  struct epoll_event event, event_list[16];
+  int conn_fd, epoll_fd, res;
+
+  if ((epoll_fd = epoll_create1(0)) == -1)
+    perror("port_mgr epoll_create");
+
+  while(true) {
+    // Poll for new events.
+    res = epoll_wait(epoll_fd, event_list, 16, 1000);
+
+    // Check for errors.
+    if (res == -1) {
+      perror("port_mgr epoll_wait");
+      continue;
+    }
+
+    // Handle events.
+    for (int i = 0; i < res; i++) {
+      for (auto port : port_table.list()) {
+        if (port->fd() == event_list[i].data.fd) {
+          if (event_list[i].events & EPOLLIN)
+            port->recv();
+          else if (event_list[i].events & EPOLLOUT)
+            port->send();
+        }
+      }
+    }
+
+    // Update the poll set.
+    for (auto port : port_table.list()) {
+      // Remove any downed ports from the poll set.
+      if (port->config_.down) {       
+        if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, port->fd(), &event) == -1)
+          if (errno != ENOENT)
+            perror("port_mgr epoll_ctl_del");
+        continue;
+      }
+      
+      // Attempt to add the usable port to the poll set.
+      //
+      // Set the socket to be non-blocking.
+      int flags = fcntl(port->fd(), F_GETFL, 0);
+      fcntl(port->fd(), F_SETFL, flags | O_NONBLOCK);
+      
+      // Set the events to listen for.
+      event.events = EPOLLIN | EPOLLOUT | EPOLLET;
+      event.data.fd = port->fd();
+
+      // Add the file descriptor to the poll set.
+      if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, port->fd(), &event) == -1)
+        if (errno != EEXIST)
+          perror("port_mgr epoll_ctl_add");
+    }
+  }
 }
 
 

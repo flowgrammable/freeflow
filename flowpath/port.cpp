@@ -13,7 +13,7 @@ namespace fp
 
 // Port constructor that sets ID.
 Port::Port(Port::Id id, std::string const& name)
-  : id_(id), name_(name)
+  : id_(id), fd_(), name_(name), stats_(), config_()
 { }
 
 
@@ -70,8 +70,6 @@ Port::up()
 {
   // Clear the bitfield (uint8_t).
   *(uint8_t*)(&config_) = 0;
-  // Clear statistics.
-  stats_.byt_tx = stats_.byt_rx = stats_.pkt_tx = stats_.pkt_rx = 0;
 }
 
 
@@ -114,11 +112,21 @@ Port::name() const
   return name_;
 }
 
+
 // Gets the port statistics.
 Port::Statistics
 Port::stats() const
 {
   return stats_;
 }
+
+
+// Gets the port file descriptor.
+Port::Descriptor
+Port::fd() const
+{
+  return fd_;
+}
+
 
 } // end namespace FP

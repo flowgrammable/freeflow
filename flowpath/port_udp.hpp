@@ -4,26 +4,23 @@
 #include "port.hpp"
 #include "packet.hpp"
 #include "context.hpp"
-#include "dataplane.hpp"
 
 #include <string>
 
 namespace fp
 {
 
-// UDP Port thread work function.
-extern void* udp_work_fn(void*);
-
 class Port_udp : public Port
 {
 public:
   using Port::Port;
-
-  // Constructors/Destructor.
+  static const int MSG_SIZE = 128;
+  static const int BUF_SIZE = 128;
+  // Ctor/Dtor.
   Port_udp(Port::Id, std::string const&);
   ~Port_udp();
 
-  // Packet related funtions.
+  // Packet I/O functions.
   Context*  recv();
   int       send();
 
@@ -31,21 +28,15 @@ public:
   int     open();
   void    close();
 
-  // Accessors.
-  Function work_fn() { return udp_work_fn; }
-
   // Data members.
   //
-  // Socket file descriptor.
-  int sock_fd_;
-  int send_fd_;
   // Socket addresses.
   struct sockaddr_in src_addr_;
   struct sockaddr_in dst_addr_;
   // Message containers.
-  struct mmsghdr     messages_[2048];
-  struct iovec       iovecs_[2048];
-  char               in_buffers_[2048][1024];
+  struct mmsghdr     messages_[MSG_SIZE];
+  struct iovec       iovecs_[MSG_SIZE];
+  char               buffer_[MSG_SIZE][BUF_SIZE];
   struct timespec    timeout_;
 };
 

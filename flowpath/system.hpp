@@ -4,6 +4,7 @@
 #include "port.hpp"
 #include "table.hpp"
 #include "action.hpp"
+#include "dataplane.hpp"
 
 extern "C"
 {

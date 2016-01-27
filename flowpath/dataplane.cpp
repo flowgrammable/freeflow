@@ -4,8 +4,6 @@
 
 namespace fp {
 
-extern Module_table module_table;
-extern Thread_pool thread_pool;
 
 // Data plane ctor.
 Dataplane::Dataplane(std::string const& name, std::string const& app_name)

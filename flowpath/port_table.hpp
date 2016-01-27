@@ -5,6 +5,8 @@
 #include "port_udp.hpp"
 #include "port_tcp.hpp"
 
+#include "thread.hpp"
+
 #include <string>
 #include <vector>
 #include <climits>
@@ -52,16 +54,25 @@ public:
   void  dealloc(Port::Id);
 
   // Accessors.
+  //
+  // Search functions.
   value_type find(Port::Id);
   value_type find(std::string const&);
+
+  // Lists all ports.
   store_type list();
 
+  // Logical ports.
   value_type flood_port() const { return flood_port_; }
   value_type broad_port() const { return broad_port_; }
   value_type drop_port()  const { return drop_port_; }
 
 
 private:
+  // Port management thread.
+  Thread thread_;
+
+  // List of all ports allocated in the system.
   store_type data_;
 
   // Reserved ports.
@@ -71,6 +82,7 @@ private:
 };
 
 extern Port_table port_table;
+extern void port_mgr_work(void);
 
 } // end namespace fp
 

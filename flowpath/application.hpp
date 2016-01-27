@@ -81,8 +81,7 @@ struct Application
 
   // Application port resources.
   std::vector<Port*>    ports_;
-  std::vector<Thread*>  port_threads_;
-  int     num_ports_;
+  int                   num_ports_;
 };
 
 void* get_sym_handle(void*, std::string const&);

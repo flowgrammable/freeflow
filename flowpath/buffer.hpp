@@ -2,6 +2,7 @@
 #define FP_BUFFER_HPP
 
 #include <cstdint>
+#include <cstdlib>
 
 namespace fp
 {
@@ -11,7 +12,7 @@ namespace Buffer
 
 struct Base
 {
-  Base(uint8_t*);
+  Base(uint8_t*, size_t);
   virtual ~Base();
 
   uint8_t* data_;

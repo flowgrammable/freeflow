@@ -6,7 +6,6 @@
 
 #include "packet.hpp"
 #include "queue.hpp"
-#include "thread.hpp"
 
 
 // The Flowpath namespace.
@@ -25,10 +24,10 @@ public:
 
   // Port specific types.
   using Id = unsigned int;
+  using Descriptor = int;
   using Address = unsigned char const*;
   using Label = std::string;
   using Queue = Locking_queue<Context*>;
-  using Function = void*(*)(void*);
 
   // Port configuration.
   struct __attribute__((__packed__)) Configuration
@@ -66,17 +65,24 @@ public:
 
   // The set of necessary port related functions that any port-type
   // must define.
+  //
+  // State manipulation.
   virtual int       open() = 0;
+  virtual void      close() = 0;
+
+  // I/O.
   virtual Context*  recv() = 0;
   virtual int       send() = 0;
-  virtual void      close() = 0;
-  virtual Function  work_fn() = 0;
 
   // Functions derived ports aren't responsible for defining.
+  //
+  // Enqueues a context to be sent.
   void send(Context*);
+
+  // Drop a context.
   void drop(Context*);
 
-  // Set the ports state to 'up' or 'down'.
+  // Set the ports configuration to 'up' or 'down'.
   void up();
   void down();
 
@@ -84,12 +90,14 @@ public:
   Id          id() const;
   Label       name() const;
   Statistics  stats() const;
+  Descriptor  fd() const;
 
   // Data members.
   Id              id_;        // The internal port ID.
   Address         addr_;      // The hardware address for the port.
+  Descriptor      fd_;        // The ports file descriptor.
   Label           name_;      // The name of the port.
-  Statistics      stats_;
+  Statistics      stats_;     // Performance metrics.
   Configuration   config_;    // The current port configuration.
   Queue           tx_queue_;  // The ports transmit (send) queue.
 };
