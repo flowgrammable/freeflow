@@ -55,12 +55,12 @@ main()
     // Instantiate ports.
     //
     // P1 : Connected to an echo client.
-    fp::Port* p1 = fp::create_port(fp::Port::Type::udp, "10.0.1.1:5000;p1");
+    fp::Port* p1 = fp::create_port(fp::Port::Type::udp, "127.0.0.1:5000;p1");
     std::cerr << "Created port " << p1->name() << " with id '" << p1->id() << "'\n";
 
 
     // P2 : Bound to a netcat UDP port; Acts as the entry point.
-    fp::Port* p2 = fp::create_port(fp::Port::Type::udp, "10.0.1.1:5001;p2");
+    fp::Port* p2 = fp::create_port(fp::Port::Type::udp, "127.0.0.1:5001;p2");
     std::cerr << "Created port " << p2->name() << " with id '" << p2->id() << "'\n";
 
 

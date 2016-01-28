@@ -2,6 +2,7 @@
 #include <string>
 #include <cstdlib>
 #include <signal.h>
+#include <unistd.h>
 #include "socket.hpp"
 
 // Running flag.
@@ -31,8 +32,6 @@ int main(int argc, char* argv[])
   running = true;
   while(running)
   {
-    sock->clear_buff();
-    std::cin.getline(sock->buf_, 2048);
     sock->send();
   }
   // Cleanup.
