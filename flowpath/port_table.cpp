@@ -32,7 +32,7 @@ Port_flood::send()
         continue;
 
       // Send the packet to the next port.
-      int l_bytes = sendto(sock_fd_, cxt->packet_->buf_->data_, cxt->packet_->size_, 0,
+      int l_bytes = sendto(sock_fd_, cxt->packet_->buf_.data_, cxt->packet_->size_, 0,
         (struct sockaddr*)&p->src_addr_, sizeof(struct sockaddr_in));
 
       // Destroy the packet data.
@@ -95,7 +95,7 @@ Port_table::alloc(Port::Type port_type, std::string const& args) -> value_type
       data_[idx] = (value_type)new Port_tcp(idx+1, args);
     break;
   }
-
+  handles_.insert({data_[idx]->fd(), data_[idx]});
   // Return a pointer to the newly allocated port object.
   return data_[idx];
 }
@@ -105,8 +105,10 @@ Port_table::alloc(Port::Type port_type, std::string const& args) -> value_type
 void
 Port_table::dealloc(Port::Id id)
 {
-  if (data_[id-1])
+  if (data_[id-1]) {
+    handles_.erase(data_[id-1]->fd());
     delete data_[id-1];
+  }
   data_[id-1] = nullptr;
 }
 

@@ -29,6 +29,7 @@ public:
   using Label = std::string;
   using Queue = Locking_queue<Context*>;
   using Function = void*(*)(void*);
+  using Descriptor = int;
 
   // Port configuration.
   struct __attribute__((__packed__)) Configuration
@@ -84,6 +85,7 @@ public:
   Id          id() const;
   Label       name() const;
   Statistics  stats() const;
+  Descriptor  fd() const;
 
   // Data members.
   Id              id_;        // The internal port ID.
@@ -91,6 +93,7 @@ public:
   Label           name_;      // The name of the port.
   Statistics      stats_;
   Configuration   config_;    // The current port configuration.
+  Descriptor      fd_;
   Queue           tx_queue_;  // The ports transmit (send) queue.
 };
 

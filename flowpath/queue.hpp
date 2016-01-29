@@ -2,6 +2,7 @@
 #define FP_QUEUE_HPP
 
 #include <queue>
+#include <cassert>
 #include <pthread.h>
 
 namespace fp
@@ -74,12 +75,10 @@ template <typename T>
 T
 Locking_queue<T>::dequeue()
 {
-  T ret = nullptr;
+  assert(queue_.size());
   mutex_.lock();
-  if (!queue_.empty()) {
-    ret = queue_.front();
-    queue_.pop();
-  }
+  T ret = queue_.front();
+  queue_.pop();
   mutex_.unlock();
   return ret;
 }

@@ -11,10 +11,10 @@ namespace fp
 {
 
 
-Module_table     module_table;     // Flowpath module table.
-Dataplane_table  dataplane_table;  // Flowpath data plane table.
-Port_table       port_table;       // Flowpath port table.
-Thread_pool      thread_pool(1, true);      // Flowpath thread pool.
+Module_table     module_table;          // Flowpath module table.
+Dataplane_table  dataplane_table;       // Flowpath data plane table.
+Port_table       port_table;            // Flowpath port table.
+Thread_pool      thread_pool(1, true);  // Flowpath thread pool.
 
 
 // Creates a new port, adds it to the master port table, and

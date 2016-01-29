@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #include <climits>
+#include <unordered_map>
 
 namespace fp
 {
@@ -34,6 +35,7 @@ class Port_table
   using store_type = std::vector<Port*>;
   using value_type = Port*;
   using iter_type  = std::vector<Port*>::iterator;
+  using handler_type = std::unordered_map<int, Port*>;
 public:
 
   // Constructors.
@@ -48,6 +50,7 @@ public:
 
   // Allocator.
   Port* alloc(Port::Type, std::string const&);
+
   // Deallocator.
   void  dealloc(Port::Id);
 
@@ -60,9 +63,9 @@ public:
   value_type broad_port() const { return broad_port_; }
   value_type drop_port()  const { return drop_port_; }
 
-
 private:
-  store_type data_;
+  store_type    data_;
+  handler_type  handles_;
 
   // Reserved ports.
   value_type flood_port_;

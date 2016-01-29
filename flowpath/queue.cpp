@@ -1,5 +1,5 @@
 #include "queue.hpp"
-
+#include <cstdio>
 
 namespace fp
 {
@@ -8,7 +8,7 @@ namespace fp
 Mutex::Mutex()
 {
   if (pthread_mutex_init(&mutex_, nullptr))
-    throw("failed to create mutex");
+    perror("Mutex ctor");
 }
 
 

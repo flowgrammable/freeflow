@@ -12,6 +12,7 @@ namespace fp
 {
 
 struct Application;
+struct Context;
 
 #if __APPLE__
 using Barrier_type = void*;
@@ -122,6 +123,9 @@ struct Task
 
 	Task(Label func, Arg arg)
 		: func_(func), arg_(arg)
+	{ }
+
+	~Task()
 	{ }
 
 	Label func() const { return func_; }

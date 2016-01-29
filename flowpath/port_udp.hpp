@@ -43,9 +43,9 @@ public:
   struct sockaddr_in src_addr_;
   struct sockaddr_in dst_addr_;
   // Message containers.
-  struct mmsghdr     messages_[2048];
-  struct iovec       iovecs_[2048];
-  char               in_buffers_[2048][1024];
+  struct mmsghdr     messages_[512];
+  struct iovec       iovecs_[512];
+  char**             buffer_;
   struct timespec    timeout_;
 };
 

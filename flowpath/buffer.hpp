@@ -11,10 +11,10 @@ namespace Buffer
 
 struct Base
 {
-  Base(uint8_t*);
+  Base(unsigned char*);
   virtual ~Base();
 
-  uint8_t* data_;
+  unsigned char* data_;
 };
 
 

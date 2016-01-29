@@ -102,7 +102,13 @@ Thread_pool::Thread_pool(int size, bool sync)
 
 // The flowpath thread pool dtor.
 Thread_pool::~Thread_pool()
-{ }
+{ 
+	while (!pool_.empty()) {
+		delete pool_.back();
+		pool_.pop_back();
+	}
+
+}
 
 
 // Enqueues the item in the work queue for processing.
@@ -157,7 +163,7 @@ Thread_pool::uninstall()
 bool
 Thread_pool::has_work()
 {
-	return input_.size();
+	return !input_.empty();
 }
 
 
@@ -275,7 +281,8 @@ Thread_pool_work_fn(void* args)
 
 	while (thread_pool.running()) {
 		// Get the next task to be executed.
-		if ((tsk = thread_pool.request())) {
+		if (thread_pool.has_work()) {
+			tsk = thread_pool.request();
 			// Execute the installed application function with arg.
 			thread_pool.app()->lib().exec(tsk->func(),tsk->arg());
 			delete tsk;

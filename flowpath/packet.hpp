@@ -35,11 +35,11 @@ struct Packet
   void alloc_buff(unsigned char* data);
 
   // Returns a pointer to the raw buffer.
-  Byte const* data() const { return buf_->data_; }
-  Byte*       data()       { return buf_->data_; }
+  Byte const* data() const { return buf_.data_; }
+  Byte*       data()       { return buf_.data_; }
 
   // Data members.
-  Buffer*   buf_;        // Packet buffer.
+  Buffer    buf_;        // Packet buffer.
   int       size_;       // Number of bytes.
   uint64_t  timestamp_;  // Time of packet arrival.
   void*     buf_handle_; // [optional] port-specific buffer handle.

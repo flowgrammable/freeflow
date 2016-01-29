@@ -114,11 +114,21 @@ Port::name() const
   return name_;
 }
 
+
 // Gets the port statistics.
 Port::Statistics
 Port::stats() const
 {
   return stats_;
 }
+
+
+// Gets the port file descriptor.
+Port::Descriptor
+Port::fd() const
+{
+  return fd_;
+}
+
 
 } // end namespace FP
