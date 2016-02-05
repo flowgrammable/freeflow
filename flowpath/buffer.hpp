@@ -11,7 +11,7 @@ namespace Buffer
 
 struct Base
 {
-  Base(unsigned char*);
+  Base(unsigned char*, int);
   virtual ~Base();
 
   unsigned char* data_;
