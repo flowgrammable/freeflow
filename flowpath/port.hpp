@@ -2,10 +2,10 @@
 #define FP_PORT_HPP
 
 #include <string>
+#include <queue>
 #include <netinet/in.h>
 
 #include "packet.hpp"
-#include "queue.hpp"
 #include "thread.hpp"
 
 
@@ -27,8 +27,7 @@ public:
   using Id = unsigned int;
   using Address = unsigned char const*;
   using Label = std::string;
-  using Queue = Locking_queue<Context*>;
-  using Function = void*(*)(void*);
+  using Queue = std::queue<Context*>;
   using Descriptor = int;
 
   // Port configuration.
@@ -71,7 +70,6 @@ public:
   virtual Context*  recv() = 0;
   virtual int       send() = 0;
   virtual void      close() = 0;
-  virtual Function  work_fn() = 0;
 
   // Functions derived ports aren't responsible for defining.
   void send(Context*);

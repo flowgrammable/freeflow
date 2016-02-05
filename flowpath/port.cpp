@@ -64,7 +64,7 @@ Port::operator!=(Port* other)
 
 // Changes the port configuration to 'up'; that is, there are
 // no flags set that would indicate the port is not able to
-// function.
+// be used.
 void
 Port::up()
 {
@@ -87,7 +87,7 @@ Port::down()
 void
 Port::send(Context* cxt)
 {
-  tx_queue_.enqueue(cxt);
+  tx_queue_.push(cxt);
 }
 
 
