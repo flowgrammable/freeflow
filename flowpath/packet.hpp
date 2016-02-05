@@ -37,6 +37,7 @@ struct Packet
   // Returns a pointer to the raw buffer.
   Byte const* data() const { return buf_.data_; }
   Byte*       data()       { return buf_.data_; }
+  int         size() const { return size_; }
 
   // Data members.
   Buffer    buf_;        // Packet buffer.

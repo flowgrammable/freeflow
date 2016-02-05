@@ -6,6 +6,13 @@
 #include <algorithm>
 #include <iterator>
 
+// FIXME: OSX uses kqueue rather than epoll.
+#if ! __APPLE__
+  #include <sys/epoll.h>
+#endif
+
+#include <fcntl.h>
+
 namespace fp
 {
 
@@ -21,7 +28,8 @@ Port_flood::send()
   // Get the next packet to send.
   Context* cxt = nullptr;
   int bytes = 0;
-  while ((cxt = tx_queue_.dequeue())) {
+  while (tx_queue_.size()) {
+    cxt = tx_queue_.front();
     // Iterator over ports
     auto iter = port_table.list().begin();
     while (++iter != port_table.list().end()) {
@@ -32,7 +40,7 @@ Port_flood::send()
         continue;
 
       // Send the packet to the next port.
-      int l_bytes = sendto(sock_fd_, cxt->packet_->buf_.data_, cxt->packet_->size_, 0,
+      int l_bytes = sendto(fd_, cxt->packet_->buf_.data_, cxt->packet_->size_, 0,
         (struct sockaddr*)&p->src_addr_, sizeof(struct sockaddr_in));
 
       // Destroy the packet data.
@@ -40,6 +48,7 @@ Port_flood::send()
 
       // Destroy the packet context.
       delete(cxt);
+      tx_queue_.pop();
 
       // Update number of bytes sent.
       bytes += l_bytes;
@@ -60,20 +69,22 @@ Port_table::Port_table()
 
 // Port table constructor with initial size.
 Port_table::Port_table(int size)
-  : data_(size, nullptr)
+  : data_(size, nullptr), handles_(), thread_(0, port_table_work)
 {
-  flood_port_ = new Port_flood(":8675");
+  flood_port_ = new Port_flood("127.0.0.1:8675;flood");
   //flood_port_->thread_->assign(flood_port_->id_, flood);
   //broad_port_ = new Port_broad(":8674");
   //drop_port_ = new Port_drop(":8673");
+  thread_.run();
 }
 
 
 // Port table destructor.
 Port_table::~Port_table()
 {
+  thread_.halt();
   data_.clear();
-
+  handles_.clear();
 }
 
 
@@ -162,6 +173,74 @@ auto
 Port_table::list() -> store_type
 {
   return data_;
+}
+
+
+auto
+Port_table::handles() -> handler_type
+{
+  return handles_;
+}
+
+
+void
+Port_table::handle(int fd, unsigned int event)
+{
+  handles_[fd]->recv();
+  handles_[fd]->send();  
+}
+
+
+void*
+port_table_work(void* arg)
+{
+  // Setup epoll.
+  struct epoll_event event, event_list[16];
+  int epoll_fd;
+
+  // Create the epoll file descriptor.
+  if ((epoll_fd = epoll_create1(0)) == -1) {
+    perror("port_table_work epoll_create");
+    return nullptr;
+  }
+
+  // Start polling...
+  while (true) {
+    // Wait for MAX_EVENTS (16) or timeout at 1000ms (1s).
+    int num_events;
+
+    // NOTE: We loop on waiting to ensure we start over if we get
+    // interrupted by a system call and need to call wait again.
+    do {
+      num_events = epoll_wait(epoll_fd, event_list, 16, 1000);
+    } while (num_events == -1 && errno == EINTR);
+
+    // Check for errors.
+    if (num_events == -1) {
+      perror("port_table_work epoll_wait");
+      continue;
+    }
+
+    // Process messages.
+    //
+    // TODO: Check for erronious file descriptors and remove
+    // them from the poll set.
+    for (int i = 0; i < num_events; i++) {
+      // Handle the event.
+      port_table.handle(event_list[i].data.fd, event_list[i].events);
+    }
+
+    // Add new file descriptors to the poll set from the handler map.
+    for (auto const & pair : port_table.handles()) {
+      // Set the fd and event type(s).
+      event.data.fd = pair.second->fd();
+      event.events = EPOLLIN | EPOLLOUT;
+      // Attempt to add it to the poll set. Ignore if already exists.
+      if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, pair.second->fd(), &event) == -1)
+        if (errno != EEXIST)
+          perror("port_table_work epoll_ctl_add");
+    }
+  }
 }
 
 

@@ -4,6 +4,7 @@
 #include "port.hpp"
 #include "port_udp.hpp"
 #include "port_tcp.hpp"
+#include "thread.hpp"
 
 #include <string>
 #include <vector>
@@ -37,7 +38,6 @@ class Port_table
   using iter_type  = std::vector<Port*>::iterator;
   using handler_type = std::unordered_map<int, Port*>;
 public:
-
   // Constructors.
   //
   // Default.
@@ -55,17 +55,22 @@ public:
   void  dealloc(Port::Id);
 
   // Accessors.
-  value_type find(Port::Id);
-  value_type find(std::string const&);
-  store_type list();
+  value_type    find(Port::Id);
+  value_type    find(std::string const&);
+  store_type    list();
+  handler_type  handles();
 
   value_type flood_port() const { return flood_port_; }
   value_type broad_port() const { return broad_port_; }
   value_type drop_port()  const { return drop_port_; }
 
+  // Event handler.
+  void handle(int, unsigned int);
+
 private:
   store_type    data_;
   handler_type  handles_;
+  Thread        thread_;
 
   // Reserved ports.
   value_type flood_port_;
@@ -74,6 +79,7 @@ private:
 };
 
 extern Port_table port_table;
+extern void* port_table_work(void*);
 
 } // end namespace fp
 

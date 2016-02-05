@@ -11,9 +11,6 @@
 namespace fp
 {
 
-// TCP Port thread work function.
-extern void* tcp_work_fn(void*);
-
 class Port_tcp : public Port
 {
 public:
@@ -31,14 +28,8 @@ public:
   int     open();
   void    close();
 
-  // Accessors.
-  Function work_fn() { return tcp_work_fn; }
-
   // Data members.
   //
-  // Socket file descriptor.
-  int sock_fd_;
-  int io_fd_;
   // Socket addresses.
   struct sockaddr_in src_addr_;
   struct sockaddr_in dst_addr_;
