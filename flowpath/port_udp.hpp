@@ -11,8 +11,8 @@
 namespace fp
 {
 
-// UDP Port thread work function.
-extern void* udp_work_fn(void*);
+const int UDP_BUF_SIZE = 512;
+const int UDP_MSG_SIZE = 128;
 
 class Port_udp : public Port
 {
@@ -31,22 +31,17 @@ public:
   int     open();
   void    close();
 
-  // Accessors.
-  Function work_fn() { return udp_work_fn; }
-
   // Data members.
   //
-  // Socket file descriptor.
-  int sock_fd_;
-  int send_fd_;
   // Socket addresses.
   struct sockaddr_in src_addr_;
   struct sockaddr_in dst_addr_;
-  // Message containers.
-  struct mmsghdr     messages_[512];
-  struct iovec       iovecs_[512];
-  char**             buffer_;
-  struct timespec    timeout_;
+
+  // IO Buffers.
+  struct mmsghdr  messages_[UDP_BUF_SIZE];
+  struct iovec    iovecs_[UDP_BUF_SIZE];
+  char            buffer_[UDP_BUF_SIZE][UDP_MSG_SIZE];
+  struct timespec timeout_;
 };
 
 } // end namespace fp
