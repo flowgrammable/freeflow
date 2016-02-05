@@ -29,8 +29,6 @@ Application::start()
   for (auto port : ports_)
     if (port->open() == -1)
       std::cerr << "Error: open port " << port->id() << '\n';
-  for (auto thread : port_threads_)
-    thread->run();
   state_ = RUNNING;
 }
 
@@ -41,8 +39,6 @@ Application::stop()
 {
   for (auto port : ports_)
     port->close();
-  for (auto thread : port_threads_)
-    thread->halt();
   state_ = STOPPED;
 }
 
@@ -55,7 +51,6 @@ Application::add_port(Port* p)
     throw std::string("All ports have been added");
   else if (std::find(ports_.begin(), ports_.end(), p) == ports_.end()) {
     ports_.push_back(p);
-    port_threads_.push_back(new Thread(p->id(), p->work_fn()));
   }
   else
     throw std::string("Port already exists");

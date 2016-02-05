@@ -64,24 +64,25 @@ struct Application
   void remove_port(Port*);
 
   // Accessors.
-  std::string name() const;
-  State state() const;
-  std::vector<Port*> ports() const;
-  int num_ports() const;
-  Library lib() const;
+  std::string         name() const;
+  State               state() const;
+  std::vector<Port*>  ports() const;
+  int                 num_ports() const;
+  Library             lib() const;
 
   // Data members.
-
+  //
   // Application name.
   std::string name_;
+
   // Application state.
   State       state_;
+
   // Application library.
   Library     lib_;
 
   // Application port resources.
   std::vector<Port*>    ports_;
-  std::vector<Thread*>  port_threads_;
   int     num_ports_;
 };
 
