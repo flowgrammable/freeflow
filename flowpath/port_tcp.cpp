@@ -1,19 +1,12 @@
 #include "port_tcp.hpp"
-#include "port_table.hpp"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <stdio.h>
 #include <cstring>
 
-// FIXME: Apple uses kqueue instead of epoll.
-#if ! __APPLE__
-#  include <sys/epoll.h>
-#endif
-
 #include <unistd.h>
 #include <netdb.h>
-#include <sys/epoll.h>
 #include <fcntl.h>
 #include <iostream>
 
@@ -25,10 +18,7 @@
 namespace fp
 {
 
-extern Port_table port_table;
-
-
-const int INIT_BUFF_SIZE = 2048;
+const int TCP_BUF_SIZE = 2048;
 
 
 // TCP Port constructor. Parses the TCP address and port from
@@ -67,14 +57,14 @@ Port_tcp::Port_tcp(Port::Id id, std::string const& args)
   name_ = name;
 
   // Create the socket.
-  if ((sock_fd_ = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+  if ((fd_ = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
     perror(std::string("port[" + std::to_string(id_) + "] socket").c_str());
     throw std::string("Port_tcp::Ctor");
   }
 
   // Additional socket options.
   int optval = 1;
-  setsockopt(sock_fd_, SOL_SOCKET, SO_REUSEADDR, (const void*)&optval,
+  setsockopt(fd_, SOL_SOCKET, SO_REUSEADDR, (const void*)&optval,
     sizeof(int));
 }
 
@@ -91,9 +81,9 @@ Port_tcp::recv()
   if (config_.down)
     throw std::string("Port down");
 
-  char buff[INIT_BUFF_SIZE];
+  char buff[TCP_BUF_SIZE];
   // Receive data.
-  int bytes = read(io_fd_, buff, INIT_BUFF_SIZE);
+  int bytes = read(fd_, buff, TCP_BUF_SIZE);
 
   if (bytes < 0) {
     perror(std::string("port[" + std::to_string(id_) + "] recvfrom").c_str());
@@ -144,7 +134,7 @@ Port_tcp::send()
   Context* cxt = nullptr;
   while ((cxt = tx_queue_.dequeue())) {
     // Send the packet.
-    int l_bytes = write(io_fd_, cxt->packet_->data(), cxt->packet_->size_);
+    int l_bytes = write(fd_, cxt->packet_->data(), cxt->packet_->size_);
 
     if (bytes < 0)
       continue;
@@ -172,17 +162,17 @@ int
 Port_tcp::open()
 {
   // Bind the socket to its address.
-  if (::bind(sock_fd_, (struct sockaddr*)&src_addr_, sizeof(src_addr_)) < 0) {
+  if (::bind(fd_, (struct sockaddr*)&src_addr_, sizeof(src_addr_)) < 0) {
     perror(std::string("port[" + std::to_string(id_) + "] bind").c_str());
     return -1;
   }
 
   // Set the socket to be non-blocking.
-  int flags = fcntl(sock_fd_, F_GETFL, 0);
-  fcntl(sock_fd_, F_SETFL, flags | O_NONBLOCK);
+  int flags = fcntl(fd_, F_GETFL, 0);
+  fcntl(fd_, F_SETFL, flags | O_NONBLOCK);
 
   // Put the socket into a listening state.
-  listen(sock_fd_, 10);
+  listen(fd_, 10);
 
   return 0;
 }
@@ -192,79 +182,7 @@ Port_tcp::open()
 void
 Port_tcp::close()
 {
-  ::close((int)sock_fd_);
-}
-
-
-// TCP Port thread work function. Expects the internal port id to be passed
-// as an argument, which is used to drive that port.
-void*
-tcp_work_fn(void* arg)
-{
-  // Grab a pointer to the port object you are driving.
-  Port_tcp* self = (Port_tcp*)port_table.find(*((int*)arg));
-
-  // Setup epoll.
-  struct epoll_event event, event_list[10];
-  struct sockaddr_in addr = self->dst_addr_;
-  socklen_t slen = sizeof(addr);
-  int sock_fd, conn_fd, epoll_fd, res;
-  sock_fd = self->sock_fd_;
-
-  if ((epoll_fd = epoll_create1(0)) == -1)
-    perror(std::string("port[" + std::to_string(self->id()) +
-      "] epoll_create").c_str());
-  // Listen for input events.
-  event.events = EPOLLIN | EPOLLET;
-  event.data.fd = sock_fd;
-
-  if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, sock_fd, &event) == -1)
-    perror(std::string("port[" + std::to_string(self->id()) +
-      "] epoll_ctl_add").c_str());
-
-  // Run while the FD is valid.
-  while (fcntl(sock_fd, F_GETFD) != EBADF) {
-    res = epoll_wait(epoll_fd, event_list, 10, 1000);
-
-    // Receive messages/report errors.
-    if (res < 0) {
-      perror(std::string("port[" + std::to_string(self->id()) +
-        "]").c_str());
-      continue;
-    }
-    else {
-      for (int i = 0; i < res; i++) {
-        if (event_list[i].data.fd == sock_fd) {
-          // We have a new connection coming in.
-          conn_fd = accept(sock_fd, (struct sockaddr*)&addr, &slen);
-          if (conn_fd == -1) {
-            perror(std::string("port[" + std::to_string(self->id()) +
-              "]").c_str());
-            continue;
-          }
-          else {
-            // Set the socket to be non-blocking.
-            int flags = fcntl(conn_fd, F_GETFL, 0);
-            fcntl(conn_fd, F_SETFL, flags | O_NONBLOCK);
-            // Add to the epoll set.
-            event.events = EPOLLIN | EPOLLET;
-            event.data.fd = conn_fd;
-            if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, conn_fd, &event) == -1)
-              perror(std::string("port[" + std::to_string(self->id()) +
-                "]").c_str());
-          }
-        } // End if new connection.
-        else {
-          // A message from a known client has been received. Process it.
-          self->io_fd_ = event_list[i].data.fd;
-          thread_pool.assign(new Task("pipeline", self->recv()));
-        } // End else known connection.
-      }
-    }
-    // Send any packets buffered for TX.
-    self->send();
-  }
-  return 0;
+  ::close((int)fd_);
 }
 
 
