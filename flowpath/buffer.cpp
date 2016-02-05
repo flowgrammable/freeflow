@@ -12,7 +12,7 @@ namespace Buffer
 // Ctor for the base packet buffer.
 Base::Base(unsigned char* data, int size)
 {
-  data_ = new char[size];
+  data_ = new unsigned char[size];
   memcpy(data_, data, size);
 }
 

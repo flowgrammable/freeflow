@@ -58,7 +58,7 @@ public:
   value_type    find(Port::Id);
   value_type    find(std::string const&);
   store_type    list();
-  hanlder_type  handles();
+  handler_type  handles();
 
   value_type flood_port() const { return flood_port_; }
   value_type broad_port() const { return broad_port_; }
@@ -79,6 +79,7 @@ private:
 };
 
 extern Port_table port_table;
+extern void* port_table_work(void*);
 
 } // end namespace fp
 

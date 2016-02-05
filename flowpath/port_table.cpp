@@ -11,7 +11,7 @@
   #include <sys/epoll.h>
 #endif
 
-#include <fnctl.h>
+#include <fcntl.h>
 
 namespace fp
 {
@@ -28,7 +28,8 @@ Port_flood::send()
   // Get the next packet to send.
   Context* cxt = nullptr;
   int bytes = 0;
-  while ((cxt = tx_queue_.dequeue())) {
+  while (tx_queue_.size()) {
+    cxt = tx_queue_.front();
     // Iterator over ports
     auto iter = port_table.list().begin();
     while (++iter != port_table.list().end()) {
@@ -39,7 +40,7 @@ Port_flood::send()
         continue;
 
       // Send the packet to the next port.
-      int l_bytes = sendto(sock_fd_, cxt->packet_->buf_.data_, cxt->packet_->size_, 0,
+      int l_bytes = sendto(fd_, cxt->packet_->buf_.data_, cxt->packet_->size_, 0,
         (struct sockaddr*)&p->src_addr_, sizeof(struct sockaddr_in));
 
       // Destroy the packet data.
@@ -47,6 +48,7 @@ Port_flood::send()
 
       // Destroy the packet context.
       delete(cxt);
+      tx_queue_.pop();
 
       // Update number of bytes sent.
       bytes += l_bytes;
@@ -179,16 +181,8 @@ Port_table::handles() -> handler_type
 void
 Port_table::handle(int fd, unsigned int event)
 {
-  switch (event) {
-    case EPOLLIN: // Read
-      handles_[fd]->recv();
-      break;
-    case EPOLLOUT: // Write
-      handles_[fd]->send();
-      break;
-    default:
-      break;
-  }
+  handles_[fd]->recv();
+  handles_[fd]->send();  
 }
 
 
@@ -202,7 +196,7 @@ port_table_work(void* arg)
   // Create the epoll file descriptor.
   if ((epoll_fd = epoll_create1(0)) == -1) {
     perror("port_table_work epoll_create");
-    return;
+    return nullptr;
   }
 
   // Start polling...
@@ -228,14 +222,14 @@ port_table_work(void* arg)
     // them from the poll set.
     for (int i = 0; i < num_events; i++) {
       // Handle the event.
-      port_table.handle(event_list[i].data.fd, event_list[i].event);
+      port_table.handle(event_list[i].data.fd, event_list[i].events);
     }
 
     // Add new file descriptors to the poll set from the handler map.
-    for (auto pair const& : port_table.handles()) {
+    for (auto const & pair : port_table.handles()) {
       // Set the fd and event type(s).
       event.data.fd = pair.second->fd();
-      event.event = EPOLLIN | EPOLLOUT;
+      event.events = EPOLLIN | EPOLLOUT;
       // Attempt to add it to the poll set. Ignore if already exists.
       if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, pair.second->fd(), &event) == -1)
         if (errno != EEXIST)

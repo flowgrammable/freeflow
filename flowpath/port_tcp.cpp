@@ -132,7 +132,8 @@ Port_tcp::send()
 
   // Get the next packet.
   Context* cxt = nullptr;
-  while ((cxt = tx_queue_.dequeue())) {
+  while (tx_queue_.size()) {
+    cxt = tx_queue_.front();
     // Send the packet.
     int l_bytes = write(fd_, cxt->packet_->data(), cxt->packet_->size_);
 
@@ -145,7 +146,7 @@ Port_tcp::send()
 
     // Destroy the packet data.
     packet_destroy(cxt->packet_);
-
+    tx_queue_.pop();
     // Destroy the packet context.
     delete cxt;
 

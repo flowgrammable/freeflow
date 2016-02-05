@@ -112,12 +112,10 @@ Port_udp::open()
   memset(messages_, 0, sizeof(struct mmsghdr) * UDP_BUF_SIZE);
 
   // Initialize buffer.
-  buffer_ = new char*[UDP_BUF_SIZE];
-  for (int i = 0; i < UDP_BUF_SIZE; i++)
-    buffer_[i] = new char[UDP_MSG_SIZE];
+  for (int i = 0; i < UDP_BUF_SIZE; i++) {
     iovecs_[i].iov_base  = buffer_[i];
     iovecs_[i].iov_len   = UDP_MSG_SIZE;
-    messages_[i].msg_hdr.msg_iov = iovecs_[i];
+    messages_[i].msg_hdr.msg_iov = &iovecs_[i];
     messages_[i].msg_hdr.msg_iovlen  = 1;
   }
 
