@@ -11,7 +11,7 @@
 namespace fp
 {
 
-const int UDP_BUF_SIZE = 512;
+const int UDP_BUF_SIZE = 2048;
 const int UDP_MSG_SIZE = 128;
 
 class Port_udp : public Port

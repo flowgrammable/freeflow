@@ -188,7 +188,8 @@ Port_udp::recv()
     Context* cxt = new Context(pkt, id_, id_, 0, max_headers, max_fields);
 
     // Send the packet through the pipeline.
-    thread_pool.assign(new Task("pipeline", cxt));
+    //thread_pool.assign(new Task("pipeline", cxt));
+    thread_pool.app()->lib().exec("pipeline", cxt);
   }
 
   // Update port stats.
