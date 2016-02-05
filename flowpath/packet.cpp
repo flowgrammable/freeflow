@@ -5,11 +5,11 @@ namespace fp
 
 
 // Packet constructor.
-Packet::Packet(unsigned char* data, int size, uint64_t time, void* buf_handle, 
+Packet::Packet(unsigned char* data, int size, uint64_t time, void* buf_handle,
     Buff_t buf_dev)
-	: buf_(data), size_(size), timestamp_(time), buf_handle_(buf_handle)
+	: buf_(data, size), size_(size), timestamp_(time), buf_handle_(buf_handle)
     , buf_dev_(buf_dev)
-{ 
+{
 
 }
 
@@ -28,7 +28,7 @@ Packet::~Packet()
 // We don't necessarily want to always allocate new memory for new
 // packets, there should be a way to re-use that space.
 Packet*
-packet_create(unsigned char* buf, int size, uint64_t time, void* buf_handle, 
+packet_create(unsigned char* buf, int size, uint64_t time, void* buf_handle,
 	Buff_t buf_type)
 {
 	Packet* p = new Packet(buf, size, time, buf_handle, buf_type);
