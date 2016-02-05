@@ -20,7 +20,7 @@ Base::Base(unsigned char* data, int size)
 // Virtual Dtor for base packet buffer.
 Base::~Base()
 {
-
+  delete data_;
 }
 
 } // end namespace buffer
