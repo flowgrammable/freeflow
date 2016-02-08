@@ -1,4 +1,6 @@
 #include "port_udp.hpp"
+#include "packet.hpp"
+#include "context.hpp"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -136,7 +138,7 @@ Port_udp::close()
 
 
 // Read packets from the socket.
-Context*
+int
 Port_udp::recv()
 {
   // Check if port is usable.
@@ -150,7 +152,7 @@ Port_udp::recv()
   if (num_msg == -1) {
     if (errno != EAGAIN || errno != EWOULDBLOCK)
       perror(std::string("port[" + std::to_string(id_) + "] recvmmsg").c_str());
-    return nullptr;
+    return -1;
   }
 
 
@@ -184,20 +186,19 @@ Port_udp::recv()
     Packet* pkt = packet_create((unsigned char*)buffer_[i],
       messages_[i].msg_len, 0, nullptr, FP_BUF_ALLOC);
 
-    // Create and associate a new context for the packet.
+    // Create a new context associated with the packet.
     Context* cxt = new Context(pkt, id_, id_, 0, max_headers, max_fields);
-
-    // Send the packet through the pipeline.
-    //thread_pool.assign(new Task("pipeline", cxt));
-    thread_pool.app()->lib().exec("pipeline", cxt);
+    
+    // Create the context associated with the packet and send it through
+    // the pipeline.
+    thread_pool.app()->lib().pipeline(cxt);
   }
 
   // Update port stats.
   stats_.pkt_rx += num_msg;
   stats_.byt_rx += bytes;
 
-  // FIXME: change this to the number of bytes received?
-  return nullptr;
+  return bytes;
 }
 
 
@@ -209,12 +210,11 @@ Port_udp::send()
   if (config_.down)
     throw std::string("port down");
   uint64_t bytes = 0;
-  uint64_t pkts = 0;
+  uint64_t pkts = tx_queue_.size();
   // Send packets as long as the queue has work.
-  while (tx_queue_.size()) {
+  for (int i = 0; i < pkts; i++) {
     // Get the next context, incr packet counter.
     Context* cxt = tx_queue_.front();
-    pkts++;
 
     // Send the packet data associated with the context.
     //
@@ -231,7 +231,7 @@ Port_udp::send()
       bytes += res;
 
     // Release resources.
-    packet_destroy(cxt->packet());
+    delete cxt->packet();
     delete cxt;
     tx_queue_.pop();
   }

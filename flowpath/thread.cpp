@@ -21,14 +21,14 @@ Thread::Thread()
 
 // Constructs a new thread object with the given ID and work function.
 // This thread does not use a barrier to synchronize.
-Thread::Thread(int id, Work_fn work, Attribute* attr)
+Thread::Thread(int id, Routine work, Attribute* attr)
 	: id_(id), work_(work), barrier_(nullptr), attr_(attr)
 { }
 
 
 // Constructs a new thread object with the given ID, work function, and
 // synchronization barrier.
-Thread::Thread(int id, Work_fn work, Barrier* barrier, Attribute* attr)
+Thread::Thread(int id, Routine work, Barrier* barrier, Attribute* attr)
 	: id_(id), work_(work), barrier_(barrier), attr_(attr)
 { }
 
@@ -39,7 +39,7 @@ Thread::run()
 {
 	assert(work_);
 	// TODO: create the underlying pthread. Use the local
-	// work_fn member as the func ptr and the local ID as
+	// Routine member as the func ptr and the local ID as
 	// the argument.
 	int res;
 	if ((res = pthread_create(&thread_, (const Thread::Attribute*)attr_, work_, &id_)) != 0){
@@ -73,7 +73,7 @@ Thread::halt()
 // (Re)Assigns an ID and work function to the thread. Calling this during
 // thread execution will cause undefined behavior.
 void
-Thread::assign(int id, Work_fn work, Attribute* attr)
+Thread::assign(int id, Routine work, Attribute* attr)
 {
 	assign(id, work, nullptr, attr);
 }
@@ -82,7 +82,7 @@ Thread::assign(int id, Work_fn work, Attribute* attr)
 // (Re)Assigns an ID, work function, and barrier to the thread. Calling this
 // during thread execution will cause undefined behavior.
 void
-Thread::assign(int id, Work_fn work, Barrier* barr, Attribute* attr)
+Thread::assign(int id, Routine work, Barrier* barr, Attribute* attr)
 {
 	id_ = id;
 	work_ = work;
@@ -107,7 +107,6 @@ Thread_pool::~Thread_pool()
 		delete pool_.back();
 		pool_.pop_back();
 	}
-
 }
 
 
@@ -272,8 +271,10 @@ Thread_pool::app()
 
 // The thread pool work function. This is what the thread pool
 // threads execute; request tasks and execute them.
+//
+// TODO: Possible utilize std::mutex and conditional waiting.
 void*
-Thread_pool_work_fn(void* args)
+Thread_pool_routine(void* args)
 {
 	// Figure out who I am.
 	//int id = *((int*)args);
@@ -284,7 +285,20 @@ Thread_pool_work_fn(void* args)
 		if (thread_pool.has_work()) {
 			tsk = thread_pool.request();
 			// Execute the installed application function with arg.
-			thread_pool.app()->lib().exec(tsk->func(),tsk->arg());
+			switch (tsk->func()) {
+				case Task::Target::CONFIG:
+					thread_pool.app()->lib().config();
+					break;
+				case Task::Target::PIPELINE:
+					thread_pool.app()->lib().pipeline((Context*)tsk->arg());
+					break;
+				case Task::Target::PORTS:
+					thread_pool.app()->lib().ports(tsk->arg());
+					break;
+				default:
+					throw std::string("Unknown task target given");
+					break;
+			}
 			delete tsk;
 		}
 	}

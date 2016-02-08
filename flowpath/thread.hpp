@@ -25,22 +25,22 @@ using Barrier_type = pthread_barrier_t;
 class Thread
 {
 public:
-	using Work_fn = void* (*)(void*);
+	using Routine = void* (*)(void*);
   using Barrier = Barrier_type;
   using Attribute = pthread_attr_t;
 
 	Thread();
-	Thread(int, Work_fn, Attribute* = nullptr);
-	Thread(int, Work_fn, Barrier*, Attribute* = nullptr);
+	Thread(int, Routine, Attribute* = nullptr);
+	Thread(int, Routine, Barrier*, Attribute* = nullptr);
 
 	void run();
 	void sync();
 	int  halt();
-	void assign(int, Work_fn, Attribute* = nullptr);
-	void assign(int, Work_fn, Barrier*, Attribute* = nullptr);
+	void assign(int, Routine, Attribute* = nullptr);
+	void assign(int, Routine, Barrier*, Attribute* = nullptr);
 
 	int 		 id_;
-	Work_fn  work_;
+	Routine  work_;
 	Barrier* barrier_;
 
 private:
@@ -118,26 +118,26 @@ destroy(Thread::Attribute* attr)
 // called, the arguments needed.
 struct Task
 {
-	using Label = std::string;
+	enum Target { CONFIG, PIPELINE, PORTS };
 	using Arg = void*;
 
-	Task(Label func, Arg arg)
+	Task(Target func, Arg arg)
 		: func_(func), arg_(arg)
 	{ }
 
 	~Task()
 	{ }
 
-	Label func() const { return func_; }
-	Arg 	arg() const { return arg_; }
+	Target func() const { return func_; }
+	Arg 	 arg()  const { return arg_; }
 
-	Label func_;
-	Arg 	arg_;
+	Target func_;
+	Arg 	 arg_;
 };
 
 
 // The thread pool work function.
-void* Thread_pool_work_fn(void*);
+void* Thread_pool_routine(void*);
 
 // The flowpath thread pool. Contains a user defined
 // number of threads to execute tasks allocated to the
@@ -176,7 +176,7 @@ private:
 	// The application currently installed.
 	Application* app_;
 
-	Thread::Work_fn pool_work_ = Thread_pool_work_fn;
+	Thread::Routine pool_work_ = Thread_pool_routine;
 
   // Thread attribute variable.
   Thread::Attribute attr_;

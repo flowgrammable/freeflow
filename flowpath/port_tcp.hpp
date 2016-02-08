@@ -21,12 +21,12 @@ public:
   ~Port_tcp();
 
   // Packet related funtions.
-  Context*  recv();
-  int       send();
+  int  recv();
+  int  send();
 
   // Port state functions.
-  int     open();
-  void    close();
+  int  open();
+  void close();
 
   // Data members.
   //

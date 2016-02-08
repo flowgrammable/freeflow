@@ -55,13 +55,13 @@ struct Dataplane;
 
 // Port management functions.
 //
-Port*             create_port(Port::Type, std::string const&);
-void 	            delete_port(Port::Id);
+Port* create_port(Port::Type, std::string const&);
+void 	delete_port(Port::Id);
 
 // Data plane management functions.
 //
-Dataplane*             create_dataplane(std::string const&, std::string const&);
-void			             delete_dataplane(std::string const&);
+Dataplane* create_dataplane(std::string const&, std::string const&);
+void			 delete_dataplane(std::string const&);
 
 // Application management functions.
 //

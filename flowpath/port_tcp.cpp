@@ -75,7 +75,7 @@ Port_tcp::~Port_tcp()
 
 
 // Read a packet from the input buffer.
-Context*
+int
 Port_tcp::recv()
 {
   if (config_.down)
@@ -87,7 +87,7 @@ Port_tcp::recv()
 
   if (bytes < 0) {
     perror(std::string("port[" + std::to_string(id_) + "] recvfrom").c_str());
-    return nullptr;
+    return -1;
   }
 
   // If we receive a 0-byte packet, the dest has closed.
@@ -95,7 +95,7 @@ Port_tcp::recv()
   if (bytes == 0) {
     config_.down = 1;
     throw std::string("Connection closed");
-    return nullptr;
+    return -1;
   }
 
   // Copy the buffer so that we guarantee that we don't
@@ -117,7 +117,9 @@ Port_tcp::recv()
   // at link time when we are giving definitions to other unknowns.
   int max_headers = 0;
   int max_fields = 0;
-  return new Context(pkt, id_, id_, 0, max_headers, max_fields);
+  thread_pool.app()->lib().pipeline(new Context(pkt, id_, id_, 0, max_headers, max_fields));
+
+  return bytes;
 }
 
 
@@ -135,7 +137,7 @@ Port_tcp::send()
   while (tx_queue_.size()) {
     cxt = tx_queue_.front();
     // Send the packet.
-    int l_bytes = write(fd_, cxt->packet_->data(), cxt->packet_->size_);
+    int l_bytes = write(fd_, cxt->packet()->data(), cxt->packet()->size_);
 
     if (bytes < 0)
       continue;
@@ -145,7 +147,7 @@ Port_tcp::send()
       continue;
 
     // Destroy the packet data.
-    packet_destroy(cxt->packet_);
+    delete cxt->packet();
     tx_queue_.pop();
     // Destroy the packet context.
     delete cxt;

@@ -2,9 +2,6 @@
 #define FP_PORT_UDP_HPP
 
 #include "port.hpp"
-#include "packet.hpp"
-#include "context.hpp"
-#include "dataplane.hpp"
 
 #include <string>
 
@@ -24,12 +21,12 @@ public:
   ~Port_udp();
 
   // Packet related funtions.
-  Context*  recv();
-  int       send();
+  int recv();
+  int send();
 
   // Port state functions.
-  int     open();
-  void    close();
+  int  open();
+  void close();
 
   // Data members.
   //

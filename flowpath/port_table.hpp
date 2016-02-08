@@ -65,7 +65,7 @@ public:
   value_type drop_port()  const { return drop_port_; }
 
   // Event handler.
-  void handle(int, unsigned int);
+  void handle(int);
 
 private:
   store_type    data_;

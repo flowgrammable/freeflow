@@ -9,16 +9,12 @@ Packet::Packet(unsigned char* data, int size, uint64_t time, void* buf_handle,
     Buff_t buf_dev)
 	: buf_(data, size), size_(size), timestamp_(time), buf_handle_(buf_handle)
     , buf_dev_(buf_dev)
-{
-
-}
+{ }
 
 
 // Packet destructor.
 Packet::~Packet()
-{
-
-}
+{ }
 
 
 // Constructs a new packet with the given buffer, size, timestamp,
@@ -33,14 +29,6 @@ packet_create(unsigned char* buf, int size, uint64_t time, void* buf_handle,
 {
 	Packet* p = new Packet(buf, size, time, buf_handle, buf_type);
 	return p;
-}
-
-
-// Destroys the given packet.
-void
-packet_destroy(Packet* p)
-{
-	delete p;
 }
 
 

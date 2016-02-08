@@ -44,10 +44,10 @@ Port_flood::send()
         (struct sockaddr*)&p->src_addr_, sizeof(struct sockaddr_in));
 
       // Destroy the packet data.
-      packet_destroy(cxt->packet_);
+      delete cxt->packet();
 
       // Destroy the packet context.
-      delete(cxt);
+      delete cxt;
       tx_queue_.pop();
 
       // Update number of bytes sent.
@@ -179,10 +179,10 @@ Port_table::handles() -> handler_type
 
 
 void
-Port_table::handle(int fd, unsigned int event)
+Port_table::handle(int fd)
 {
   handles_[fd]->recv();
-  handles_[fd]->send();  
+  handles_[fd]->send();
 }
 
 
@@ -200,6 +200,8 @@ port_table_work(void* arg)
   }
 
   // Start polling...
+  //
+  // FIXME: Create a condition for running...
   while (true) {
     // Wait for MAX_EVENTS (16) or timeout at 1000ms (1s).
     int num_events;
@@ -222,7 +224,7 @@ port_table_work(void* arg)
     // them from the poll set.
     for (int i = 0; i < num_events; i++) {
       // Handle the event.
-      port_table.handle(event_list[i].data.fd, event_list[i].events);
+      port_table.handle(event_list[i].data.fd);
     }
 
     // Add new file descriptors to the poll set from the handler map.

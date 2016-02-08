@@ -66,10 +66,10 @@ public:
 
   // The set of necessary port related functions that any port-type
   // must define.
-  virtual int       open() = 0;
-  virtual Context*  recv() = 0;
-  virtual int       send() = 0;
-  virtual void      close() = 0;
+  virtual int  open() = 0;
+  virtual int  recv() = 0;
+  virtual int  send() = 0;
+  virtual void close() = 0;
 
   // Functions derived ports aren't responsible for defining.
   void send(Context*);
@@ -89,9 +89,9 @@ public:
   Id              id_;        // The internal port ID.
   Address         addr_;      // The hardware address for the port.
   Label           name_;      // The name of the port.
-  Statistics      stats_;
+  Statistics      stats_;     // Statistical information about the port.
   Configuration   config_;    // The current port configuration.
-  Descriptor      fd_;
+  Descriptor      fd_;        // The devices file descriptor.
   Queue           tx_queue_;  // The ports transmit (send) queue.
 };
 
