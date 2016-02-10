@@ -1,7 +1,4 @@
-cmake_minimum_required(VERSION 2.8.12)
-cmake_policy(SET CMP0042 NEW)
-
-project(freeflow C CXX)
+project(flowpath-rt CXX)
 
 # Configure compiler.
 # We effectively require a functioning C++11 implementation.
@@ -11,14 +8,11 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     message(FATAL_ERROR "Requires GCC version 4.8 or greater")
   endif()
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Qunused-arguments -stdlib=libc++")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
 endif()
 
-
-# C/C++ build flags.
-set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -Wall")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -pthread -O3")
-
+# C++ build flags.
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -pedantic -Wall -pthread")
 
 # Require Boost C++ Libraries.
 find_package(Boost 1.55.0 REQUIRED)
@@ -27,10 +21,18 @@ include_directories(${Boost_INCLUDE_DIRS})
 # Allow includes to find from headers from this dir.
 include_directories(.)
 
-add_subdirectory(freeflow)
-add_subdirectory(fp-lite)
+# The flowpath runtime library.
+add_library(fp-lite-rt SHARED
+  types.cpp
+  port.cpp
+  port_tcp.cpp)
+target_link_libraries(fp-lite-rt freeflow)
 
-# add_subdirectory(flowctl)
-# add_subdirectory(flowmgr)
-# add_subdirectory(flowpath)
-# add_subdirectory(util)
+# Drivers.
+add_subdirectory(drivers)
+
+# Applications.
+# add_subdirectory(apps)
+
+# Tests.
+# add_subdirectory(tests)
