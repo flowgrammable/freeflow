@@ -36,8 +36,6 @@ public:
   void enqueue(T);
   T dequeue();
 
-  T get();
-
   int size() const { return queue_.size(); }
   bool empty() const { return queue_.empty(); }
   

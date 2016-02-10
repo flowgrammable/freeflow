@@ -101,11 +101,14 @@ main()
 
     // Cleanup
     fp::delete_port(p1->id());
-    std::cerr << "Deleted port 'p1' with id '" << p1->id() << "'\n";
     fp::delete_port(p2->id());
-    std::cerr << "Deleted port 'p2' with id '" << p1->id() << "'\n";
+
+    // We use a runtime system call to deallocate the data plane
+    // since it needs to be removed from the its.
     fp::delete_dataplane("dp1");
 
+    // Similarly, we unload the application using a runtime system
+    // call to remove it from the table as well.
     fp::unload_application("apps/wire.app");
     std::cerr << "Unloaded application 'apps/wire.app'\n";
   }

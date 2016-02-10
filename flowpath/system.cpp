@@ -229,16 +229,16 @@ fp_create_table(fp::Dataplane* dp, int id, int size, int key_width, fp::Table::T
   switch (type)
   {
     case fp::Table::Type::EXACT:
-    // Make a new hash table.
-    tbl = new fp::Hash_table(id, size, key_width);
-    dp->tables().push_back(tbl);
-    break;
+      // Make a new hash table.
+      tbl = new fp::Hash_table(id, size, key_width);
+      dp->tables().push_back(tbl);
+      break;
     case fp::Table::Type::PREFIX:
-    // Make a new prefix match table.
-    break;
+      // Make a new prefix match table.
+      break;
     case fp::Table::Type::WILDCARD:
-    // Make a new wildcard match table.
-    break;
+      // Make a new wildcard match table.
+      break;
     default:
     throw std::string("Unknown table type given");
   }

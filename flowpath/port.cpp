@@ -20,8 +20,9 @@ Port::Port(Port::Id id, std::string const& name)
 // Port dtor.
 Port::~Port()
 {
-	if (addr_)
-		delete addr_;
+  // Empty the queue.
+  while (!tx_queue_.empty())
+    tx_queue_.pop();
 }
 
 

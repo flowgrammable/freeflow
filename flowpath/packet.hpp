@@ -48,7 +48,6 @@ struct Packet
 };
 
 Packet*   packet_create(unsigned char*, int, uint64_t, void*, Buff_t);
-void      packet_destroy(Packet*);
 
 } // namespace fp
 

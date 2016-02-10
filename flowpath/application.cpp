@@ -7,33 +7,34 @@ namespace fp
 {
 
 
-//
+// Creates a new application with the given name (path).
 Application::Application(std::string const& name)
   : name_(name), state_(NEW), lib_(get_app_handle(name)), num_ports_(0)
 {
-  lib_.exec("ports", &num_ports_);
+  // Get the number of ports required for the application.
+  lib_.ports(&num_ports_);
 }
 
 
-//
+// Dtor. Close the application handle.
 Application::~Application()
 {
   dlclose(lib_.app_);
 }
 
 
-//
+// Opens the applications ports and sets the state to 'running'.
 void
 Application::start()
 {
   for (auto port : ports_)
     if (port->open() == -1)
-      std::cerr << "Error: open port " << port->id() << '\n';
+      throw std::string("Error: open port " + std::to_string(port->id()));
   state_ = RUNNING;
 }
 
 
-//
+// Closes the applications ports and sets the state to 'stopped'.
 void
 Application::stop()
 {
@@ -43,10 +44,11 @@ Application::stop()
 }
 
 
-//
+// Adds a port to the application.
 void
 Application::add_port(Port* p)
 {
+  // Check if all allocated.
   if (ports_.size() == num_ports_)
     throw std::string("All ports have been added");
   else if (std::find(ports_.begin(), ports_.end(), p) == ports_.end()) {
@@ -57,7 +59,8 @@ Application::add_port(Port* p)
 }
 
 
-//
+// Removes a port from the application. This does not (should not) 
+// delete the port from the system.
 void
 Application::remove_port(Port* p)
 {
@@ -69,7 +72,7 @@ Application::remove_port(Port* p)
 }
 
 
-//
+// Returns the name (path) of the application.
 std::string
 Application::name() const
 {
@@ -77,7 +80,7 @@ Application::name() const
 }
 
 
-//
+// Returns the state of the application.
 Application::State
 Application::state() const
 {
@@ -85,15 +88,15 @@ Application::state() const
 }
 
 
-//
+// Returns a copy of the applications ports vector.
 std::vector<Port*>
 Application::ports() const
 {
-	return ports_;
+  return ports_;
 }
 
 
-//
+// Returns the number of ports required by the application.
 int
 Application::num_ports() const
 {
@@ -101,7 +104,7 @@ Application::num_ports() const
 }
 
 
-//
+// Returns a copy of the applications library.
 Library
 Application::lib() const
 {
@@ -109,13 +112,13 @@ Application::lib() const
 }
 
 
-//
+// Library ctor. Links the definitions for library functions.
 Library::Library(App_handle app)
 {
   app_ = app;
   pipeline_ = (void (*)(Context*))get_sym_handle(app, "pipeline");
-  config_ = (void (*)(void))get_sym_handle(app, "config");
-  port_ = (void (*)(void*))get_sym_handle(app, "ports");
+  config_   = (void (*)(void))    get_sym_handle(app, "config");
+  ports_    = (void (*)(void*))   get_sym_handle(app, "ports");
 }
 
 
@@ -124,21 +127,29 @@ Library::~Library()
 { }
 
 
-// Executes the function matching the given string name. Throws if not defined.
-void
-Library::exec(std::string const& cmd, void* arg)
-{
-  if (cmd == "pipeline")
-    pipeline_((Context*)arg);
-  else if (cmd == "config")
-    config_();
-  else if (cmd == "ports")
-    port_(arg);
-  else
-    throw std::string("Application library error: Unknown command '" +
-      cmd + "'");
+/*
+// Calls the library's pipeline function.
+inline void 
+Library::pipeline(Context* cxt) 
+{ 
+  pipeline_(cxt); 
 }
 
+
+// Calls the library's config function.
+inline void 
+Library::config() { 
+  config_(); 
+}
+
+
+// Calls the library's ports function.
+inline void 
+Library::ports(void* arg) 
+{ 
+  ports_(arg); 
+}
+*/
 
 // Returns a handle to the given symbol from the given application handle.
 void*

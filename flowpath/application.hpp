@@ -36,13 +36,14 @@ struct Library
   Library(App_handle);
   ~Library();
 
-  // Executes the function matching the given string name.
-  void exec(std::string const&, void* arg = nullptr);
+  inline void pipeline(Context* cxt) { pipeline_(cxt); }
+  inline void config() { config_(); }
+  inline void ports(void* arg) { ports_(arg); }
 
   App_handle  app_;
   Pipeline_fn pipeline_;
   Config_fn   config_;
-  Port_fn     port_;
+  Port_fn     ports_;
 };
 
 

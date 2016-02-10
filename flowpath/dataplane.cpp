@@ -75,7 +75,7 @@ void
 Dataplane::configure()
 {
   if (app_->state() == Application::State::NEW) {
-    app_->lib().exec("config");
+    app_->lib().config();
     app_->state_ = Application::State::READY;
   }
   else
@@ -93,7 +93,7 @@ Dataplane::name() const
 
 // Gets the data planes application.
 Application*
-Dataplane::app()
+Dataplane::app() const
 {
   return app_;
 }
