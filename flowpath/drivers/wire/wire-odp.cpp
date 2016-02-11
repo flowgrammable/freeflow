@@ -1,7 +1,7 @@
 #include "system.hpp"
 #include "dataplane.hpp"
 #include "port.hpp"
-#include "port_tcp.hpp"
+#include "port_odp.hpp"
 
 #include <string>
 #include <iostream>
@@ -30,19 +30,13 @@ main()
 
     /* Init ODP before calling anything else */
     // ODP Library: initialize global ODP framework.  (once / process).
-    if (odp_init_global(NULL, NULL)) {
-      EXAMPLE_ERR("Error: ODP global init failed.\n");
-      exit(EXIT_FAILURE);
-    }
-
+    if (odp_init_global(NULL, NULL))
+      throw std::string("Error: ODP global init failed.");
 
     /* Init this thread */
     // ODP Library: initialize thread-specific ODP framework (once / thread).
-    if (odp_init_local(ODP_THREAD_CONTROL)) {
-      EXAMPLE_ERR("Error: ODP local init failed.\n");
-      exit(EXIT_FAILURE);
-    }
-
+    if (odp_init_local(ODP_THREAD_CONTROL))
+      throw std::string("Error: ODP local init failed.");
 
     /* Create packet pool */
     // ODP Library: Create ODP packet pool.
@@ -50,27 +44,24 @@ main()
     // - pool size
     odp_pool_param_t params;
     odp_pool_param_init(&params);
-    params.pkt.seg_len = SHM_PKT_POOL_BUF_SIZE;
-    params.pkt.len     = SHM_PKT_POOL_BUF_SIZE;
-    params.pkt.num     = SHM_PKT_POOL_SIZE/SHM_PKT_POOL_BUF_SIZE;
+    params.pkt.seg_len = fp::SHM_PKT_POOL_BUF_SIZE;
+    params.pkt.len     = fp::SHM_PKT_POOL_BUF_SIZE;
+    params.pkt.num     = fp::SHM_PKT_POOL_SIZE/fp::SHM_PKT_POOL_BUF_SIZE;
     params.type        = ODP_POOL_PACKET;
 
-    odp_pool_t pool = odp_pool_create("packet_pool", &params);
-    if (pool == ODP_POOL_INVALID) {
-      EXAMPLE_ERR("Error: packet pool create failed.\n");
-      exit(EXIT_FAILURE);
-    }
+    odp_pool_t pool = odp_pool_create(PKT_POOL_NAME, &params);
+    if (pool == ODP_POOL_INVALID)
+      throw std::string("Error: packet pool create failed.");
     odp_pool_print(pool);
-
 
     /* Create a pktio instance for each interface */
     // Local Helper Fn: For each interface name specified, assign pktio handle to pool.
     // - In ODP, a pktio handle is an interface to a port.  pktio include a queue,
     //   which is why it is closely tied with (and must be assigned to) a packet pool.
     // - Specifify mode:
-    // -- Burst: raw access to I/O (batches of packets)
-    // -- Queue: create an ODP queue (single packet push/pop_
-    // -- Scheduled: provies scheduling mechansim for defining priorities, etc.
+    // -- Burst: raw access to I/O (direct calls to recv / send)
+    // -- Queue: create an ODP event queue (event notification on packet receipt)
+    // -- Scheduled: extends queue to provies scheduling mechansim for defining priorities, etc.
     // Steps include:
     // - pktio = odp_pktio_open(dev, pool, &pktio_param);
     // - [ inq_def = odp_queue_create(inq_name,ODP_QUEUE_TYPE_PKTIN, &qparam); ]
