@@ -1,8 +1,8 @@
 
 #include "application.hpp"
 
-#include <algorithm>
-#include <iostream>
+#include <cassert>
+#include <stdexcept>
 
 #include <dlfcn.h>
 
@@ -40,9 +40,22 @@ lib_close(void* lib)
 }
 
 
-// Returns a handle to the given symbol from the given application handle.
+// Returns a handle to the given symbol from the given application
+// handle. The result can be nullptr.
 static inline void*
 lib_resolve(void* lib, char const* name)
+{
+  void* sym = ::dlsym(lib, name);
+  if (!sym)
+    dlerror();
+  return sym;
+}
+
+
+// Returns a handle to the given symbol from the given application
+// handle. Throws an exception if there is no such symbol.
+static inline void*
+lib_require(void* lib, char const* name)
 {
   if (void* sym = ::dlsym(lib, name))
     return sym;
@@ -53,9 +66,11 @@ lib_resolve(void* lib, char const* name)
 Library::Library(char const* p)
   : path(p), handle(lib_open(p))
 {
-  pipeline = (Pipeline_fn)lib_resolve(handle, "pipeline");
-  config = (Config_fn)lib_resolve(handle, "config");
-  ports = (Port_fn)lib_resolve(handle, "ports");
+  load = (Init_fn)lib_resolve(handle, "load");
+  unload = (Init_fn)lib_resolve(handle, "unload");
+  start = (Init_fn)lib_resolve(handle, "start");
+  stop = (Init_fn)lib_resolve(handle, "stop");
+  proc = (Proc_fn)lib_require(handle, "process");
 }
 
 
@@ -64,34 +79,74 @@ Library::~Library()
   lib_close(handle);
 }
 
-
 // -------------------------------------------------------------------------- //
 // Application objects objects
 
-// Creates a new application with the given path.
-Application::Application(char const* name)
-  : lib_(name), state_(NEW)
-{ }
+
+// Load the application. If the application has a load function
+// then that is executed to provide one-time initialization for
+// the application.
+//
+// An application can only be loaded when it is in its initial
+// state. Once initialized, the application is in the ready state.
+int
+Application::load(Dataplane& dp)
+{
+  assert(state_ == INIT);
+  int ret = 0;
+  if (lib_.load)
+    ret = lib_.load(&dp);
+  if (!ret)
+    state_ = READY;
+  return ret;
+}
+
+
+// Unload the application. If the application has an unload
+// function then that is executed to provide one-time finalization
+// for the application.
+//
+// An application can only be unloaded when it is ready or stopped.
+// The application returns to its initial state after being
+// unloaded.
+int
+Application::unload(Dataplane& dp)
+{
+  assert(state_ == READY || state_ == STOPPED);
+  int ret = 0;
+  if (lib_.unload)
+    ret = lib_.unload(&dp);
+  if (!ret)
+    state_ = INIT;
+  return ret;
+}
 
 
 // Opens the applications ports and sets the state to 'running'.
-void
-Application::start()
+int
+Application::start(Dataplane& dp)
 {
-  // for (auto port : ports_)
-  //   if (port->open() == -1)
-  //     throw std::string("Error: open port " + std::to_string(port->id()));
-  // state_ = RUNNING;
+  assert(state_ == READY);
+  int ret = 0;
+  if (lib_.start)
+    ret = lib_.start(&dp);
+  if (!ret)
+    state_ = RUNNING;
+  return 0;
 }
 
 
 // Closes the applications ports and sets the state to 'stopped'.
-void
-Application::stop()
+int
+Application::stop(Dataplane& dp)
 {
-  // for (auto port : ports_)
-  //   port->close();
-  // state_ = STOPPED;
+  assert(state_ == RUNNING);
+  int ret = 0;
+  if (lib_.stop)
+    ret = lib_.stop(&dp);
+  if (!ret)
+    state_ = STOPPED;
+  return 0;
 }
 
 

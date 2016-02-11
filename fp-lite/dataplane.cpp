@@ -1,59 +1,83 @@
-#include <algorithm>
-
 #include "dataplane.hpp"
+#include "port.hpp"
+#include "application.hpp"
 
-namespace fp {
+#include <cassert>
 
-extern Module_table module_table;
-extern Thread_pool thread_pool;
 
-// Data plane ctor.
-Dataplane::Dataplane(std::string const& name, std::string const& app_name)
-  : name_(name)
+namespace fp
 {
-  auto app = module_table.find(app_name);
-  if (app != module_table.end())
-    app_ = app->second;
-  else
-    throw std::string("Unknown application name '" + app_name + "'");
-}
 
-Dataplane::~Dataplane()
-{
-  delete app_;
-}
-
-
-// Adds the port to the local list.
+// Add a port to the dataplane.
 void
 Dataplane::add_port(Port* p)
 {
-	app_->add_port(p);
+  ports_.emplace(p->id(), p);
 }
 
 
-// Removes the port from the local list if it exists.
+// Remove a port from the data plane.
 void
 Dataplane::remove_port(Port* p)
 {
-	app_->remove_port(p);
+  ports_.erase(p->id());
 }
 
 
-// Starts the data plane packet processors. If the application has configured
-// the data plane, it will install the application in the thread pool and start
-// it. Otherwise it reports errors.
+// Returns the port with the given identifier.
+Port*
+Dataplane::get_port(uint32_t id)
+{
+  auto iter = ports_.find(id);
+  if (iter != ports_.end())
+    return iter->second;
+  return nullptr;
+}
+
+
+// Load an application from the given path.
+void
+Dataplane::load_application(char const* path)
+{
+  assert(!app_);
+  app_ = new Application(path);
+  if (app_->load(*this)) {
+    delete app_;
+    throw std::runtime_error("loading application");
+  }
+}
+
+
+// Unload the application.
+void
+Dataplane::unload_application()
+{
+  assert(app_);
+  if (app_->unload(*this))
+    throw std::runtime_error("unloading application");
+  delete app_;
+  app_ = nullptr;
+}
+
+
+// Starts executing an application on a dataplane.
+//
+// FIXME: Dataplanes also have state. We don't want to re-up
+// if we've already upped.
 void
 Dataplane::up()
 {
-  if (!app_)
-    throw std::string("No applicaiton is installed.");
-  else if (app_->state() == Application::State::READY) {
-    thread_pool.install(app());
-    thread_pool.start();
+  assert(app_);
+
+  // Start the application.
+  app_->start(*this);
+
+  // And then open all ports.
+  for (auto const& kv : ports_) {
+    Port* p = kv.second;
+    if (!p->open())
+      throw std::runtime_error("open port");
   }
-  else if (app_->state() == Application::State::NEW)
-    throw std::string("Data plane has not been configured, unable to start");
 }
 
 
@@ -61,57 +85,18 @@ Dataplane::up()
 void
 Dataplane::down()
 {
-  if (app_->state() == Application::State::RUNNING) {
-    thread_pool.stop();
-    thread_pool.uninstall();
+  // Down all ports.
+  //
+  // TODO: We shouldn't close ports until we know that all
+  // in-flight packets have been processed.
+  for (auto const& kv : ports_) {
+    Port* p = kv.second;
+    if (!p->close())
+      throw std::runtime_error("open port");
   }
-  else
-    throw std::string("Data plane is not running.");
-}
 
-
-// Configures the data plane based on the application.
-void
-Dataplane::configure()
-{
-  if (app_->state() == Application::State::NEW) {
-    app_->lib().config();
-    app_->state_ = Application::State::READY;
-  }
-  else
-    throw std::string("Data plane has already been configured.");
-}
-
-
-// Gets the data plane name.
-std::string
-Dataplane::name() const
-{
-  return name_;
-}
-
-
-// Gets the data planes application.
-Application*
-Dataplane::app() const
-{
-  return app_;
-}
-
-
-// Gets the data planes tables.
-std::vector<Table*>
-Dataplane::tables() const
-{
-  return tables_;
-}
-
-
-// Gets the table at the given index.
-Table*
-Dataplane::table(int idx)
-{
-  return tables_.at(idx);
+  // Then stop the application.
+  app_->stop(*this);
 }
 
 

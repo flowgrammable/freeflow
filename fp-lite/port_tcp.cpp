@@ -4,6 +4,7 @@
 
 #include <cassert>
 #include <cerrno>
+#include <cstdlib>
 #include <system_error>
 
 
@@ -32,6 +33,8 @@ Port_tcp::Port_tcp(Port::Id id, ff::Ipv4_address addr, ff::Ip_port port)
 // Open the port. Creates a socket and binds it to the
 // sockaddr data member. Note that the port is not up
 // until a connection is made.
+//
+// FIXME: Throw an exception?
 bool
 Port_tcp::open()
 {
@@ -45,7 +48,7 @@ Port_tcp::open()
   if (::listen(fd_, SOMAXCONN) < 0)
     return false;
 
-  return 0;
+  return true;
 }
 
 

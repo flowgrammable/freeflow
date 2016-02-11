@@ -102,8 +102,9 @@ struct Header_stack
 //
 // TODO: The use of member functions may prevent optimizations
 // due to aliasing issues.
-struct Context
+class Context
 {
+public:
   Context(Ingress_info in, Packet* p)
     : input_(in), packet_(p)
   { }

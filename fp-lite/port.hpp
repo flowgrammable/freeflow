@@ -1,7 +1,6 @@
 #ifndef FP_PORT_HPP
 #define FP_PORT_HPP
 
-#include <cstdlib>
 #include <string>
 
 
@@ -9,7 +8,7 @@
 namespace fp
 {
 
-struct Context;
+class Context;
 
 // The base class for any port object. Contains methods for receiving,
 // sending, and dropping packets, as well as the ability to close the
@@ -112,7 +111,6 @@ Port::down()
 {
   config_.down = true;
 }
-
 
 } // namespace fp
 

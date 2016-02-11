@@ -1,48 +1,51 @@
 #ifndef FP_APPLICATION_HPP
 #define FP_APPLICATION_HPP
 
-#include <string>
-#include <vector>
-#include <unordered_map>
-
 
 namespace fp
 {
 
+class Dataplane;
 class Port;
-struct Context;
+class Context;
 
 
 // The Library class represents a dynamically loaded application.
 struct Library
 {
-  using Pipeline_fn = void (*)(Context*);
-  using Config_fn =   void (*)(void);
-  using Port_fn =     void (*)(void*);
+  using Init_fn = int (*)(Dataplane*);
+  using Proc_fn = int (*)(Context*);
 
   Library(char const*);
   ~Library();
 
   char const* path;
   void*       handle;
-  Pipeline_fn pipeline;
-  Config_fn   config;
-  Port_fn     ports;
+
+  Init_fn load;
+  Init_fn unload;
+  Init_fn start;
+  Init_fn stop;
+  Proc_fn proc;
 };
 
 
 // An application is a user-defined program that executes
 // on a dataplane.
-struct Application
+class Application
 {
+public:
   // State of the application
-  enum State { NEW, READY, RUNNING, WAITING, STOPPED };
+  enum State { INIT, READY, RUNNING, STOPPED };
 
-  // Constructors.
-  Application(char const*);
+  Application(char const* name)
+    : lib_(name), state_(INIT)
+  { }
 
-  void start();
-  void stop();
+  int load(Dataplane&);
+  int unload(Dataplane&);
+  int start(Dataplane&);
+  int stop(Dataplane&);
 
   // Returns the underlying library.
   Library const& library() const { return lib_; }
@@ -51,15 +54,9 @@ struct Application
   // Returns the current application state.
   State state() const { return state_; }
 
-  Library     lib_;
-  State       state_;
+  Library lib_;
+  State   state_;
 };
-
-
-// FIXME: Do I need these?
-using Module_table = std::unordered_map<std::string, Application*>;
-
-extern Module_table module_table;
 
 
 } // end namespace fp

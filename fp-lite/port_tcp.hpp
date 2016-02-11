@@ -8,7 +8,7 @@
 namespace fp
 {
 
-struct Context;
+class Context;
 
 
 class Port_tcp : public Port

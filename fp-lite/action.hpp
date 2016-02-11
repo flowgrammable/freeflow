@@ -12,7 +12,7 @@
 namespace fp
 {
 
-struct Context;
+class Context;
 
 
 // Defined address spaces for fields.

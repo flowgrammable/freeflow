@@ -1,59 +1,59 @@
 #ifndef FP_DATAPLANE_HPP
 #define FP_DATAPLANE_HPP
 
-#include <list>
 #include <string>
 #include <vector>
 #include <unordered_map>
 
-#include "port.hpp"
-#include "application.hpp"
 
 namespace fp
 {
 
-extern Module_table module_table;
-extern Thread_pool thread_pool;
-
 struct Table;
+class Port;
+class Application;
 
 
 // The flowpath data plane module. Contains an application, a name,
 // and the tables the application will use during decode/lookup.
-struct Dataplane
+//
+// TODO: Support multuiple applications.
+class Dataplane
 {
-  // Ctor/dtor.
-  Dataplane(std::string const&, std::string const&);
-  ~Dataplane();
+public:
+  using Port_map = std::unordered_map<uint32_t, Port*>;
+  using Table_map = std::unordered_map<uint32_t, Table*>;
 
-  // Wrappers to the application's add/remove port functions.
+  Dataplane(char const* n)
+    : name_(n)
+  { }
+
+  // Port management.
   void add_port(Port*);
   void remove_port(Port*);
+  Port* get_port(uint32_t);
 
-  // Mutators.
+  // Application management.
+  void load_application(char const*);
+  void unload_application();
+
+  Application* get_application() const { return app_; }
+
+  // Table management.
+
+  // State management.
   void up();
   void down();
-  void configure();
 
-  // Accessors.
-  Application*        app() const;
-  std::string         name() const;
-  std::vector<Table*> tables() const;
-  Table*              table(int);
+  // Returns the name of the data plane.
+  std::string const& name() const { return name_; }
 
-  // Data members.
-  //
-  // Data plane name.
   std::string name_;
-
-  // The set of tables applications can use.
-  std::vector<Table*> tables_;
-
-  // Application.
+  Port_map  ports_;
+  Table_map tables_;
   Application* app_;
 };
 
-using Dataplane_table = std::unordered_map<std::string, Dataplane*>;
 
 } // namespace
 
