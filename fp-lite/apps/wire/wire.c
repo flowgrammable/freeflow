@@ -6,7 +6,12 @@ struct Dataplane;
 struct Context;
 struct Port;
 
-extern int puts(const char*);
+extern int puts(char const*);
+extern int printf(char const*, ...);
+
+extern int           fp_num_system_ports(struct Dataplane*);
+extern struct Port** fp_get_system_ports(struct Dataplane*);
+extern struct Port*  fp_get_drop_port(struct Dataplane*);
 
 extern struct Port* fp_get_input_port(struct Context*);
 extern struct Port* fp_set_output_port(struct Context*, struct Port*);
@@ -20,9 +25,6 @@ int
 load(struct Dataplane* dp)
 {
   puts("[wire] load");
-  // p1 = fp_get_port(dp, 0);
-  // p2 = fp_get_port(dp, 1);
-  // drop = fp_get_drop_port();
   return 0;
 }
 
@@ -35,18 +37,38 @@ unload(struct Dataplane* dp)
 }
 
 
+// Learn ports on startup.
 int
 start(struct Dataplane* dp)
 {
   puts("[wire] start");
+
+  // Make sure we have the right number of ports.
+  int nports = fp_num_system_ports(dp);
+  if (nports < 2) {
+    puts("[wire] error: a wire needs two endpoints");
+    return 1;
+  }
+  if (nports > 2) {
+    puts("[wire] error: a wire cannot have more than two endpoints");
+    return 1;
+  }
+
+  struct Port** ports = fp_get_system_ports(dp);
+  p1 = ports[0];
+  p2 = ports[1];
+  drop = fp_get_drop_port(dp);
   return 0;
 }
 
 
+// Forget ports on shutdown.
 int
 stop(struct Dataplane* dp)
 {
   puts("[wire] stop");
+  p1 = 0;
+  p2 = 0;
   return 0;
 }
 

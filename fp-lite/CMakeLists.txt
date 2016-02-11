@@ -27,6 +27,7 @@ add_library(fp-lite-rt SHARED
   context.cpp
   port.cpp
   port_tcp.cpp
+  port_drop.cpp
   application.cpp
   dataplane.cpp)
 target_link_libraries(fp-lite-rt freeflow)

@@ -11,27 +11,45 @@ namespace fp
 
 struct Table;
 class Port;
+class Port;
 class Application;
+
 
 
 // The flowpath data plane module. Contains an application, a name,
 // and the tables the application will use during decode/lookup.
 //
+// TODO: Rethink how the port table works. Who assigns ids?
+//
 // TODO: Support multuiple applications.
 class Dataplane
 {
 public:
-  using Port_map = std::unordered_map<uint32_t, Port*>;
+  using Port_list = std::vector<Port*>;
+  using Port_map  = std::unordered_map<uint32_t, Port*>;
   using Table_map = std::unordered_map<uint32_t, Table*>;
 
   Dataplane(char const* n)
-    : name_(n)
+    : name_(n), drop_(nullptr)
   { }
 
+  ~Dataplane();
+
   // Port management.
+  //
+  // FIXME: Ports cannot be added while the dataplane is running.
+  // Adding a port means rebuilding the port tables so that an
+  // application never has null ports.
   void add_port(Port*);
+  void add_drop_port();
   void remove_port(Port*);
-  Port* get_port(uint32_t);
+
+  // Returns the list of system ports.
+  Port_list const& ports() const { return ports_; }
+  Port_list&       ports()       { return ports_; }
+
+  Port* get_port(uint32_t) const;
+  Port* get_drop_port() const { return drop_; }
 
   // Application management.
   void load_application(char const*);
@@ -49,10 +67,40 @@ public:
   std::string const& name() const { return name_; }
 
   std::string name_;
-  Port_map  ports_;
+
+  // TODO: Factor the reserved ports into a struct?
+  // TODO: Support more reseverved ports.
+  Port_list ports_;
+  Port_map  portmap_;
+  Port*     drop_;
+
   Table_map tables_;
   Application* app_;
 };
+
+
+// Returns the port with the given identifier.
+inline Port*
+Dataplane::get_port(uint32_t id) const
+{
+  auto iter = portmap_.find(id);
+  if (iter != portmap_.end())
+    return iter->second;
+  return nullptr;
+}
+
+
+// -------------------------------------------------------------------------- //
+// Application interface
+
+extern "C"
+{
+
+Port** fp_get_system_ports(Dataplane*);
+Port*  fp_get_drop_port(Dataplane*);
+int    fp_get_num_system_ports(Dataplane*);
+
+} // extern "C"
 
 
 } // namespace

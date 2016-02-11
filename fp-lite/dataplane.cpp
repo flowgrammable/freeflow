@@ -1,5 +1,6 @@
 #include "dataplane.hpp"
 #include "port.hpp"
+#include "port_drop.hpp"
 #include "application.hpp"
 
 #include <cassert>
@@ -8,30 +9,39 @@
 namespace fp
 {
 
-// Add a port to the dataplane.
+Dataplane::~Dataplane()
+{
+  delete drop_;
+}
+
+
+// Add a logical or phyisical port to the dataplane. This must
+// not be used for reserved ports.
 void
 Dataplane::add_port(Port* p)
 {
-  ports_.emplace(p->id(), p);
+  ports_.push_back(p);
+  portmap_.emplace(p->id(), p);
+}
+
+
+// Add an explicit drop port to the dataplane.
+void
+Dataplane::add_drop_port()
+{
+  drop_ = new Port_drop;
+  portmap_.emplace(drop_->id(), drop_);
 }
 
 
 // Remove a port from the data plane.
+//
+// FIXME: Implement me.
 void
 Dataplane::remove_port(Port* p)
 {
-  ports_.erase(p->id());
-}
-
-
-// Returns the port with the given identifier.
-Port*
-Dataplane::get_port(uint32_t id)
-{
-  auto iter = ports_.find(id);
-  if (iter != ports_.end())
-    return iter->second;
-  return nullptr;
+  throw std::runtime_error("not implemented");
+  // ports_.erase(p->id());
 }
 
 
@@ -73,7 +83,7 @@ Dataplane::up()
   app_->start(*this);
 
   // And then open all ports.
-  for (auto const& kv : ports_) {
+  for (auto const& kv : portmap_) {
     Port* p = kv.second;
     if (!p->open())
       throw std::runtime_error("open port");
@@ -89,7 +99,7 @@ Dataplane::down()
   //
   // TODO: We shouldn't close ports until we know that all
   // in-flight packets have been processed.
-  for (auto const& kv : ports_) {
+  for (auto const& kv : portmap_) {
     Port* p = kv.second;
     if (!p->close())
       throw std::runtime_error("open port");
@@ -98,6 +108,34 @@ Dataplane::down()
   // Then stop the application.
   app_->stop(*this);
 }
+
+// -------------------------------------------------------------------------- //
+// Application interface
+
+extern "C"
+{
+
+int
+fp_num_system_ports(Dataplane* dp)
+{
+  return dp->ports().size();
+}
+
+
+Port**
+fp_get_system_ports(Dataplane* dp)
+{
+  return dp->ports().data();
+}
+
+
+Port*
+fp_get_drop_port(Dataplane* dp)
+{
+  return dp->get_drop_port();
+}
+
+} // extern "C"
 
 
 } // end namespace fp

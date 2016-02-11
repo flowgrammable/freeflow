@@ -38,6 +38,7 @@ main()
   // Configure the dataplane. Ports must be added
   // before applications are loaded.
   fp::Dataplane dp = "dp1";
+  dp.add_drop_port();
   dp.add_port(&p1);
   dp.add_port(&p2);
   dp.load_application("apps/wire.app");
