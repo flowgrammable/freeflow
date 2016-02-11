@@ -7,10 +7,7 @@ macro(add_application name)
   set_target_properties(${name} PROPERTIES
     PREFIX ""       # Don't prefix with "lib"
     SUFFIX ".app")  # Use .app as the extension
-  target_link_libraries(${name} flowpath-rt)
+  target_link_libraries(${name} fp-lite-rt)
 endmacro()
-
-# Disable hub for now
-#add_subdirectory(hub)
 
 add_subdirectory(wire)

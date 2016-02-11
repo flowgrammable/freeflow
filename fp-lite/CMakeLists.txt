@@ -24,15 +24,17 @@ include_directories(.)
 # The flowpath runtime library.
 add_library(fp-lite-rt SHARED
   types.cpp
+  context.cpp
   port.cpp
-  port_tcp.cpp)
+  port_tcp.cpp
+  application.cpp)
 target_link_libraries(fp-lite-rt freeflow)
 
 # Drivers.
 add_subdirectory(drivers)
 
 # Applications.
-# add_subdirectory(apps)
+add_subdirectory(apps)
 
 # Tests.
 # add_subdirectory(tests)

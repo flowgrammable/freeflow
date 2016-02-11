@@ -22,7 +22,6 @@ struct Table;
 // and the tables the application will use during decode/lookup.
 struct Dataplane
 {
-
   // Ctor/dtor.
   Dataplane(std::string const&, std::string const&);
   ~Dataplane();

@@ -1,9 +1,7 @@
 
 #include "port.hpp"
 #include "port_tcp.hpp"
-// #include "dataplane.hpp"
-
-// #include "system.hpp"
+#include "application.hpp"
 
 #include <string>
 #include <iostream>
@@ -38,12 +36,12 @@ main()
     fp::Port_tcp p1(0, ff::Ipv4_address::any(), 5000);
     fp::Port_tcp p2(1, ff::Ipv4_address::any(), 5001);
 
+    fp::Application app("apps/wire.app");
+    std::cout << "LOADED? " << app.library().path << '\n';
+    std::cout << "LOADED? " << app.library().handle << '\n';
+    app.library().config();
+
 #if 0
-
-
-    // Load the application library
-    fp::load_application("apps/wire.app");
-    std::cerr << "Loaded application 'apps/wire.app'\n";
 
     // Create the dataplane with the loaded application library.
     fp::Dataplane* dp = fp::create_dataplane("dp1", "apps/wire.app");

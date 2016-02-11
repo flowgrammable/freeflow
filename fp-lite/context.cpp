@@ -3,19 +3,6 @@
 namespace fp
 {
 
-Context::Context(Packet* p, Port::Id in, Port::Id in_phys, int tunn_id,
-								 int max_headers, int max_fields)
-	: packet_(p)
-  , metadata_()
-  , current_()
-  , in_port(in)
-  , in_phy_port(in_phys)
-  , tunnel_id(tunn_id)
-  , hdr_()
-  , fld_()
-{ }
-
-
 void
 Context::write_metadata(uint64_t meta)
 {
@@ -39,7 +26,7 @@ namespace
 inline void
 apply(Context& cxt, Set_action a)
 {
-  
+
 }
 
 
@@ -52,7 +39,8 @@ apply(Context& cxt, Copy_action a)
 inline void
 apply(Context& cxt, Output_action a)
 {
-  cxt.out_port = a.port;
+  // FIXME: This requires a lookup.
+  // cxt.ctrl_.out_port = a.port;
 }
 
 
@@ -84,6 +72,28 @@ Context::apply_action(Action a)
     case Action::GROUP: return apply(*this, a.value.group);
   }
 }
+
+
+// -------------------------------------------------------------------------- //
+// Application interface
+
+extern "C"
+{
+
+Port*
+fp_get_input_port(Context* cxt)
+{
+  return cxt->input_port();
+}
+
+void
+fp_set_output_port(Context* cxt, Port* p)
+{
+  cxt->set_output_port(p);
+}
+
+
+} // extern "C"
 
 
 } // namespace fp
