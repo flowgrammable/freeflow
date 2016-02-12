@@ -19,12 +19,12 @@ namespace ff
 namespace ip
 {
 
-// The Port type specifies the valid range of values 
+// The Port type specifies the valid range of values
 // for an IPv4 or IPv6 port. IP ports are numbered
 // 1 to 64K, with the first 2K ports reserved for
-// system use. 
-// 
-// Note that all port values must be in network byte 
+// system use.
+//
+// Note that all port values must be in network byte
 // order. Use `htons` to convert host 16-bit values
 // to network-byte order 16-bit values.
 using Port = in_port_t;
@@ -71,8 +71,8 @@ Address::Address(in_addr_t addr)
 //                            Socket Address
 
 
-// A socket address denotes an endpoint for a network 
-// application. It is comprised of an IP address and the 
+// A socket address denotes an endpoint for a network
+// application. It is comprised of an IP address and the
 // application's port number.
 struct Socket_address : sockaddr_in
 {
@@ -80,7 +80,7 @@ struct Socket_address : sockaddr_in
   Socket_address(Address, Port);
 
   Family  family() const  { return sin_family; }
-  Port    port() const    { return sin_port; }
+  Port    port() const    { return ntohs(sin_port); }
   Address address() const { return sin_addr; }
 };
 
@@ -95,14 +95,14 @@ Socket_address::Socket_address()
 }
 
 
-// Initialize the socket address. Note that the address and 
+// Initialize the socket address. Note that the address and
 // port must be in network byte order.
 inline
 Socket_address::Socket_address(Address a, Port p)
   : sockaddr_in()
 {
   sin_family = AF_INET;
-  sin_port = p;
+  sin_port = htons(p);
   sin_addr = a;
 }
 

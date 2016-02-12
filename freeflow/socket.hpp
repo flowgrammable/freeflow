@@ -2,14 +2,18 @@
 #ifndef FREEFLOW_SOCKET_HPP
 #define FREEFLOW_SOCKET_HPP
 
-// The socket module defines a low-level wrapper around the 
+// The socket module defines a low-level wrapper around the
 // POSIX socket interface.
 
 #include "system.hpp"
 
 #include <cstddef>
+#include <system_error>
+#include <utility>
 
 #include <sys/socket.h>
+#include <netinet/in.h>
+
 
 namespace ff
 {
@@ -17,7 +21,7 @@ namespace ff
 // -------------------------------------------------------------------------- //
 //                          Address families
 
-// The Family type is one of the address families supported 
+// The Family type is one of the address families supported
 //  by the host system.
 using Family = sa_family_t;
 
@@ -60,54 +64,38 @@ struct Socket_address_store : sockaddr_storage
 
 
 // -------------------------------------------------------------------------- //
-//                        Socket interface
+// Socket interface
 
-// Socket constructors
-int stream_socket(Family, int = 0);
-int datagram_socket(Family, int = 0);
-
-
-// Create a stream socket, bind it to the given address
-// and put it in a listening state. Use the specified
-// protocol, if given.
-template<typename Addr>
-int
-server_socket(Addr const& addr, int proto = 0)
+// Create an unbound stream socket.
+inline int
+stream_socket(Family af, int proto = 0)
 {
-  // Create the socket.
-  int sd = stream_socket(addr.family(), proto);
-  if (sd < 0)
-    return sd;
-
-  // Bind to the specified address.
-  if (::bind(sd, (sockaddr const*)&addr, sizeof(addr)) < 0)
-    return -1;
-
-  // Listen for connections.
-  if (::listen(sd, SOMAXCONN) < 0)
-    return -1;
-
-  return sd;
+  return ::socket(af, SOCK_STREAM, proto);
 }
 
 
-// Create a stream socket and connect it to the
-// given address. Use the specified protocol if
-// specified.
-template<typename Addr>
-int 
-client_socket(Addr const& addr, int proto = 0)
+// Create an unbound datagram socket.
+inline int
+datagram_socket(Family af, int proto = 0)
 {
-  // Create the socket.
-  int sd = stream_socket(addr.family(), proto);
-  if (sd < 0)
-    return sd;
+  return ::socket(af, SOCK_DGRAM, proto);
+}
 
-  // Bind to the specified address.
-  if (::connect(sd, (sockaddr const*)&addr, sizeof(addr)) < 0)
-    return -1;
 
-  return sd;
+// Bind the interface to the given address.
+template<typename Addr>
+inline int
+bind(int sd, Addr const& addr)
+{
+  return ::bind(sd, (sockaddr const*)&addr, sizeof(addr));
+}
+
+
+// Listen for connections.
+inline int
+listen(int sd)
+{
+  return ::listen(sd, SOMAXCONN);
 }
 
 
@@ -124,11 +112,20 @@ accept(int sd)
 // address. This returns a descriptor for the accepted
 // connection.
 template<typename Addr>
-inline int 
+inline int
 accept(int sd, Addr& addr)
 {
   socklen_t len = sizeof(addr);
   return ::accept(sd, (sockaddr*)&addr, &len);
+}
+
+
+// Connect to the given socket.
+template<typename Addr>
+inline int
+connect(int sd, Addr const& addr)
+{
+  return ::connect(sd, (sockaddr const*)&addr, sizeof(addr));
 }
 
 
@@ -182,6 +179,166 @@ send(int sd, std::string const& str)
 {
   return ::send(sd, str.c_str(), str.size(), 0);
 }
+
+
+// -------------------------------------------------------------------------- //
+// Socket constructors
+
+// Create a stream socket, bind it to the given address
+// and put it in a listening state. Use the specified
+// protocol, if given.
+template<typename Addr>
+int
+server_socket(Addr const& addr, int proto = 0)
+{
+  // Create the socket.
+  int sd = stream_socket(addr.family(), proto);
+  if (sd < 0)
+    return sd;
+
+  // Bind to the specified address.
+  if (bind(sd, addr) < 0)
+    return -1;
+
+  // Listen for connections.
+  if (listen(sd) < 0)
+    return -1;
+
+  return sd;
+}
+
+
+// Create a stream socket and connect it to the
+// given address. Use the specified protocol if
+// specified.
+template<typename Addr>
+int
+client_socket(Addr const& addr, int proto = 0)
+{
+  // Create the socket.
+  int sd = stream_socket(addr.family(), proto);
+  if (sd < 0)
+    return sd;
+
+  // Bind to the specified address.
+  if (::connect(sd, (sockaddr const*)&addr, sizeof(addr)) < 0)
+    return -1;
+
+  return sd;
+}
+
+
+// -------------------------------------------------------------------------- //
+// Socket options
+
+inline int
+reuse_address(int sd, int val)
+{
+  return ::setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, (void const*)&val, sizeof(int));
+}
+
+
+// -------------------------------------------------------------------------- //
+// Socket class
+
+// The socket class is a simple wrapper around a socket descriptor.
+// It is a resource, meaning it is a move-only type. The socket
+// is parameterized by its socket address type.
+template<typename Addr>
+class Socket
+{
+public:
+  Socket(int kind, int proto = 0);
+
+  explicit Socket(int);
+
+  Socket(Socket&&);
+  Socket& operator=(Socket&&);
+
+  Socket(Socket const&) = delete;
+  Socket& operator=(Socket const&) = delete;
+
+  ~Socket();
+
+  int fd() const { return fd; }
+
+private:
+  int fd_;
+};
+
+
+template<typename Addr>
+inline
+Socket<Addr>::Socket(int kind, int proto)
+  : fd_(::socket(Addr::family(), kind, proto))
+{
+  if (fd_ < 0)
+    throw std::system_error(errno, std::system_category());
+}
+
+
+template<typename Addr>
+inline
+Socket<Addr>::~Socket()
+{
+  if (fd_ >= 0)
+    ::close(fd_);
+}
+
+
+template<typename Addr>
+inline
+Socket<Addr>::Socket(Socket&& s)
+  : fd_(s.fd_)
+{
+  s.fd_ = -1;
+}
+
+
+template<typename Addr>
+inline Socket<Addr>&
+Socket<Addr>::operator=(Socket&& s)
+{
+  if (fd_ >= 0)
+    ::close(fd_);
+  fd_ = s.fd_;
+  s.fd_ = -1;
+  return *this;
+}
+
+
+// -------------------------------------------------------------------------- //
+// Stream socket class
+
+template<typename Addr>
+struct Stream_socket : Socket<Addr>
+{
+  using Socket<Addr>::Socket;
+  using Socket<Addr>::operator=;
+
+  Stream_socket(int proto = 0)
+    : Socket<Addr>(SOCK_STREAM, proto)
+  { }
+
+  bool listen(Addr const&);
+  bool connect(Addr const&);
+
+  Stream_socket&& accept();
+  Stream_socket&& accept(Addr&);
+};
+
+
+template<typename Addr>
+inline bool
+Stream_socket<Addr>::listen(Addr const& addr)
+{
+  if (bind(this->fd(), addr) < 0)
+    return false;
+  if (listen(this->fd()) < 0)
+    return false;
+  return true;
+}
+
 
 
 } // namespace ff
