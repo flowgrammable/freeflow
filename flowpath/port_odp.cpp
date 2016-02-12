@@ -6,6 +6,8 @@
 //#include <netinet/in.h>
 #include <stdio.h>
 #include <cstring>
+#include <string>
+#include <algorithm>
 
 #include <unistd.h>
 #include <netdb.h>
@@ -50,7 +52,7 @@ Port_odp::Port_odp(Port::Id id, std::string const& args)
   //       have port initialize pools as needed!
   pktpool_ = odp_pool_lookup(PKT_POOL_NAME);
   if (pktpool_ == ODP_POOL_INVALID)
-    throw std::string("Error: failed to lookup pktpool by name: " + PKT_POOL_NAME);
+    throw std::string("Error: failed to lookup pktpool by name: ").append(PKT_POOL_NAME);
 
   // Create pktio instance.
   pktio_ = odp_pktio_open(name_.c_str(), pktpool_, &pktio_param);
@@ -71,18 +73,19 @@ Port_odp::open()
   int ret = odp_pktio_start(pktio_);
   // TODO: how should port open error be reported?
   if (ret != 0)
-    throw std::string("Error: unable to start pktio dev: " + pktio_);
+    throw std::string("Error: unable to start pktio dev");
   return ret;
 }
 
 
 // Stop recieving and transmitting.
-int Port_odp::close()
+int
+Port_odp::close()
 {
   int ret = odp_pktio_stop(pktio_);
   // TODO: how should port close error be reported?
   if (ret != 0)
-    throw std::string("Error: unable to stop pktio dev: " + pktio_);
+    throw std::string("Error: unable to stop pktio dev");
   return ret;
 }
 
@@ -94,55 +97,44 @@ Port_odp::recv()
 {
   // Check if port is usable.
   if (config_.down)
-    throw std::string("Port down");
+    throw std::string("unable to recv, port down");
 
   // Recieve batch of packets.
   odp_packet_t pkt_tbl[MAX_PKT_BURST];
   int pkts = odp_pktio_recv(pktio_, pkt_tbl, MAX_PKT_BURST);
   if (pkts < 0)
-    throw std::string("Error: unable to recv on pktio dev: " + pktio_);
+    throw std::string("Error: unable to recv on pktio dev");
 
   // Wrap packets in packet context.
-  int bytes = 0;
+  odp_time_t arrival = odp_time_global();
+  uint64_t bytes = 0;
   for (int i = 0; i < pkts; i++) {
-    odp_packet_t& pkt = pkt_tbl[i];
+    odp_packet_t odp_pkt = pkt_tbl[i];
 
     // Create a new packet, leaving the data in the original buffer.
-    Packet* pkt = packet_create(/*stuff goes here*/);
+    // TODO: note that ODP can have multiple segments / packet.
+    //   This is exactly what we want.  Need to fully support this!
+    if (odp_packet_is_segmented(odp_pkt)) {
+      printf("Unhandled: packet is segmented...\n");
+    }
+    void* seg_buf = odp_packet_data(odp_pkt);
+    uint32_t seg_len = odp_packet_len(odp_pkt);
+    uint64_t arrival_ns = odp_time_to_ns(arrival);
+    Packet* pkt = packet_create((unsigned char*)seg_buf, seg_len, arrival_ns, odp_pkt, fp::FP_BUF_ODP);
 
     // Create a new context associated with the packet.
-    Context* cxt = new Context(pkt, id_, id_, 0, max_headers, max_fields);
+    Context* cxt = new Context(pkt, id_, id_, 0, 0, 0);
+
+    // Sum up stats for all recieved packets.
+    bytes += seg_len;
 
     // Send context to pipeline.
     thread_pool.app()->lib().pipeline(cxt);
   }
 
-  // TODO: finish this...
-
-
-  //// UDP's Mechanism to read packets ////
-  // Copy the buffer so that we guarantee that we don't
-  // accidentally overwrite it when we have multiple
-  // readers.
-  //
-  // FIXED: fp::Buffer copies the data.
-  //
-  // TODO: We should probably have a better buffer management
-  // framework so that we don't have to copy each time we
-  // create a packet.
-  //
-  // TODO: We should call functions which ask the application
-  // for the maximum desired number of headers and fields
-  // that can be extracted so we can produce a context
-  // which takes up a minimal amount of space.
-  // And probably move these to become global values instead
-  // of locals to reduce function calls.
-  //
-  // NOTE: This should be done in the config() function.
-
   // Update port stats.
-  // TODO: these should be interlocked stistics!
-  stats_.pkt_rx += num_msg;
+  // TODO: these should be interlocked variables!
+  stats_.pkt_rx += pkts;
   stats_.byt_rx += bytes;
 
   return pkts;
@@ -154,44 +146,64 @@ Port_odp::recv()
 int
 Port_odp::send()
 {
-  // TODO: finish this...
-
-  //// UDP's Mechanism to read packets ////
   // Check that this port is usable.
   if (config_.down)
-    throw std::string("port down");
-  uint64_t bytes = 0;
-  uint64_t pkts = tx_queue_.size();
+    throw std::string("unable to send, port down");
+
+  // Assemble some packets to send.
+  // - Technically MAX_PKT_BURST isn't a real limit, but simplifies things for now
+  int pkts = std::min((int)tx_queue_.size(), (int)MAX_PKT_BURST);
+  odp_packet_t pkt_tbl[MAX_PKT_BURST];
+  Context* pkt_tbl_cxt[MAX_PKT_BURST];  // need this to delete contexts after send
+  int pkts_to_send = 0;
+
   // Send packets as long as the queue has work.
+  uint64_t bytes = 0;
   for (int i = 0; i < pkts; i++) {
     // Get the next context, incr packet counter.
     Context* cxt = tx_queue_.front();
+    tx_queue_.pop();
 
-    // Send the packet data associated with the context.
-    //
-    // TODO: Change this to use sendmmsg, or maybe decide based on
-    // the size of the queue?
-    long res = sendto(fd_, cxt->packet()->data(), cxt->packet()->size(),
-      0, (struct sockaddr*)&dst_addr_, sizeof(dst_addr_));
-
-    // Error check, else update num bytes sent.
-    if (res < 0) {
-      perror(std::string("port[" + std::to_string(id_) + "] sendto").c_str());
+    // Check if packet is and ODP buffer.
+    if (cxt->packet()->buf_dev_ != fp::FP_BUF_ODP) {
+      printf("Not an ODP buffer, can't send out ODP port (unimplemented)\n");
+      delete cxt->packet();
+      delete cxt;
     }
-    else
-      bytes += res;
 
-    // Release resources.
+    // Include packet in send batch.
+    pkt_tbl[pkts_to_send] = (odp_packet_t)cxt->packet()->buf_handle_;
+    pkt_tbl_cxt[pkts_to_send] = cxt;
+    pkts_to_send++;
+  }
+
+  // Send batch of packets.
+  // TODO: need to handle case when not all packets can be sent...
+  int sent = odp_pktio_send(pktio_, pkt_tbl, pkts_to_send);
+  if (sent < 0) {
+    printf("Send failed!\n");
+    sent = 0;
+  }
+  if (sent < pkts_to_send) {
+    printf("Send failed to send all packets!\n");
+
+    // Cleanup any ODP packet buffers that failed to send.
+    odp_packet_free_multi(pkt_tbl+sent, pkts_to_send - sent);
+  }
+
+  // Cleanup all Contexts after send.
+  for (int i = 0; i < pkts_to_send; i++) {
+    Context* cxt = pkt_tbl_cxt[i];
     delete cxt->packet();
     delete cxt;
-    tx_queue_.pop();
   }
 
   // Update port stats.
-  stats_.pkt_tx += pkts;
-  stats_.byt_tx += bytes;
+  // TODO: these should be interlocked variables!
+  stats_.pkt_tx += sent;
+  stats_.byt_tx += bytes; // TODO: not keeping track of this...
 
-  return pkts;
+  return sent;
 }
 
 } // end namespace fp

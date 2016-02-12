@@ -13,7 +13,8 @@ namespace fp
 enum Buff_t {
   FP_BUF_NADK,
   FP_BUF_NETMAP,
-  FP_BUF_ALLOC
+  FP_BUF_ALLOC,
+  FP_BUF_ODP
 };
 
 
@@ -42,7 +43,7 @@ struct Packet
   // Data members.
   Buffer    buf_;        // Packet buffer.
   int       size_;       // Number of bytes.
-  uint64_t  timestamp_;  // Time of packet arrival.
+  uint64_t  timestamp_;  // Time of packet arrival (ns).  TODO: change to struct timeval
   void*     buf_handle_; // [optional] port-specific buffer handle.
   Buff_t    buf_dev_;    // [optional] owner of buffer handle (dev*).
 };

@@ -25,8 +25,8 @@ public:
   int  send();
 
   // Port state functions.
-  int  open();
-  void close();
+  int open();
+  int close();
 
   // Data members.
   //

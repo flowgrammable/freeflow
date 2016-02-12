@@ -130,7 +130,7 @@ Port_udp::open()
 
 
 // Close the port (socket).
-void
+int
 Port_udp::close()
 {
   ::close((int)fd_);

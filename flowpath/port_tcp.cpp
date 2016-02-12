@@ -182,7 +182,7 @@ Port_tcp::open()
 
 
 // Close the port (socket).
-void
+int
 Port_tcp::close()
 {
   ::close((int)fd_);

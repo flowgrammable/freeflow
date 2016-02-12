@@ -105,8 +105,8 @@ Port_table::alloc(Port::Type port_type, std::string const& args) -> value_type
     case Port::Type::tcp:
       data_[idx] = (value_type)new Port_tcp(idx+1, args);
     break;
-    case Port::Type::odp:
-      data_[idx] = nullptr;
+    case Port::Type::odp_burst:
+      data_[idx] = (value_type)new Port_odp(idx+1, args);
       //TODO: merge in ODP Port:
       //data_[idx] = (value_type)new Port_odp(idx+1, args);
     break;

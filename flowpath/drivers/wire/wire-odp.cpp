@@ -66,13 +66,16 @@ main()
     // - pktio = odp_pktio_open(dev, pool, &pktio_param);
     // - [ inq_def = odp_queue_create(inq_name,ODP_QUEUE_TYPE_PKTIN, &qparam); ]
     // - ret = odp_pktio_start(pktio);
+/*
     for (i = 0; i < args->appl.if_count; ++i)
       create_pktio(args->appl.if_names[i], pool, args->appl.mode);
+*/
 
 
-    /* Create and init worker threads */
+    // Create and init worker threads
     // ODP Library: Create processing threads.
     // Critical: this does not appear to be platform agnostic...
+/*
     memset(thread_tbl, 0, sizeof(thread_tbl));
 
     cpu = odp_cpumask_first(&cpumask);
@@ -88,13 +91,13 @@ main()
 
       if (args->appl.mode == APPL_MODE_PKT_BURST)
         thr_run_func = pktio_ifburst_thread;
-      else /* APPL_MODE_PKT_QUEUE */
+      else // APPL_MODE_PKT_QUEUE
         thr_run_func = pktio_queue_thread;
-      /*
-       * Create threads one-by-one instead of all-at-once,
-       * because each thread might get different arguments.
-       * Calls odp_thread_create(cpu) for each thread
-       */
+
+      //  Create threads one-by-one instead of all-at-once,
+      //  because each thread might get different arguments.
+      //  Calls odp_thread_create(cpu) for each thread
+
       odp_cpumask_zero(&thd_mask);
       odp_cpumask_set(&thd_mask, cpu);
       odph_linux_pthread_create(&thread_tbl[i], &thd_mask,
@@ -103,16 +106,16 @@ main()
               ODP_THREAD_WORKER);
       cpu = odp_cpumask_next(&cpumask, cpu);
     }
-
+*/
 
     /* Master thread waits for other threads to exit */
     // ODP Library: Wait for worker threads to stop.
-    odph_linux_pthread_join(thread_tbl, num_workers);
+    //odph_linux_pthread_join(thread_tbl, num_workers);
 
-    free(args->appl.if_names);
-    free(args->appl.if_str);
-    free(args);
-    printf("Exit\n\n");
+    //free(args->appl.if_names);
+    //free(args->appl.if_str);
+    //free(args);
+    //printf("Exit\n\n");
 
 
 
@@ -120,12 +123,12 @@ main()
     // Instantiate ports.
     //
     // P1 : Connected to an echo client.
-    fp::Port* p1 = fp::create_port(fp::Port::Type::tcp, ":5000;p1");
+    fp::Port* p1 = fp::create_port(fp::Port::Type::odp_burst, "veth1");
     std::cerr << "Created port " << p1->name() << " with id '" << p1->id() << "'\n";
 
 
     // P2 : Bound to a netcat TCP port; Acts as the entry point.
-    fp::Port* p2 = fp::create_port(fp::Port::Type::tcp, ":5001;p2");
+    fp::Port* p2 = fp::create_port(fp::Port::Type::odp_burst, "veth3");
     std::cerr << "Created port " << p2->name() << " with id '" << p2->id() << "'\n";
 
 

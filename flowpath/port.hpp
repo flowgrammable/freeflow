@@ -66,10 +66,10 @@ public:
 
   // The set of necessary port related functions that any port-type
   // must define.
-  virtual int  open() = 0;
-  virtual int  recv() = 0;
-  virtual int  send() = 0;
-  virtual void close() = 0;
+  virtual int open() = 0;
+  virtual int recv() = 0;
+  virtual int send() = 0;
+  virtual int close() = 0;
 
   // Functions derived ports aren't responsible for defining.
   void send(Context*);
