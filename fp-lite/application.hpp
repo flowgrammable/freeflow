@@ -47,6 +47,8 @@ public:
   int start(Dataplane&);
   int stop(Dataplane&);
 
+  int process(Context&);
+
   // Returns the underlying library.
   Library const& library() const { return lib_; }
   Library&       library()       { return lib_; }

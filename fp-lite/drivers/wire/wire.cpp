@@ -2,6 +2,8 @@
 #include "port.hpp"
 #include "port_tcp.hpp"
 #include "dataplane.hpp"
+#include "context.hpp"
+#include "application.hpp"
 
 #include <freeflow/socket.hpp>
 #include <freeflow/poll.hpp>
@@ -12,6 +14,8 @@
 
 
 using namespace ff;
+using namespace fp;
+
 
 // Emulate a 2 port wire running over TCP ports.
 
@@ -39,15 +43,7 @@ main()
   Ipv4_socket_address addr(Ipv4_address::any(), 5000);
   Ipv4_stream_socket server(addr);
 
-
-  // The two (possible) endpoints.
-  // int ends[2] { -1, -1 };
-
   // TODO: Handle exceptions.
-
-  // Create some ports. This is the "system" port table.
-  // fp::Port_tcp p1(0, Ipv4_address::any(), 5000);
-  // fp::Port_tcp p2(1, Ipv4_address::any(), 5001);
 
   // Configure the dataplane. Ports must be added
   // before applications are loaded.
@@ -57,13 +53,11 @@ main()
   dp.up();
 
 
-  // Allocate the client sockets. We'll properly initialize them
-  // when they are created.
-  Ipv4_stream_socket ends[] {
-    uninitialized,
-    uninitialized
-  };
-  int nends = 0;
+  // The ports representing clients. These are allocated when
+  // a client is connected.
+  Port_tcp* ports[] { nullptr, nullptr };
+  int nports = 0; // Current number of ports
+  int id = 0;    // The port id counter
 
   // Set up the initial polling state.
   Poll_file fds[] {
@@ -79,50 +73,56 @@ main()
     if (!client)
       return; // TODO: Log the error.
 
-
     // If we already have two endpoints, just return, which
     // will cause the socket to be closed.
-    if (nends == 2) {
+    if (nports == 2) {
       std::cout << "[flowpath] reject connection " << addr.port() << '\n';
       return;
     }
     std::cout << "[flowpath] accept connection " << addr.port() << '\n';
 
-    client.send("hello\n");
+    // Update the poll set.
+    fds[nports + 1] = { client.fd(), POLLIN };
 
-    // Register the socket with the endpoint and poll sets.
-    fds[nends + 1] = { client.fd(), POLLIN };
-    ends[nends] = std::move(client);
-    ++nends;
+    // Create and register a new port.
+    Port_tcp* port = new Port_tcp(id, std::move(client));
+    dp.add_port(port);
+    ports[nports] = port;
 
-    // TODO: Actually add a new port to the system.
+    // Update counts.
+    id = (id + 1) % 2;
+    ++nports;
   };
 
 
   // Handle input from the client socket.
-  auto input = [&](Ipv4_stream_socket& client) {
-    char buf[2048];
-    int n = client.recv(buf);
-    if (n <= 0) {
-      std::cout << "[flowpath] closing endpoint " << nends << '\n';
+  auto input = [&](Port_tcp& port) {
+    Byte buf[2048];
+    Context cxt(Ingress_info{}, buf);
+    port.recv(cxt);
+
+    // If receiving causes the port to go down, then
+    // terminate the connection.
+    if (port.is_down()) {
+      // Close the port and remove it from the system.
+      port.close();
+      dp.remove_port(&port);
+
       // Shuffle information around so we don't leave empty
       // spaces in arrays.
-      if (&client == &ends[0]) {
-        std::swap(ends[0], ends[1]);
-        std::swap(fds[1], fds[2]);
+      if (&port == ports[0]) {
+        ports[0] = ports[1];
+        fds[1] = fds[2];
       }
-      ends[1].close();
+      ports[1] = nullptr;
       fds[2] = { -1, 0 };
-      --nends;
-
-      // TODO: Actually remove the port from the dataplane.
+      --nports;
+      return;
     }
 
-    buf[n] = 0;
-    std::cout << buf;
-
-    // TODO: Create the context for the packet.
-
+    // Otherwise, process the application.
+    Application* app = dp.get_application();
+    app->process(cxt);
   };
 
 
@@ -131,15 +131,15 @@ main()
   while (running) {
     // Poll for 100 milliseconds. Note that this can fail with
     // EINTR, which really isn't an error.
-    poll(fds, 1 + nends, 1000);
+    poll(fds, 1 + nports, 1000);
 
     // Process input events.
     if (fds[0].can_read())
       accept(server);
-    if (nends > 0 && fds[1].can_read())
-      input(ends[0]);
-    if (nends > 1 && fds[2].can_read())
-      input(ends[1]);
+    if (nports > 0 && fds[1].can_read())
+      input(*ports[0]);
+    if (nports > 1 && fds[2].can_read())
+      input(*ports[1]);
   }
 
   // Take the dataplane down.

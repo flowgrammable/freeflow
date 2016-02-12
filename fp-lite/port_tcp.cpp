@@ -6,7 +6,7 @@
 #include <cerrno>
 #include <cstdlib>
 #include <system_error>
-
+#include <iostream>
 
 namespace fp
 {
@@ -15,60 +15,42 @@ namespace fp
 static constexpr int TCP_BUF_SIZE = 2048;
 
 
-// TCP Port constructor. Parses the TCP address and port from
-// the input string given, allocates a new internal ID.
-Port_tcp::Port_tcp(Port::Id id, ff::Ipv4_address addr, ff::Ip_port port)
-  : Port(id), src_(addr, port)
-{
-  fd_ = ff::stream_socket(src_.family());
-  if (fd_ < 0)
-    throw std::runtime_error("create port");
-
-  // Additional socket options.
-  int optval = 1;
-  setsockopt(fd_, SOL_SOCKET, SO_REUSEADDR, (const void*)&optval, sizeof(int));
-}
-
-
-// Open the port. Creates a socket and binds it to the
-// sockaddr data member. Note that the port is not up
-// until a connection is made.
-//
-// FIXME: Throw an exception?
+// This doesn't actually do anything.
 bool
 Port_tcp::open()
 {
-  // Bind to the specified address.
-  //
-  // TODO: Write a wrapper in freeflow.
-  if (::bind(fd_, (sockaddr const*)&src_, sizeof(src_)) < 0)
-    return false;
-
-  // Listen for connections.
-  if (::listen(fd_, SOMAXCONN) < 0)
-    return false;
-
   return true;
 }
 
 
-// Close the port. Shut the port down and close it.
+// Terminate the connection from the dataplane side.
 bool
 Port_tcp::close()
 {
-  down();
-  if (::close(fd_) < 0)
-    perror(__func__); // FIXME: Do better.
+  sock_.close();
   return true;
 }
 
 
-
-// Read a packet from the input buffer, and perform basic initialization
-// of the context.
+// Read a packet from the input stream.
 bool
 Port_tcp::recv(Context& cxt)
 {
+  // Get data.
+  char buf[2048];
+  int n = sock_.recv(buf);
+
+  // On error or closure, down the port.
+  if (n <= 0) {
+    down();
+    return n < 0;
+  }
+
+  buf[n] = 0;
+  std::cout << "[flowpath] " << buf;
+  return true;
+
+  /*
   assert(is_up());
 
   // Receive data.
@@ -111,16 +93,18 @@ Port_tcp::recv(Context& cxt)
   // int max_fields = 0;
   // thread_pool.app()->lib().pipeline(new Context(pkt, id_, id_, 0, max_headers, max_fields));
   return true;
+  */
 }
 
 
-// Write a packet to the output buffer.
+// Writes a packet to the output stream.
 bool
 Port_tcp::send(Context const& cxt)
 {
-  assert(is_up());
+  return true;
 
 #if 0
+  assert(is_up());
   int bytes = write(fd_, cxt->packet()->data(), cxt->packet()->size_);
 
     if (bytes < 0)
@@ -141,7 +125,6 @@ Port_tcp::send(Context const& cxt)
   // Return number of bytes sent.
   return bytes;
 #endif
-  return true;
 }
 
 

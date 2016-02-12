@@ -2,7 +2,7 @@
 #define FP_DATAPLANE_HPP
 
 #include <string>
-#include <vector>
+#include <list>
 #include <unordered_map>
 
 
@@ -25,7 +25,7 @@ class Application;
 class Dataplane
 {
 public:
-  using Port_list = std::vector<Port*>;
+  using Port_list = std::list<Port*>;
   using Port_map  = std::unordered_map<uint32_t, Port*>;
   using Table_map = std::unordered_map<uint32_t, Table*>;
 
@@ -96,9 +96,7 @@ Dataplane::get_port(uint32_t id) const
 extern "C"
 {
 
-Port** fp_get_system_ports(Dataplane*);
-Port*  fp_get_drop_port(Dataplane*);
-int    fp_get_num_system_ports(Dataplane*);
+Port* fp_get_drop_port(Dataplane*);
 
 } // extern "C"
 

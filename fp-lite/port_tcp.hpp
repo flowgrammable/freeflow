@@ -11,11 +11,19 @@ namespace fp
 class Context;
 
 
+// A TCP port is a connect TCP stream socket.
 class Port_tcp : public Port
 {
 public:
   // Constructors/Destructor.
-  Port_tcp(Port::Id, ff::Ipv4_address, ff::Ip_port);
+  Port_tcp(int id, ff::Ipv4_stream_socket&& s)
+    : Port(id), sock_(std::move(s))
+  { }
+
+  // Returns the underlying socket.
+  ff::Ipv4_stream_socket const& socket() const { return sock_; }
+  ff::Ipv4_stream_socket&       socket()       { return sock_; }
+
 
   // Packet related funtions.
   bool open();
@@ -23,8 +31,7 @@ public:
   bool send(Context const&);
   bool recv(Context&);
 
-  ff::Ipv4_socket_address src_;
-  ff::Ipv4_socket_address dst_;
+  ff::Ipv4_stream_socket sock_;
 };
 
 

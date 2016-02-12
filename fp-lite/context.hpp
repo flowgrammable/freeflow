@@ -20,6 +20,8 @@ class Port;
 
 // Stores information about the ingress of a packet
 // into a dataplane.
+//
+// TODO: Save the time stamp here?
 struct Ingress_info
 {
   Port* in_port;
@@ -102,16 +104,18 @@ struct Header_stack
 //
 // TODO: The use of member functions may prevent optimizations
 // due to aliasing issues.
+//
+// FIXME: Holding the packet by value creates an
 class Context
 {
 public:
-  Context(Ingress_info in, Packet* p)
+  Context(Ingress_info in, Packet p)
     : input_(in), packet_(p)
   { }
 
   // Returns the packet owned by the context.
-  Packet const* packet() const { return packet_; }
-  Packet*       packet()       { return packet_; }
+  Packet const& packet() const { return packet_; }
+  Packet&       packet()       { return packet_; }
 
   // Returns the metadata owned by the context.
   Metadata const& metadata() const { return metadata_; }
@@ -159,7 +163,7 @@ public:
   // Packet data and context local data.
   //
   // TODO: I suspect that metadata should also be a pointer.
-  Packet*  packet_;
+  Packet   packet_;
   Metadata metadata_;
 
   // The action set.
@@ -201,7 +205,7 @@ Context::bind_field(int id, std::uint16_t off, std::uint16_t len)
 inline Byte const*
 Context::get_field(std::uint16_t off) const
 {
-  return packet_->data() + off;
+  return packet_.data() + off;
 }
 
 
@@ -209,7 +213,7 @@ Context::get_field(std::uint16_t off) const
 inline Byte*
 Context::get_field(std::uint16_t off)
 {
-  return packet_->data() + off;
+  return packet_.data() + off;
 }
 
 
@@ -225,7 +229,7 @@ Context::get_field_binding(int f) const
 inline Byte const*
 Context::position() const
 {
-  return packet_->data() + offset();
+  return packet_.data() + offset();
 }
 
 
@@ -233,7 +237,7 @@ Context::position() const
 inline Byte*
 Context::position()
 {
-  return packet_->data() + offset();
+  return packet_.data() + offset();
 }
 
 

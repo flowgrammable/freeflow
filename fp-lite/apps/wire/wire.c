@@ -42,24 +42,7 @@ int
 start(struct Dataplane* dp)
 {
   puts("[wire] start");
-
-  // FIXME: Discover endpoints dynamically.
-  // // Make sure we have the right number of ports.
-  // int nports = fp_num_system_ports(dp);
-  // if (nports < 2) {
-  //   puts("[wire] error: a wire needs two endpoints");
-  //   return 1;
-  // }
-  // if (nports > 2) {
-  //   puts("[wire] error: a wire cannot have more than two endpoints");
-  //   return 1;
-  // }
-  //
-  // struct Port** ports = fp_get_system_ports(dp);
-  // p1 = ports[0];
-  // p2 = ports[1];
-  // drop = fp_get_drop_port(dp);
-
+  drop = fp_get_drop_port(dp);
   return 0;
 }
 

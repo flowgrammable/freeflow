@@ -40,8 +40,10 @@ Dataplane::add_drop_port()
 void
 Dataplane::remove_port(Port* p)
 {
-  throw std::runtime_error("not implemented");
-  // ports_.erase(p->id());
+  auto iter = std::find(ports_.begin(), ports_.end(), p);
+  portmap_.erase(p->id());
+  ports_.erase(iter);
+  delete p;
 }
 
 
@@ -109,33 +111,15 @@ Dataplane::down()
   app_->stop(*this);
 }
 
+
 // -------------------------------------------------------------------------- //
 // Application interface
-
-extern "C"
-{
-
-int
-fp_num_system_ports(Dataplane* dp)
-{
-  return dp->ports().size();
-}
-
-
-Port**
-fp_get_system_ports(Dataplane* dp)
-{
-  return dp->ports().data();
-}
-
 
 Port*
 fp_get_drop_port(Dataplane* dp)
 {
   return dp->get_drop_port();
 }
-
-} // extern "C"
 
 
 } // end namespace fp

@@ -150,6 +150,12 @@ Application::stop(Dataplane& dp)
 }
 
 
+int
+Application::process(Context& dp)
+{
+  assert(state_ == RUNNING);
+  return lib_.proc(&dp);
+}
 
 
 } // end namespace fp
