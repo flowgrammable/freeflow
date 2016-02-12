@@ -30,7 +30,7 @@ public:
   using Table_map = std::unordered_map<uint32_t, Table*>;
 
   Dataplane(char const* n)
-    : name_(n), drop_(nullptr)
+    : name_(n), drop_(nullptr), app_(nullptr)
   { }
 
   ~Dataplane();
