@@ -20,7 +20,7 @@ struct Poll_file : pollfd
   Poll_file() = default;
 
   Poll_file(int f, short e)
-    : pollfd { f, e, 0 } 
+    : pollfd { f, e, 0 }
   { }
 
   // Returns true if reading will not block.
@@ -29,7 +29,7 @@ struct Poll_file : pollfd
   // Returns true if writing will not block.
   bool can_write() const { return revents & POLLOUT; }
 
-  // Returns true if there is an error condition.  
+  // Returns true if there is an error condition.
   bool has_error() const { return revents & POLLERR; }
 };
 
@@ -49,7 +49,7 @@ struct Poll_set : std::vector<Poll_file>
 
 
 // Reset the result events from polling.
-inline void 
+inline void
 Poll_set::reset()
 {
   for (Poll_file& f : *this)
@@ -61,8 +61,8 @@ Poll_set::reset()
 inline Poll_set::iterator
 Poll_set::file(int fd)
 {
-  return std::find_if(begin(), end(), [fd](Poll_file& f) { 
-    return f.fd == fd; 
+  return std::find_if(begin(), end(), [fd](Poll_file& f) {
+    return f.fd == fd;
   });
 }
 
@@ -70,8 +70,8 @@ Poll_set::file(int fd)
 inline Poll_set::const_iterator
 Poll_set::file(int fd) const
 {
-  return std::find_if(begin(), end(), [fd](Poll_file const& f) { 
-    return f.fd == fd; 
+  return std::find_if(begin(), end(), [fd](Poll_file const& f) {
+    return f.fd == fd;
   });
 }
 
@@ -79,7 +79,16 @@ Poll_set::file(int fd) const
 // -------------------------------------------------------------------------- //
 //                            Polling operations
 
-inline 
+// Poll a sequence of n files for timeout milliseconds.
+inline
+int poll(Poll_file* pfds, int n, int timeout)
+{
+  return ::poll(pfds, n, timeout);
+}
+
+
+// Poll a set of n files for timeout milliseconds.
+inline
 int poll(Poll_set& ps, int timeout)
 {
   pollfd* pfds = &*ps.begin();

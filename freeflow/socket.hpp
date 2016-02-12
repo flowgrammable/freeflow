@@ -4,6 +4,10 @@
 
 // The socket module defines a low-level wrapper around the
 // POSIX socket interface.
+//
+// TODO: It might be worthwhile to parameterize the socket
+// address by the address family and then specialize for each
+// supported protocol.
 
 #include "system.hpp"
 
@@ -132,7 +136,14 @@ connect(int sd, Addr const& addr)
 // Receive at most `len` bytes of data on the socket and copy
 // it into the object pointed to by `buf`.
 inline int
-recv(int sd, void* buf, std::size_t len)
+recv(int sd, char* buf, std::size_t len)
+{
+  return ::recv(sd, buf, len, 0);
+}
+
+
+inline int
+recv(int sd, unsigned char* buf, std::size_t len)
 {
   return ::recv(sd, buf, len, 0);
 }
@@ -140,20 +151,34 @@ recv(int sd, void* buf, std::size_t len)
 
 // Receive data into an array of objects of bound N. Note
 // that the call may not fully initialize each object in
-// the buffer. In general, T should be a narrow character
-// type.
-template<typename T, int N>
+// the buffer.
+template<int N>
 inline int
-recv(int sd, T(&buf)[N])
+recv(int sd, char (&buf)[N])
 {
-  return ::recv(sd, buf, sizeof(buf), 0);
+  return ::recv(sd, buf, N, 0);
+}
+
+
+template<int N>
+inline int
+recv(int sd, unsigned char (&buf)[N])
+{
+  return ::recv(sd, buf, N, 0);
 }
 
 
 // Send at most `len` bytes of data on the socket from the
 // object pointed to by `buf`.
 inline int
-send(int sd, void const* buf, std::size_t len)
+send(int sd, char const* buf, std::size_t len)
+{
+  return ::send(sd, buf, len, 0);
+}
+
+
+inline int
+send(int sd, unsigned char const* buf, std::size_t len)
 {
   return ::send(sd, buf, len, 0);
 }
@@ -163,9 +188,17 @@ send(int sd, void const* buf, std::size_t len)
 // that the call may not fully transmit each object in
 // the buffer. In general, T should be a narrow character
 // type.
-template<typename T, int N>
+template<int N>
 inline int
-send(int sd, T const (&buf)[N])
+send(int sd, char const (&buf)[N])
+{
+  return ::send(sd, buf, sizeof(buf), 0);
+}
+
+
+template<int N>
+inline int
+send(int sd, unsigned char const (&buf)[N])
 {
   return ::send(sd, buf, sizeof(buf), 0);
 }
@@ -231,26 +264,89 @@ client_socket(Addr const& addr, int proto = 0)
 // -------------------------------------------------------------------------- //
 // Socket options
 
-inline int
-reuse_address(int sd, int val)
+
+struct boolean_option
 {
-  return ::setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, (void const*)&val, sizeof(int));
+  boolean_option(bool b)
+    : value(b)
+  { }
+
+  int value;
+};
+
+
+struct reuse_address : boolean_option
+{
+  using boolean_option::boolean_option;
+};
+
+
+struct nonblocking : boolean_option
+{
+  using boolean_option::boolean_option;
+};
+
+
+// TODO: This could be a made a template, with each of the
+// types above modeling some concept, but I don't feel like
+// working through it right now.
+inline int
+set_option(int sd, reuse_address opt)
+{
+  return ::setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, &opt.value, sizeof(opt.value));
 }
+
+
+template<typename Opt, typename... Opts>
+inline int
+set_options(int sd, Opt opt, Opts... opts)
+{
+  int n = set_option(sd, opt);
+  if (n < 0)
+    return n;
+  set_options(sd, opts...);
+}
+
 
 
 // -------------------------------------------------------------------------- //
 // Socket class
 
+
+struct give_t
+{
+  int fd;
+};
+
+
+// Returns an object that gives a file descriptor to an owner.
+inline give_t
+give(int fd)
+{
+  return {fd};
+}
+
+
+// A special value (of enum type) that requests initialization
+// later (e.g., by move).
+using uninit_t = void(*)();
+
+// Look aways.
+inline void uninitialized() { }
+
+
 // The socket class is a simple wrapper around a socket descriptor.
 // It is a resource, meaning it is a move-only type. The socket
 // is parameterized by its socket address type.
+//
+// TODO: Throw exceptions on failure?
 template<typename Addr>
 class Socket
 {
 public:
   Socket(int kind, int proto = 0);
-
-  explicit Socket(int);
+  Socket(give_t);
+  Socket(uninit_t);
 
   Socket(Socket&&);
   Socket& operator=(Socket&&);
@@ -260,7 +356,24 @@ public:
 
   ~Socket();
 
-  int fd() const { return fd; }
+  // Returns true if the file descriptor is valid.
+  explicit operator bool() const { return fd_ != -1; }
+
+  // Returns the underlying file descriptor.
+  int fd() const { return fd_; }
+  int fd()       { return fd_; }
+
+  void close();
+
+  int recv(char*, int);
+  int recv(unsigned char*, int);
+  int send(char const*, int);
+  int send(unsigned char const*, int);
+
+  template<int N> int recv(char (&)[N]);
+  template<int N> int recv(unsigned char (&)[N]);
+  template<int N> int send(char const (&)[N]);
+  template<int N> int send(unsigned char const (&)[N]);
 
 private:
   int fd_;
@@ -270,11 +383,23 @@ private:
 template<typename Addr>
 inline
 Socket<Addr>::Socket(int kind, int proto)
-  : fd_(::socket(Addr::family(), kind, proto))
+  : fd_(::socket(Addr::address_family(), kind, proto))
 {
   if (fd_ < 0)
     throw std::system_error(errno, std::system_category());
 }
+
+
+template<typename Addr>
+Socket<Addr>::Socket(give_t given)
+  : fd_(given.fd)
+{ }
+
+
+template<typename Addr>
+Socket<Addr>::Socket(uninit_t)
+  : fd_(-1)
+{ }
 
 
 template<typename Addr>
@@ -307,6 +432,83 @@ Socket<Addr>::operator=(Socket&& s)
 }
 
 
+template<typename Addr>
+inline void
+Socket<Addr>::close()
+{
+  ::close(fd_);
+  fd_ = -1;
+}
+
+
+template<typename Addr>
+inline int
+Socket<Addr>::recv(char* buf, int n)
+{
+  return recv(fd_, buf, n);
+}
+
+
+template<typename Addr>
+inline int
+Socket<Addr>::recv(unsigned char* buf, int n)
+{
+  return recv(fd_, buf, n);
+}
+
+
+template<typename Addr>
+inline int
+Socket<Addr>::send(char const* buf, int n)
+{
+  return send(fd_, buf, n);
+}
+
+
+template<typename Addr>
+inline int
+Socket<Addr>::send(unsigned char const* buf, int n)
+{
+  return send(fd_, buf, n);
+}
+
+
+template<typename Addr>
+template<int N>
+inline int
+Socket<Addr>::recv(char (&buf)[N])
+{
+  return ff::recv(fd_, buf);
+}
+
+
+template<typename Addr>
+template<int N>
+inline int
+Socket<Addr>::recv(unsigned char (&buf)[N])
+{
+  return ff::recv(fd_, buf);
+}
+
+
+template<typename Addr>
+template<int N>
+inline int
+Socket<Addr>::send(char const (&buf)[N])
+{
+  return ff::send(fd_, buf);
+}
+
+
+template<typename Addr>
+template<int N>
+inline int
+Socket<Addr>::send(unsigned char const (&buf)[N])
+{
+  return ff::send(fd_, buf);
+}
+
+
 // -------------------------------------------------------------------------- //
 // Stream socket class
 
@@ -316,27 +518,70 @@ struct Stream_socket : Socket<Addr>
   using Socket<Addr>::Socket;
   using Socket<Addr>::operator=;
 
-  Stream_socket(int proto = 0)
-    : Socket<Addr>(SOCK_STREAM, proto)
-  { }
+  Stream_socket(int proto = 0);
+  Stream_socket(Addr const& addr);
 
   bool listen(Addr const&);
   bool connect(Addr const&);
 
-  Stream_socket&& accept();
-  Stream_socket&& accept(Addr&);
+  Stream_socket accept();
+  Stream_socket accept(Addr&);
 };
+
+
+template<typename Addr>
+inline
+Stream_socket<Addr>::Stream_socket(int proto)
+  : Socket<Addr>(SOCK_STREAM, proto)
+{ }
+
+
+// Construct a stream socket, bind it to the given address
+// and put it in listening model.
+//
+// TODO: This isn't the absolute best interface. What if I
+// want a bound socket that I'm going to connect with?
+template<typename Addr>
+inline
+Stream_socket<Addr>::Stream_socket(Addr const& addr)
+  : Stream_socket()
+{
+  if (!listen(addr))
+    throw std::system_error(errno, std::system_category());
+}
 
 
 template<typename Addr>
 inline bool
 Stream_socket<Addr>::listen(Addr const& addr)
 {
-  if (bind(this->fd(), addr) < 0)
+  if (ff::bind(this->fd(), addr) < 0)
     return false;
-  if (listen(this->fd()) < 0)
+  if (ff::listen(this->fd()) < 0)
     return false;
   return true;
+}
+
+
+// Accepts a connection, returning a new socket object. If
+// the accept fails, the resulting socket will be invalid.
+template<typename Addr>
+inline Stream_socket<Addr>
+Stream_socket<Addr>::accept()
+{
+  int cd = ff::accept(this->fd());
+  return Stream_socket(give(cd));
+}
+
+
+// Accepts a connection, returning a new socket object. If
+// the accept fails, the resulting socket will be invalid.
+template<typename Addr>
+inline Stream_socket<Addr>
+Stream_socket<Addr>::accept(Addr& addr)
+{
+  int cd = ff::accept(this->fd(), addr);
+  return Stream_socket(give(cd));
 }
 
 

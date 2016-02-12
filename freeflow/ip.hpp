@@ -76,8 +76,12 @@ Address::Address(in_addr_t addr)
 // application's port number.
 struct Socket_address : sockaddr_in
 {
+  using Address = v4::Address;
+
   Socket_address();
   Socket_address(Address, Port);
+
+  static constexpr Family address_family() { return AF_INET; }
 
   Family  family() const  { return sin_family; }
   Port    port() const    { return ntohs(sin_port); }
@@ -117,6 +121,7 @@ Socket_address::Socket_address(Address a, Port p)
 using Ip_port             = ip::Port;
 using Ipv4_address        = ip::v4::Address;
 using Ipv4_socket_address = ip::v4::Socket_address;
+using Ipv4_stream_socket = Stream_socket<Ipv4_socket_address>;
 
 } // namespace ff
 
