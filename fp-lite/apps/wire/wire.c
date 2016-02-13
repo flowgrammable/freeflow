@@ -11,11 +11,12 @@ extern int printf(char const*, ...);
 
 
 extern int fp_port_get_id(struct Port*);
+extern int fp_port_is_up(struct Port*);
+extern int fp_port_is_down(struct Port*);
 
 extern struct Port* fp_context_get_input_port(struct Context*);
 extern void         fp_context_set_output_port(struct Context*, struct Port*);
 
-extern struct Port* fp_get_drop_port(struct Dataplane*);
 
 struct Port* port1;
 struct Port* port2;
@@ -31,7 +32,6 @@ load(struct Dataplane* dp)
   puts("[wire] load");
   port1 = 0;
   port2 = 0;
-  drop = fp_get_drop_port(dp);
   return 0;
 }
 
@@ -65,29 +65,40 @@ stop(struct Dataplane* dp)
 
 
 int
+port_changed(struct Port* port)
+{
+  if (fp_port_is_up(port)) {
+    printf("[wire] port up: %d\n", fp_port_get_id(port));
+    if (!port1)
+      port1 = port;
+    else if (!port2)
+      port2 = port;
+  }
+  else if (fp_port_is_down(port)) {
+    printf("[wire] port down: %d\n", fp_port_get_id(port));
+    if (port == port1)
+      port1 = 0;
+    else
+      port2 = 0;
+  }
+  return 0;
+}
+
+
+int
 process(struct Context* cxt)
 {
-  puts("[wire] processing context");
-
   struct Port* in = fp_context_get_input_port(cxt);
-  printf("[wire] input on %d\n", fp_port_get_id(in));
-
-  // Learn input ports as we see them.
-  if (!port1)
-    port1 = in;
-  if (!port2)
-    port2 = in;
-
-  // Forward on port to another.
+  printf("[wire] input from: %d\n", fp_port_get_id(in));
   struct Port* out;
   if (in == port1 && port2)
     out = port2;
   else if (in == port2 && port1)
     out = port1;
   else
-    out = drop;
+    return 0;
+  printf("[wire] output to: %d\n", fp_port_get_id(out));
   fp_context_set_output_port(cxt, out);
-
   return 0;
 }
 

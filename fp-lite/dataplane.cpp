@@ -57,6 +57,10 @@ Dataplane::load_application(char const* path)
     delete app_;
     throw std::runtime_error("loading application");
   }
+
+  // Notify the application of all system ports.
+  for (Port* p : ports_)
+    app_->port_added(*p);
 }
 
 

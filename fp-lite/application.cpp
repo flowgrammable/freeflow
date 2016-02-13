@@ -70,6 +70,11 @@ Library::Library(char const* p)
   unload = (Init_fn)lib_resolve(handle, "unload");
   start = (Init_fn)lib_resolve(handle, "start");
   stop = (Init_fn)lib_resolve(handle, "stop");
+
+  port_added = (Port_fn)lib_resolve(handle, "port_added");
+  port_removed = (Port_fn)lib_resolve(handle, "port_removed");
+  port_changed = (Port_fn)lib_resolve(handle, "port_changed");
+
   proc = (Proc_fn)lib_require(handle, "process");
 }
 
@@ -146,6 +151,33 @@ Application::stop(Dataplane& dp)
     ret = lib_.stop(&dp);
   if (!ret)
     state_ = STOPPED;
+  return 0;
+}
+
+
+int
+Application::port_added(Port& p)
+{
+  if (Library::Port_fn f = lib_.port_added)
+    return f(&p);
+  return 0;
+}
+
+
+int
+Application::port_removed(Port& p)
+{
+  if (Library::Port_fn f = lib_.port_removed)
+    return f(&p);
+  return 0;
+}
+
+
+int
+Application::port_changed(Port& p)
+{
+  if (Library::Port_fn f = lib_.port_changed)
+    return f(&p);
   return 0;
 }
 

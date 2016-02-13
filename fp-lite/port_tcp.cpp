@@ -33,14 +33,19 @@ bool
 Port_tcp::recv(Context& cxt)
 {
   // Get data.
-  Packet p = cxt.packet();
+  Packet& p = cxt.packet();
   int n = sock_.recv(p.data(), p.size());
-  if (n <= 0) {
-    detach();
-    return n < 0;
-  }
+  if (n <= 0)
+    return false;
+
+  // Adjust the packet size to the number of bytes read.
+  //
+  // FIXME: This is gross.
+  p.size_ = n;
 
   // Set up the input context.
+  //
+  // FIXME: Pretty this up.
   cxt.input_ = {
     this, // In port
     this, // In physical port
@@ -55,30 +60,13 @@ Port_tcp::recv(Context& cxt)
 bool
 Port_tcp::send(Context const& cxt)
 {
-  return true;
-
-#if 0
-  assert(is_up());
-  int bytes = write(fd_, cxt->packet()->data(), cxt->packet()->size_);
-
-    if (bytes < 0)
-      continue;
-
-    // TODO: What do we do if we send 0 bytes?
-    if (bytes == 0)
-      continue;
-
-    // Destroy the packet data.
-    delete cxt->packet();
-    tx_queue_.pop();
-    // Destroy the packet context.
-    delete cxt;
-
-    bytes += l_bytes;
+  Packet const& p = cxt.packet();
+  int n = sock_.send(p.data(), p.size());
+  if (n <= 0) {
+    detach();
+    return n < 0;
   }
-  // Return number of bytes sent.
-  return bytes;
-#endif
+  return true;
 }
 
 

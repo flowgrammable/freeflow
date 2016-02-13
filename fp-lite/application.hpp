@@ -14,6 +14,7 @@ class Context;
 struct Library
 {
   using Init_fn = int (*)(Dataplane*);
+  using Port_fn = int (*)(Port*);
   using Proc_fn = int (*)(Context*);
 
   Library(char const*);
@@ -26,6 +27,11 @@ struct Library
   Init_fn unload;
   Init_fn start;
   Init_fn stop;
+
+  Port_fn port_added;
+  Port_fn port_removed;
+  Port_fn port_changed;
+
   Proc_fn proc;
 };
 
@@ -46,6 +52,10 @@ public:
   int unload(Dataplane&);
   int start(Dataplane&);
   int stop(Dataplane&);
+
+  int port_added(Port&);
+  int port_removed(Port&);
+  int port_changed(Port&);
 
   int process(Context&);
 

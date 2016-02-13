@@ -19,17 +19,19 @@ class Context;
 class Port_tcp : public Port
 {
 public:
+  using Socket = ff::Ipv4_stream_socket;
+
   Port_tcp(int);
 
   // Returns the underlying socket.
-  ff::Ipv4_stream_socket const& socket() const { return sock_; }
-  ff::Ipv4_stream_socket&       socket()       { return sock_; }
+  Socket const& socket() const { return sock_; }
+  Socket&       socket()       { return sock_; }
 
   // Returns the ports connected file descriptor.
   int fd() const { return sock_.fd(); }
 
-  void attach(ff::Ipv4_stream_socket&&);
-  void detach();
+  void   attach(Socket&&);
+  Socket detach();
 
   // Packet related funtions.
   bool open();
@@ -37,7 +39,7 @@ public:
   bool send(Context const&);
   bool recv(Context&);
 
-  ff::Ipv4_stream_socket sock_;
+  Socket sock_;
 };
 
 
@@ -57,7 +59,7 @@ Port_tcp::Port_tcp(int id)
 // Attach the port to a connected socket. Set the link-down
 // state to false.
 inline void
-Port_tcp::attach(ff::Ipv4_stream_socket&& s)
+Port_tcp::attach(Socket&& s)
 {
   sock_ = std::move(s);
   state_.link_down = false;
@@ -65,14 +67,12 @@ Port_tcp::attach(ff::Ipv4_stream_socket&& s)
 
 
 // Detach the port from its connected socket. Set the link-down
-// to true.
-//
-// TODO: Should this close the socket or let the system do that?
-inline void
+// to true and move the socket out of the port.
+inline Port_tcp::Socket
 Port_tcp::detach()
 {
-  sock_.close();
   state_.link_down = true;
+  return std::move(sock_);
 }
 
 

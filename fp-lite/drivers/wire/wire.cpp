@@ -93,27 +93,42 @@ main()
     // TODO: Emit a port status change to the application. Does
     // that happen implicitly, or do we have to cause the dataplane
     // to do it.
+    Port_tcp* port = nullptr;
     if (nports == 0)
-      port1.attach(std::move(client));
+      port = &port1;
     if (nports == 1)
-      port2.attach(std::move(client));
+      port = &port2;
+    port->attach(std::move(client));
     ++nports;
+
+    // Notify the application of the port change.
+    Application* app = dp.get_application();
+    app->port_changed(*port);
   };
 
   // Handle input from the client socket.
+  //
+  // TODO: This defines the basic ingress pipeline. How
+  // do we refactor this to make it reasonably composable.
   auto ingress = [&](Port_tcp& port)
   {
-    // Pre-buld the packet and context. And allow the port
-    // to initialize them. We proess the packet below.
+    // Ingress the packet.
     Byte buf[2048];
     Context cxt(buf);
-    port.recv(cxt);
+    bool ok = port.recv(cxt);
 
-    // If receiving causes the port to go down, then
-    // terminate the connection.
-    if (port.is_link_down()) {
+    // Handle error or closure.
+    if (!ok) {
+      // Detache the socket.
+      Ipv4_stream_socket client = port.detach();
+
+      // Notify the application of the port change.
+      Application* app = dp.get_application();
+      app->port_changed(port);
+
+      // Update the poll set.
       if (nports == 2) {
-        if (port.fd() == fds[1].fd)
+        if (client.fd() == fds[1].fd)
           fds[1] = fds[2];
         fds[2] = { -1, 0 };
       } else {
@@ -124,8 +139,16 @@ main()
     }
 
     // Otherwise, process the application.
+    //
+    // TODO: This really just runs one step of the pipeline. This needs
+    // to be a loop that continues processing until there are no further
+    // table redirections.
     Application* app = dp.get_application();
     app->process(cxt);
+
+    // Assuming there's an output send to it.
+    if (Port* out = cxt.output_port())
+      out->send(cxt);
   };
 
   // Select a port to handle input.
