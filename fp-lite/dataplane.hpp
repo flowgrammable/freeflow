@@ -15,7 +15,6 @@ class Port;
 class Application;
 
 
-
 // The flowpath data plane module. Contains an application, a name,
 // and the tables the application will use during decode/lookup.
 //

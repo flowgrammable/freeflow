@@ -45,19 +45,18 @@ main()
 
   // TODO: Handle exceptions.
 
-  // Configure the dataplane. Ports must be added
-  // before applications are loaded.
+  // Pre-create all standard ports.
+  Port_tcp port1(0);
+  Port_tcp port2(1);
+
+  // Configure the dataplane. Ports must be added before
+  // applications are loaded.
   fp::Dataplane dp = "dp1";
+  dp.add_port(&port1);
+  dp.add_port(&port2);
   dp.add_drop_port();
   dp.load_application("apps/wire.app");
   dp.up();
-
-
-  // The ports representing clients. These are allocated when
-  // a client is connected.
-  Port_tcp* ports[] { nullptr, nullptr };
-  int nports = 0; // Current number of ports
-  int id = 0;    // The port id counter
 
   // Set up the initial polling state.
   Poll_file fds[] {
@@ -65,9 +64,15 @@ main()
     { -1, 0 },
     { -1, 0 }
   };
+  int nports = 0; // Current number of ports
+
+  // FIXME: Factor the accept/ingress code into something
+  // a little more reusable.
 
   // Accept connections from the server socket.
-  auto accept = [&](Ipv4_stream_socket& server) {
+  auto accept = [&](Ipv4_stream_socket& server)
+  {
+    // Accept the connection.
     Ipv4_socket_address addr;
     Ipv4_stream_socket client = server.accept(addr);
     if (!client)
@@ -84,38 +89,36 @@ main()
     // Update the poll set.
     fds[nports + 1] = { client.fd(), POLLIN };
 
-    // Create and register a new port.
-    Port_tcp* port = new Port_tcp(id, std::move(client));
-    dp.add_port(port);
-    ports[nports] = port;
-
-    // Update counts.
-    id = (id + 1) % 2;
+    // Bind the socket to a port.
+    // TODO: Emit a port status change to the application. Does
+    // that happen implicitly, or do we have to cause the dataplane
+    // to do it.
+    if (nports == 0)
+      port1.bind(std::move(client));
+    if (nports == 1)
+      port2.bind(std::move(client));
     ++nports;
   };
 
-
   // Handle input from the client socket.
-  auto input = [&](Port_tcp& port) {
+  auto ingress = [&](Port_tcp& port)
+  {
+    // Pre-buld the packet and context. And allow the port
+    // to initialize them. We proess the packet below.
     Byte buf[2048];
-    Context cxt(Ingress_info{}, buf);
+    Context cxt(buf);
     port.recv(cxt);
 
     // If receiving causes the port to go down, then
     // terminate the connection.
     if (port.is_down()) {
-      // Close the port and remove it from the system.
-      port.close();
-      dp.remove_port(&port);
-
-      // Shuffle information around so we don't leave empty
-      // spaces in arrays.
-      if (&port == ports[0]) {
-        ports[0] = ports[1];
-        fds[1] = fds[2];
+      if (nports == 2) {
+        if (port.fd() == fds[1].fd)
+          fds[1] = fds[2];
+        fds[2] = { -1, 0 };
+      } else {
+        fds[1] = { -1, 0 };
       }
-      ports[1] = nullptr;
-      fds[2] = { -1, 0 };
       --nports;
       return;
     }
@@ -125,6 +128,14 @@ main()
     app->process(cxt);
   };
 
+  // Select a port to handle input.
+  auto input = [&](int fd)
+  {
+    if (fd == port1.fd())
+      ingress(port1);
+    else
+      ingress(port2);
+  };
 
   // Main lookp.
   running = true;
@@ -136,10 +147,10 @@ main()
     // Process input events.
     if (fds[0].can_read())
       accept(server);
-    if (nports > 0 && fds[1].can_read())
-      input(*ports[0]);
-    if (nports > 1 && fds[2].can_read())
-      input(*ports[1]);
+    if (fds[1].can_read())
+      input(fds[1].fd);
+    if (fds[2].can_read())
+      input(fds[2].fd);
   }
 
   // Take the dataplane down.

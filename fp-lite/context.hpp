@@ -104,13 +104,12 @@ struct Header_stack
 //
 // TODO: The use of member functions may prevent optimizations
 // due to aliasing issues.
-//
-// FIXME: Holding the packet by value creates an
 class Context
 {
 public:
-  Context(Ingress_info in, Packet p)
-    : input_(in), packet_(p)
+  // Iniitalize the context with a packet.
+  Context(Packet p)
+    : input_(), ctrl_(), decode_(), packet_(p)
   { }
 
   // Returns the packet owned by the context.
@@ -156,8 +155,8 @@ public:
   Byte*       get_field(std::uint16_t);
   Binding     get_field_binding(int) const;
 
-  Ingress_info input_;
-  Control_info ctrl_;
+  Ingress_info  input_;
+  Control_info  ctrl_;
   Decoding_info decode_;
 
   // Packet data and context local data.

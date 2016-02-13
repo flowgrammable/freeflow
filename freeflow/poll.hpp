@@ -19,6 +19,8 @@ struct Poll_file : pollfd
 {
   Poll_file() = default;
 
+  // Initilize the polling file with the descriptor and a
+  // set of events. The events read is zero-initialized.
   Poll_file(int f, short e)
     : pollfd { f, e, 0 }
   { }

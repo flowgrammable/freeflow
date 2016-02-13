@@ -445,7 +445,7 @@ template<typename Addr>
 inline int
 Socket<Addr>::recv(char* buf, int n)
 {
-  return recv(fd_, buf, n);
+  return ff::recv(fd_, buf, n);
 }
 
 
@@ -453,7 +453,7 @@ template<typename Addr>
 inline int
 Socket<Addr>::recv(unsigned char* buf, int n)
 {
-  return recv(fd_, buf, n);
+  return ff::recv(fd_, buf, n);
 }
 
 
@@ -461,7 +461,7 @@ template<typename Addr>
 inline int
 Socket<Addr>::send(char const* buf, int n)
 {
-  return send(fd_, buf, n);
+  return ff::send(fd_, buf, n);
 }
 
 
@@ -469,7 +469,7 @@ template<typename Addr>
 inline int
 Socket<Addr>::send(unsigned char const* buf, int n)
 {
-  return send(fd_, buf, n);
+  return ff::send(fd_, buf, n);
 }
 
 

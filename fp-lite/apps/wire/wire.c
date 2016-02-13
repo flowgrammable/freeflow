@@ -61,6 +61,8 @@ stop(struct Dataplane* dp)
 int
 process(struct Context* cxt)
 {
+  puts("[wire] processing context");
+
   // The forwarding table.
   if (fp_get_input_port(cxt) == p1)
     fp_set_output_port(cxt, p2);
