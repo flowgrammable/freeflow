@@ -24,7 +24,6 @@ Port_tcp::open()
 bool
 Port_tcp::close()
 {
-  sock_.close();
   return true;
 }
 
@@ -37,8 +36,7 @@ Port_tcp::recv(Context& cxt)
   Packet p = cxt.packet();
   int n = sock_.recv(p.data(), p.size());
   if (n <= 0) {
-    sock_.close();
-    down();
+    detach();
     return n < 0;
   }
   return true;

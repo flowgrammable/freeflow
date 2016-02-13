@@ -21,6 +21,8 @@ struct Port* p2;
 struct Port* drop;
 
 
+// When an application is loaded, it must perform an initial
+// discovery of its environment.
 int
 load(struct Dataplane* dp)
 {

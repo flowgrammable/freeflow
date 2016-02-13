@@ -94,9 +94,9 @@ main()
     // that happen implicitly, or do we have to cause the dataplane
     // to do it.
     if (nports == 0)
-      port1.bind(std::move(client));
+      port1.attach(std::move(client));
     if (nports == 1)
-      port2.bind(std::move(client));
+      port2.attach(std::move(client));
     ++nports;
   };
 
@@ -111,7 +111,7 @@ main()
 
     // If receiving causes the port to go down, then
     // terminate the connection.
-    if (port.is_down()) {
+    if (port.is_link_down()) {
       if (nports == 2) {
         if (port.fd() == fds[1].fd)
           fds[1] = fds[2];

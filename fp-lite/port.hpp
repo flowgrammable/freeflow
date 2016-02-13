@@ -24,13 +24,23 @@ public:
   using Label = std::string;
   using Descriptor = int;
 
-  // Port configuration.
+  // A port's configuration. These states can be set to determine
+  // the behavior of the port.
   struct Configuration
   {
-    bool down      : 1; // Port is "administratively" down.
+    bool down      : 1; // Port is administratively down.
     bool no_recv   : 1; // Drop all packets received by this port.
     bool no_fwd    : 1; // Drop all packets sent from this port.
     bool no_pkt_in : 1; // Do not send packet-in messages for port.
+  };
+
+  // A port's current state. These describe the observable state
+  // of the device and cannot be modified.
+  struct State
+  {
+    bool link_down : 1;
+    bool blocked   : 1;
+    bool live      : 1;
   };
 
   // Port statistics.
@@ -57,34 +67,37 @@ public:
   void up();
   void down();
 
-  // Returns the state of the port.
-  bool is_up() const   { return !config_.down; }
-  bool is_down() const { return config_.down; }
+  bool is_link_down() const  { return state_.link_down; }
+  bool is_admin_down() const { return config_.down; }
+
+  // Returns true if the port is either administratively or
+  // physically down.
+  bool is_down() const { return is_admin_down() || is_link_down(); }
+
+  // Returns true if the port is, in some wy, active. This
+  // means that it can potentially send or receive packets.
+  bool is_up() const   { return !is_down(); }
+
 
   // Accessors.
   Id          id() const    { return id_; }
   Label       name() const  { return name_; }
   Statistics  stats() const { return stats_; }
-  Descriptor  fd() const    { return fd_; }
 
-  // Data members.
+protected:
   Id              id_;        // The internal port ID.
   Address         addr_;      // The hardware address for the port.
   Label           name_;      // The name of the port.
   Statistics      stats_;     // Statistical information about the port.
   Configuration   config_;    // The current port configuration.
-
-  // TODO: It's likely that DPDK descriptors are not
-  // the same as POSIX file descriptors. This will need
-  // to be factored out.
-  Descriptor      fd_;        // The devices file descriptor.
+  State           state_;     // The runtime state of the port.
 };
 
 
 // Port constructor that sets ID.
 inline
 Port::Port(Port::Id id, std::string const& name)
-  : id_(id), name_(name), stats_(), config_()
+  : id_(id), name_(name), stats_(), config_(), state_()
 { }
 
 
@@ -111,6 +124,7 @@ Port::down()
 {
   config_.down = true;
 }
+
 
 } // namespace fp
 
