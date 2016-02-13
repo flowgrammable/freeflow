@@ -28,14 +28,22 @@ namespace fp
 Port_odp::Port_odp(Port::Id id, std::string const& args)
   : Port(id, "")
 {
-  std::string name = args;
+  auto name_off = args.find(';');
+
+  std::string dev_name = args.substr(0, name_off);
+  std::string name = args.substr(name_off + 1, args.length());
 
   // Sanity check length of device name.
-  if (name.length() < 1)
+  if (dev_name.length() < 1)
     throw std::string("bad device name");
+
+  // Sanity check length of iternal port name.
+  if (name.length() < 1)
+    throw std::string("bad internal port name");
 
   // Set the port name.
   name_ = name;
+  dev_name_ = dev_name;
 
   // Initialize ODP pktio device.
   odp_pktio_param_t pktio_param;
@@ -55,9 +63,9 @@ Port_odp::Port_odp(Port::Id id, std::string const& args)
     throw std::string("Error: failed to lookup pktpool by name: ").append(PKT_POOL_NAME);
 
   // Create pktio instance.
-  pktio_ = odp_pktio_open(name_.c_str(), pktpool_, &pktio_param);
+  pktio_ = odp_pktio_open(dev_name.c_str(), pktpool_, &pktio_param);
   if (pktio_ == ODP_PKTIO_INVALID)
-    throw std::string("Error: pktio create failed for: " + name_);
+    throw std::string("Error: pktio create failed for dev: " + dev_name);
 }
 
 
@@ -101,7 +109,10 @@ Port_odp::recv()
 
   // Recieve batch of packets.
   odp_packet_t pkt_tbl[MAX_PKT_BURST];
-  int pkts = odp_pktio_recv(pktio_, pkt_tbl, MAX_PKT_BURST);
+  odp_pktio_t temp = odp_pktio_lookup(dev_name_.c_str());
+  if (temp == ODP_PKTIO_INVALID)
+    throw std::string("Error: lookup of pktio failed\n" + dev_name_);
+  int pkts = odp_pktio_recv(temp, pkt_tbl, MAX_PKT_BURST);
   if (pkts < 0)
     throw std::string("Error: unable to recv on pktio dev");
 

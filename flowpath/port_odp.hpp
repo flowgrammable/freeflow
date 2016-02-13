@@ -41,6 +41,7 @@ private:
   // Data members.
   odp_pktio_t pktio_; // ODP pktio device id (handle)
   odp_pool_t pktpool_; // ODP packet pool device id (handle)
+  std::string dev_name_; // device name of port (pktio)
   //odp_packet_t pkt_tbl_[MAX_PKT_BURST];
 
 

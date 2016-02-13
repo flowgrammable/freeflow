@@ -49,7 +49,7 @@ main()
     params.pkt.num     = fp::SHM_PKT_POOL_SIZE/fp::SHM_PKT_POOL_BUF_SIZE;
     params.type        = ODP_POOL_PACKET;
 
-    odp_pool_t pool = odp_pool_create(PKT_POOL_NAME, &params);
+    odp_pool_t pool = odp_pool_create(fp::PKT_POOL_NAME, &params);
     if (pool == ODP_POOL_INVALID)
       throw std::string("Error: packet pool create failed.");
     odp_pool_print(pool);
@@ -123,12 +123,12 @@ main()
     // Instantiate ports.
     //
     // P1 : Connected to an echo client.
-    fp::Port* p1 = fp::create_port(fp::Port::Type::odp_burst, "veth1");
+    fp::Port* p1 = fp::create_port(fp::Port::Type::odp_burst, "veth1;p1");
     std::cerr << "Created port " << p1->name() << " with id '" << p1->id() << "'\n";
 
 
     // P2 : Bound to a netcat TCP port; Acts as the entry point.
-    fp::Port* p2 = fp::create_port(fp::Port::Type::odp_burst, "veth3");
+    fp::Port* p2 = fp::create_port(fp::Port::Type::odp_burst, "veth3;p2");
     std::cerr << "Created port " << p2->name() << " with id '" << p2->id() << "'\n";
 
 
@@ -177,6 +177,7 @@ main()
   catch (std::string msg)
   {
     std::cerr << msg << std::endl;
+    return -1;
   }
   return 0;
 }
