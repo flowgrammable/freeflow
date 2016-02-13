@@ -128,4 +128,16 @@ Port::down()
 
 } // namespace fp
 
+
+// -------------------------------------------------------------------------- //
+// Application interface
+
+extern "C"
+{
+
+int fp_port_get_id(fp::Port*);
+
+
+} // extern "C"
+
 #endif

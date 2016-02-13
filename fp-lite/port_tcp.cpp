@@ -39,6 +39,14 @@ Port_tcp::recv(Context& cxt)
     detach();
     return n < 0;
   }
+
+  // Set up the input context.
+  cxt.input_ = {
+    this, // In port
+    this, // In physical port
+    0     // Tunnel id
+  };
+
   return true;
 }
 

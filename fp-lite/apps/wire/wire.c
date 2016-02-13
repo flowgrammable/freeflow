@@ -9,28 +9,35 @@ struct Port;
 extern int puts(char const*);
 extern int printf(char const*, ...);
 
-extern int           fp_num_system_ports(struct Dataplane*);
-extern struct Port** fp_get_system_ports(struct Dataplane*);
-extern struct Port*  fp_get_drop_port(struct Dataplane*);
 
-extern struct Port* fp_get_input_port(struct Context*);
-extern struct Port* fp_set_output_port(struct Context*, struct Port*);
+extern int fp_port_get_id(struct Port*);
 
-struct Port* p1;
-struct Port* p2;
+extern struct Port* fp_context_get_input_port(struct Context*);
+extern void         fp_context_set_output_port(struct Context*, struct Port*);
+
+extern struct Port* fp_get_drop_port(struct Dataplane*);
+
+struct Port* port1;
+struct Port* port2;
 struct Port* drop;
 
 
 // When an application is loaded, it must perform an initial
-// discovery of its environment.
+// discovery of its environment. Minimally, we should establish
+// bindings for reserved ports.
 int
 load(struct Dataplane* dp)
 {
   puts("[wire] load");
+  port1 = 0;
+  port2 = 0;
+  drop = fp_get_drop_port(dp);
   return 0;
 }
 
 
+// When an appliation is unlaoded, it must release any resources
+// that it has acquired.
 int
 unload(struct Dataplane* dp)
 {
@@ -44,7 +51,6 @@ int
 start(struct Dataplane* dp)
 {
   puts("[wire] start");
-  drop = fp_get_drop_port(dp);
   return 0;
 }
 
@@ -54,8 +60,6 @@ int
 stop(struct Dataplane* dp)
 {
   puts("[wire] stop");
-  p1 = 0;
-  p2 = 0;
   return 0;
 }
 
@@ -65,13 +69,25 @@ process(struct Context* cxt)
 {
   puts("[wire] processing context");
 
-  // The forwarding table.
-  if (fp_get_input_port(cxt) == p1)
-    fp_set_output_port(cxt, p2);
-  else if (fp_get_input_port(cxt) == p2)
-    fp_set_output_port(cxt, p1);
+  struct Port* in = fp_context_get_input_port(cxt);
+  printf("[wire] input on %d\n", fp_port_get_id(in));
+
+  // Learn input ports as we see them.
+  if (!port1)
+    port1 = in;
+  if (!port2)
+    port2 = in;
+
+  // Forward on port to another.
+  struct Port* out;
+  if (in == port1 && port2)
+    out = port2;
+  else if (in == port2 && port1)
+    out = port1;
   else
-    fp_set_output_port(cxt, drop);
+    out = drop;
+  fp_context_set_output_port(cxt, out);
+
   return 0;
 }
 

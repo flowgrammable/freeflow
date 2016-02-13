@@ -74,26 +74,27 @@ Context::apply_action(Action a)
 }
 
 
+} // namespace fp
+
+
 // -------------------------------------------------------------------------- //
 // Application interface
 
 extern "C"
 {
 
-Port*
-fp_get_input_port(Context* cxt)
+fp::Port*
+fp_context_get_input_port(fp::Context* cxt)
 {
   return cxt->input_port();
 }
 
+
 void
-fp_set_output_port(Context* cxt, Port* p)
+fp_context_set_output_port(fp::Context* cxt, fp::Port* p)
 {
   cxt->set_output_port(p);
 }
 
 
 } // extern "C"
-
-
-} // namespace fp

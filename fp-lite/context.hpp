@@ -266,18 +266,20 @@ Context::clear_actions()
 }
 
 
+} // namespace fp
+
+
 // -------------------------------------------------------------------------- //
 // Application interface
 
 extern "C"
 {
 
-Port* fp_get_input_port(Context*);
-void  set_output_port(Context*, Port*);
+fp::Port* fp_context_get_input_port(fp::Context*);
+void      fp_context_set_output_port(fp::Context*, fp::Port*);
+
 
 } // extern "C"
-
-} // namespace fp
 
 
 #endif
