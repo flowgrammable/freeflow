@@ -4,6 +4,7 @@
 #include "application.hpp"
 
 #include <cassert>
+#include <algorithm>
 
 
 namespace fp
