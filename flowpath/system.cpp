@@ -185,6 +185,21 @@ fp_get_port(char const* name)
   return fp::port_table.find(name);
 }
 
+// Returns the portId for a given port.
+// TODO: this needs to be moved to a port accessor section...
+unsigned int
+fp_get_portId(fp::Port* p)
+{
+  return p->id();
+}
+
+// Returns the input portId for a given context.
+// TODO: this needs to be moved to a context accessor section...
+unsigned int
+fp_get_inputPortId(fp::Context* cxt)
+{
+  return cxt->in_port;
+}
 
 // Outputs the contexts packet on the port.
 void

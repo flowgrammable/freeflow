@@ -30,13 +30,16 @@ main()
 
     /* Init ODP before calling anything else */
     // ODP Library: initialize global ODP framework.  (once / process).
-    if (odp_init_global(NULL, NULL))
-      throw std::string("Error: ODP global init failed.");
+    //if (odp_init_global(NULL, NULL))
+    //  throw std::string("Error: ODP global init failed.");
 
     /* Init this thread */
     // ODP Library: initialize thread-specific ODP framework (once / thread).
-    if (odp_init_local(ODP_THREAD_CONTROL))
-      throw std::string("Error: ODP local init failed.");
+    // - ODP_THREAD_CONTROL: allows scheduling by OS
+    // - ODP_THREAD_WORKER:  pins thread and tries to prevent scheduling by OS
+    // WARN: segfaults if any child threads do not call odp_init_local(...)
+    //if (odp_init_local(ODP_THREAD_CONTROL))
+    //  throw std::string("Error: ODP local init failed.");
 
     /* Create packet pool */
     // ODP Library: Create ODP packet pool.
@@ -177,7 +180,10 @@ main()
   catch (std::string msg)
   {
     std::cerr << msg << std::endl;
+    odp_term_global();
     return -1;
   }
+
+  odp_term_global();
   return 0;
 }

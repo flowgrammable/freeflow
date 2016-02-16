@@ -16,7 +16,6 @@
 
 #include <exception>
 
-
 // The ODP port module.
 
 namespace fp
