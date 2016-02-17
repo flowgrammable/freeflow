@@ -3,7 +3,7 @@
 set -e
 set -o nounset
 
-echo 'Setting up Veth unit-under-test Framework'
+echo 'Setting up veth unit-under-test Framework'
 
 # Create 2 guest containers
 ip netns add host0
@@ -25,13 +25,6 @@ ip netns exec host1 ethtool -K veth2 tso off ufo off gso off tx off rx off
 ethtool -K veth1 tso off ufo off gso off tx off rx off
 ethtool -K veth3 tso off ufo off gso off tx off rx off
 
-# Connect netmap veth end to virtual host's stack
-#ip netns exec host0 '/home/lam89/netmap_orig.git/examples/bridge -i netmap:veth0'
-#ip netns exec host1 '/home/lam89/netmap_orig.git/examples/bridge -i netmap:veth2'
-
-# Launch the unit-under-test (i.e. bridge, noproto, etc:)
-#/home/vagrant/netmapbin/bridge -i netmap:veth1 -i netmap:veth3 &
-
 # Enable host interfaces
 ip link set veth1 up
 ip link set veth3 up
@@ -40,3 +33,4 @@ ip link set veth3 up
 ip netns exec host0 ip link set veth0 up
 ip netns exec host1 ip link set veth2 up
 
+# Launch the unit-under-test (i.e. bridge, noproto, etc.)...
