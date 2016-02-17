@@ -81,17 +81,25 @@ Poll_set::file(int fd) const
 // -------------------------------------------------------------------------- //
 //                            Polling operations
 
+// Poll a sequence of n files until an event has occurred.
+inline int
+poll(Poll_file* pfds, int n)
+{
+  return ::poll(pfds, n, -1);
+}
+
+
 // Poll a sequence of n files for timeout milliseconds.
-inline
-int poll(Poll_file* pfds, int n, int timeout)
+inline int
+poll(Poll_file* pfds, int n, int timeout)
 {
   return ::poll(pfds, n, timeout);
 }
 
 
 // Poll a set of n files for timeout milliseconds.
-inline
-int poll(Poll_set& ps, int timeout)
+inline int
+poll(Poll_set& ps, int timeout)
 {
   pollfd* pfds = &*ps.begin();
   return poll(pfds, ps.size(), timeout);
