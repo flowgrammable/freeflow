@@ -11,7 +11,10 @@ namespace fp
 class Context;
 
 
-// A TCP port is a connect TCP stream socket.
+// -------------------------------------------------------------------------- //
+// TCP Port infrastructure
+
+// A TCP port is a connected TCP stream socket.
 //
 // TODO: We are currently using TCP ports to emulate Ethernet
 // ports, but we could also emulate optical ports, and we could
@@ -23,6 +26,10 @@ public:
 
   Port_tcp(int);
 
+  // TODO: I'm not sure that we're using these any more.
+  bool open() { return true; }
+  bool close() { return true; }
+
   // Returns the underlying socket.
   Socket const& socket() const { return sock_; }
   Socket&       socket()       { return sock_; }
@@ -33,11 +40,6 @@ public:
   void   attach(Socket&&);
   Socket detach();
 
-  // Packet related funtions.
-  bool open();
-  bool close();
-  bool send(Context const&);
-  bool recv(Context&);
 
   Socket sock_;
 };
@@ -74,6 +76,21 @@ Port_tcp::detach()
   state_.link_down = true;
   return std::move(sock_);
 }
+
+
+// -------------------------------------------------------------------------- //
+// Ethernet over TCP port.
+
+// Represents a port that sends and recieves Ethernet frames
+// over a connected TCP socket.
+class Port_eth_tcp : public Port_tcp
+{
+public:
+  using Port_tcp::Port_tcp;
+
+  bool send(Context const&);
+  bool recv(Context&);
+};
 
 
 } // end namespace fp

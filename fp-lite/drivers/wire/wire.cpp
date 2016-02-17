@@ -46,8 +46,8 @@ main()
   // TODO: Handle exceptions.
 
   // Pre-create all standard ports.
-  Port_tcp port1(0);
-  Port_tcp port2(1);
+  Port_eth_tcp port1(0);
+  Port_eth_tcp port2(1);
 
   // Configure the dataplane. Ports must be added before
   // applications are loaded.

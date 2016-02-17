@@ -12,35 +12,17 @@
 namespace fp
 {
 
-// This doesn't actually do anything.
+// Read an ethernet frame from the stream.
 bool
-Port_tcp::open()
+Port_eth_tcp::recv(Context& cxt)
 {
-  return true;
-}
-
-
-// Terminate the connection from the dataplane side.
-bool
-Port_tcp::close()
-{
-  return true;
-}
-
-
-// Read a packet from the input stream.
-bool
-Port_tcp::recv(Context& cxt)
-{
-  // Get data.
+  Socket& sock = socket();
   Packet& p = cxt.packet();
-  int n = sock_.recv(p.data(), p.size());
+  int n = sock.recv(p.data(), p.size());
   if (n <= 0)
     return false;
 
   // Adjust the packet size to the number of bytes read.
-  //
-  // FIXME: This is gross.
   p.size_ = n;
 
   // Set up the input context.
@@ -58,10 +40,11 @@ Port_tcp::recv(Context& cxt)
 
 // Writes a packet to the output stream.
 bool
-Port_tcp::send(Context const& cxt)
+Port_eth_tcp::send(Context const& cxt)
 {
+  Socket& sock = socket();
   Packet const& p = cxt.packet();
-  int n = sock_.send(p.data(), p.size());
+  int n = sock.send(p.data(), p.size());
   if (n <= 0) {
     detach();
     return n < 0;
