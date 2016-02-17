@@ -23,7 +23,7 @@ void
 pipeline(struct Context* cxt)
 {
   port_id_t in = fp_get_inputPortId(cxt);
-  printf("inputPortId = %d\n", in);
+  //printf("inputPortId = %d\n", in);
 
   if (in == p1_id) {
     fp_output_port(cxt, p2);
