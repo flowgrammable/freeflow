@@ -22,6 +22,7 @@ add_library(freeflow STATIC
   memory.cpp
   async.cpp
   poll.cpp
+  select.cpp
   socket.cpp
   ip.cpp
   unix.cpp
