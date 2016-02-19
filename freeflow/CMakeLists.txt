@@ -9,13 +9,13 @@ set(contrib-src
   contrib/cppformat/format.cc)
 
 
-if(NOPROTO_USE_PCAP)
+if(FREEFLOW_USE_PCAP)
   set(pcap-src capture.cpp)
 endif()
 
 
 # The main freeflow library.
-add_library(freeflow STATIC
+add_library(freeflow SHARED
   ${contrib-src}
   format.cpp
   system.cpp
@@ -28,8 +28,7 @@ add_library(freeflow STATIC
   json.cpp
   ${pcap-src})
 
-
-if(NOPROTO_USE_PCAP)
+if(FREEFLOW_USE_PCAP)
   target_link_libraries(freeflow ${PCAP_LIBRARIES})
 endif()
 
