@@ -4,4 +4,4 @@ macro(add_driver target)
   target_link_libraries(${target} fp-lite-rt ${CMAKE_DL_LIBS})
 endmacro()
 
-add_driver(fp-wire wire.cpp)
+add_driver(fp-wire-select wire-select.cpp)
