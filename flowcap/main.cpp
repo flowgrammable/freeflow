@@ -1,7 +1,13 @@
 
+#include <freeflow/time.hpp>
+#include <freeflow/ip.hpp>
 #include <freeflow/capture.hpp>
 
+#include <sstream>
 #include <iostream>
+#include <iomanip>
+#include <locale>
+
 
 using namespace ff;
 
@@ -90,7 +96,7 @@ dump(int argc, char* argv[])
   int n = 0;
   cap::Packet p;
   while (cap.get(p)) {
-    std::cout << "* " << p.size() << " bytes\n";
+    std::cout << "* " << p.captured_size() << " bytes\n";
     ++n;
   }
   std::cout << "read " << n << " packets\n";
@@ -108,43 +114,94 @@ forward(int argc, char* argv[])
     return usage(std::cerr);
   }
 
-  path = argv[2];
-  host = argv[3];
-  port = argv[4];
-
-  std::cout << "HERE 1\n";
-
+  std::string path = argv[2];
+  std::string host = argv[3];
+  std::string port = argv[4];
 
   // Convert the host name to an address.
-  Ipv4_address addr = host;
-
-  // Convert the port number.
-  short portno;
-  std::stringstream ss = port;
-  ss >> portno;
-  if (ss.fail() && !ss.eof()) {
-    std::cerr << "error: invalid port '" << port "'\n";
+  Ipv4_address addr;
+  try {
+    addr = host;
+  } catch (std::runtime_error& err) {
+    std::cerr << "error: " << err.what() << '\n';
     return 1;
   }
 
+  // Convert the port number.
+  short portnum;
+  std::stringstream ss(port);
+  ss >> portnum;
+  if (ss.fail() && !ss.eof()) {
+    std::cerr << "error: invalid port '" << port << "'\n";
+    return 1;
+  }
+
+
   // Build and connect.
   Ipv4_stream_socket sock;
-  sock.connect({addr, port});
-
-  std::cout << "HERE 2\n";
+  if (!sock.connect({addr, portnum})) {
+    std::cerr << "error: could not connect to host\n";
+    return -1;
+  }
 
   // Open an offline stream capture.
   cap::Stream cap(cap::offline(argv[2]));
 
   // Iterate over each packet and and send each packet to the
   // connected host.
+  Time start = now();
   int n = 0;
+  long long b = 0;
   cap::Packet p;
   while (cap.get(p)) {
-    std::cout << "* " << p.size() << " bytes\n";
+    int k = sock.send(p.data(), p.captured_size());
+    if (k <= 0) {
+      if (k < 0) {
+        std::cerr << "error: " << std::strerror(errno) << '\n';
+        return 1;
+      }
+      return 0;
+    }
+    // std::cout << "sent: " << p.captured_size() << " bytes\n";
     ++n;
+    b += p.captured_size();
   }
-  std::cout << "read " << n << " packets\n";
+  Time stop = now();
+
+  // Make some measurements.
+  Fp_seconds sec = stop - start;
+  double Gb = double(b * 8) / (1 << 30);
+  double Mb = double(b * 8) / (1 << 20);
+  double Kb = double(b * 8) / (1 << 10);
+  double Gbps = Gb / sec.count();
+  double Mbps = Mb / sec.count();
+  double Kbps = Kb / sec.count();
+  double Pps = n / sec.count();
+
+  std::cout.imbue(std::locale(""));
+  std::cout << "sent " << n << " packets in "
+            << std::setprecision(1) << sec.count() << " seconds ("
+            << std::setprecision(6) << Pps << " Pps)\n";
+  std::cout << "average " << double(b) / n << " Bpp\n";
+
+  std::cout.precision(6);
+  if (Gb > 1)
+    std::cout << "sent " << Gb << " Gb";
+  else if (Mb > 1)
+    std::cout << "sent " << Mb << " Mb";
+  else
+    std::cout << "sent " << Kb << " Kb";
+
+  std::cout.precision(1);
+  std::cout << " in " << sec.count() << " (";
+
+  std::cout.precision(6);
+  if (Gbps > 1)
+    std::cout << Gbps << " Gbps)\n";
+  else if (Mbps > 1)
+    std::cout << Mbps << " Mbps)\n";
+  else
+    std::cout << Kbps << " Kbps)\n";
 
   return 0;
 }

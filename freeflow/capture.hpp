@@ -29,20 +29,30 @@ namespace cap
 struct Packet
 {
   Packet()
-    : header(nullptr), data(nullptr)
+    : hdr(nullptr), buf(nullptr)
   { }
 
-  int captured() const { return header->caplen; }
-  int size() const   { return header->len; }
+  // Returns the total number of bytes in the packet. Note that
+  // this may be larger than the number of bytes captured.
+  int total_size() const { return hdr->len; }
 
-  pcap_pkthdr*   header;
-  uint8_t const* data;
+  // Returns the number of bytes actually captured. The captured
+  // size is less than or equal to total size.
+  int captured_size() const { return hdr->caplen; }
+
+  // Returns true when the packet is fully captured.
+  bool is_complete() const { return captured_size() == total_size(); }
+
+  // Returns the underlying packet data.
+  uint8_t const* data() const { return buf; }
+
+  pcap_pkthdr*   hdr;
+  uint8_t const* buf;
 };
 
 
 // -------------------------------------------------------------------------- //
 //                            Capture device
-
 
 // A type used to support the opening of a capture.
 struct Offline_path
@@ -60,17 +70,17 @@ struct Offline_file
 
 // Construct an offline initializer for `p`.
 inline Offline_path
-offline(char const* p) 
-{ 
-  return {p}; 
+offline(char const* p)
+{
+  return {p};
 }
 
 
 // Construct an offline initializer for the file `f`.
 inline Offline_file
-offline(FILE* f) 
-{ 
-  return {f}; 
+offline(FILE* f)
+{
+  return {f};
 }
 
 
@@ -140,17 +150,16 @@ Stream::~Stream()
 }
 
 
-// Attempt to get the next packet from the stream. Returns
-// this object. If, after calling this function, the stream
-// is not in a good state, the packet `p` is partially
-// formed.
+// Attempt to get the next packet from the stream. Returnsthis object.
+// If, after calling this function, the stream is not in a good state,
+// the packet `p` is partially formed.
 //
 // Note that this function blocks until a packet is read.
 inline Stream&
 Stream::get(Packet& p)
 {
-  do { 
-    status_ = ::pcap_next_ex(handle_, &p.header, &p.data);
+  do {
+    status_ = ::pcap_next_ex(handle_, &p.hdr, &p.buf);
   } while (status_ == 0);
   return *this;
 }
