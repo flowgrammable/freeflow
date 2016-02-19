@@ -10,4 +10,5 @@ macro(add_application name)
   target_link_libraries(${name} fp-lite-rt)
 endmacro()
 
+add_subdirectory(nop)
 add_subdirectory(wire)

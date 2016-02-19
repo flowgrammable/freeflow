@@ -71,7 +71,7 @@ main()
   // applications are loaded.
   fp::Dataplane dp = "dp1";
   dp.add_port(&port);
-  dp.add_drop_port();
+  dp.load_application("apps/nop.app");
   dp.up();
 
   // Set up the initial polling state.
@@ -183,6 +183,7 @@ main()
 
   // Take the dataplane down.
   dp.down();
+  dp.unload_application();
 
   return 0;
 }

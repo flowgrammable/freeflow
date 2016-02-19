@@ -5,6 +5,7 @@
 
 #include <cassert>
 #include <algorithm>
+#include <iostream>
 
 
 namespace fp
@@ -66,6 +67,9 @@ Dataplane::load_application(char const* path)
 
 
 // Unload the application.
+//
+// FIXME: It should probably be the case that the data plane
+// is down when the application is removed.
 void
 Dataplane::unload_application()
 {
@@ -87,34 +91,16 @@ Dataplane::up()
   // Start the application.
   if (app_)
     app_->start(*this);
-
-  // And then open all ports.
-  //
-  // FIXME: I don't think that we actually need to do this, but
-  // we probably need to notify the application of all existing
-  // ports.
-  for (auto const& kv : portmap_) {
-    Port* p = kv.second;
-    if (!p->open())
-      throw std::runtime_error("open port");
-  }
 }
 
 
 // Stops the data plane packet processors, if they are running.
+//
+// TODO: We shouldn't close ports until we know that all
+// in-flight packets have been processed.
 void
 Dataplane::down()
 {
-  // Down all ports.
-  //
-  // TODO: We shouldn't close ports until we know that all
-  // in-flight packets have been processed.
-  for (auto const& kv : portmap_) {
-    Port* p = kv.second;
-    if (!p->close())
-      throw std::runtime_error("open port");
-  }
-
   // Then stop the application.
   if (app_)
     app_->stop(*this);
