@@ -5,6 +5,7 @@
 #include "context.hpp"
 #include "application.hpp"
 
+#include <freeflow/time.hpp>
 #include <freeflow/socket.hpp>
 #include <freeflow/poll.hpp>
 
@@ -37,6 +38,16 @@ on_signal(int sig)
 {
   running = false;
 }
+
+
+// Records statistics about a live connection.
+struct Connection
+{
+  Time start;
+  Time stop;
+  std::uint64_t packets;
+  std::uint64_t bytes;
+};
 
 
 int
@@ -72,6 +83,8 @@ main()
   // FIXME: I don't need this. There's only 0 or 1 port.
   int nports = 0; // Current number of ports
 
+  // Save stats for the connection.
+  Connection con;
 
   // FIXME: Factor the accept/ingress code into something
   // a little more reusable.
@@ -102,6 +115,10 @@ main()
     // to do it.
     port.attach(std::move(client));
     nports = 1;
+
+    // Reset connetion stats.
+    con = Connection();
+    con.start = now();
   };
 
   // Handle input from the client socket.
@@ -119,6 +136,19 @@ main()
     if (!ok) {
       std::cout << "[slurp] close connection\n";
 
+      // Finish and print stats. prior to detaching the socket.
+      con.stop = now();
+      Fp_seconds dur = con.stop - con.start;
+      double s = dur.count();
+      double Pps = con.packets / s;
+      double Mb = double(con.bytes * 8) / (1 << 20);
+      double Mbps = Mb / s;
+
+      std::cout << "[slurp] received " << con.packets << " packets in "
+                << s << " seconds (" << Pps << " Pps)\n";
+      std::cout << "[slurp] received " << con.bytes << " bytes in "
+                << s << " seconds (" << Mbps << " Mbps)\n";
+
       // Detache the socket.
       Ipv4_stream_socket client = port.detach();
 
@@ -130,9 +160,12 @@ main()
 
     // FIXME: Update local counts, etc, but otherwise, don't
     // actually do anything
-    std::cout << "[slurp] got data\n";
+    con.packets += 1;
+    con.bytes += cxt.packet().size();
   };
 
+  // Print fancy numbers.
+  std::cout.imbue(std::locale(""));
 
   // Main lookp.
   running = true;

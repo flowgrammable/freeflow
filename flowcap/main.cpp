@@ -128,7 +128,7 @@ forward(int argc, char* argv[])
   }
 
   // Convert the port number.
-  short portnum;
+  std::uint16_t portnum;
   std::stringstream ss(port);
   ss >> portnum;
   if (ss.fail() && !ss.eof()) {
@@ -150,8 +150,8 @@ forward(int argc, char* argv[])
   // Iterate over each packet and and send each packet to the
   // connected host.
   Time start = now();
-  int n = 0;
-  long long b = 0;
+  std::uint64_t n = 0;
+  std::uint64_t b = 0;
   cap::Packet p;
   while (cap.get(p)) {
     int k = sock.send(p.data(), p.captured_size());
@@ -169,39 +169,41 @@ forward(int argc, char* argv[])
   Time stop = now();
 
   // Make some measurements.
-  Fp_seconds sec = stop - start;
-  double Gb = double(b * 8) / (1 << 30);
+  Fp_seconds dur = stop - start;
+  double s = dur.count();
+  // double Gb = double(b * 8) / (1 << 30);
   double Mb = double(b * 8) / (1 << 20);
-  double Kb = double(b * 8) / (1 << 10);
-  double Gbps = Gb / sec.count();
-  double Mbps = Mb / sec.count();
-  double Kbps = Kb / sec.count();
-  double Pps = n / sec.count();
+  // double Kb = double(b * 8) / (1 << 10);
+  // double Gbps = Gb / s;
+  double Mbps = Mb / s;
+  // double Kbps = Kb / s;
+  double Pps = n / s;
 
   std::cout.imbue(std::locale(""));
-  std::cout << "sent " << n << " packets in "
-            << std::setprecision(1) << sec.count() << " seconds ("
-            << std::setprecision(6) << Pps << " Pps)\n";
-  std::cout << "average " << double(b) / n << " Bpp\n";
+  std::cout << "sent " << n << " packets in " << s << " seconds (" << Pps << " Pps)\n";
+  // std::cout << "average " << double(b) / n << " Bpp\n";
 
   std::cout.precision(6);
-  if (Gb > 1)
-    std::cout << "sent " << Gb << " Gb";
-  else if (Mb > 1)
-    std::cout << "sent " << Mb << " Mb";
-  else
-    std::cout << "sent " << Kb << " Kb";
+  std::cout << "sent " << b << " bytes";
+
+  // if (Gb > 1)
+  // else if (Mb > 1)
+  //   std::cout << "sent " << Mb << " Mb";
+  // else
+  //   std::cout << "sent " << Kb << " Kb";
 
   std::cout.precision(1);
-  std::cout << " in " << sec.count() << " (";
+  std::cout << " in " << s << " (";
 
   std::cout.precision(6);
-  if (Gbps > 1)
-    std::cout << Gbps << " Gbps)\n";
-  else if (Mbps > 1)
-    std::cout << Mbps << " Mbps)\n";
-  else
-    std::cout << Kbps << " Kbps)\n";
+  std::cout << Mbps << " Mbps)\n";
+
+  // if (Gbps > 1)
+  //   std::cout << Gbps << " Gbps)\n";
+  // else if (Mbps > 1)
+  //   std::cout << Mbps << " Mbps)\n";
+  // else
+  //   std::cout << Kbps << " Kbps)\n";
 
   return 0;
 }

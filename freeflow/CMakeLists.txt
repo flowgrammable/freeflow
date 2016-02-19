@@ -19,6 +19,7 @@ add_library(freeflow SHARED
   ${contrib-src}
   format.cpp
   system.cpp
+  time.cpp
   memory.cpp
   async.cpp
   poll.cpp
