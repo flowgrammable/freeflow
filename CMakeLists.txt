@@ -45,8 +45,9 @@ include_directories(.)
 
 add_subdirectory(freeflow)
 add_subdirectory(fp-lite)
-add_subdirectory(util)
+add_subdirectory(flowcap)
 
+# add_subdirectory(util)
 # add_subdirectory(flowctl)
 # add_subdirectory(flowmgr)
 # add_subdirectory(flowpath)

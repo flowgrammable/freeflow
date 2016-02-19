@@ -84,7 +84,6 @@ dump(int argc, char* argv[])
   }
 
   // Open an offline stream capture.
-  std::cout << "TEST: " << argv[2] << '\n';
   cap::Stream cap(cap::offline(argv[2]));
 
   // Iterate over each packet and print some basic information.
@@ -104,5 +103,48 @@ dump(int argc, char* argv[])
 int
 forward(int argc, char* argv[])
 {
+  if (argc < 5) {
+    std::cerr << "error: too few arguments to 'dump'\n";
+    return usage(std::cerr);
+  }
+
+  path = argv[2];
+  host = argv[3];
+  port = argv[4];
+
+  std::cout << "HERE 1\n";
+
+
+  // Convert the host name to an address.
+  Ipv4_address addr = host;
+
+  // Convert the port number.
+  short portno;
+  std::stringstream ss = port;
+  ss >> portno;
+  if (ss.fail() && !ss.eof()) {
+    std::cerr << "error: invalid port '" << port "'\n";
+    return 1;
+  }
+
+  // Build and connect.
+  Ipv4_stream_socket sock;
+  sock.connect({addr, port});
+
+  std::cout << "HERE 2\n";
+
+  // Open an offline stream capture.
+  cap::Stream cap(cap::offline(argv[2]));
+
+  // Iterate over each packet and and send each packet to the
+  // connected host.
+  int n = 0;
+  cap::Packet p;
+  while (cap.get(p)) {
+    std::cout << "* " << p.size() << " bytes\n";
+    ++n;
+  }
+  std::cout << "read " << n << " packets\n";
+
   return 0;
 }

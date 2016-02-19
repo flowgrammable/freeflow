@@ -563,6 +563,16 @@ Stream_socket<Addr>::listen(Addr const& addr)
 }
 
 
+// Initiate a connection to the application given by addr. Returns
+// false, if an error occurred.
+template<typename Addr>
+inline bool
+Stream_socket<Addr>::connect(Addr const& addr)
+{
+  return ff::connect(this->fd(), addr) == 0;
+}
+
+
 // Accepts a connection, returning a new socket object. If
 // the accept fails, the resulting socket will be invalid.
 template<typename Addr>
