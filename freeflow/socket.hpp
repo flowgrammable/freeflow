@@ -12,6 +12,7 @@
 #include "system.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <system_error>
 #include <utility>
 
@@ -560,6 +561,16 @@ Stream_socket<Addr>::listen(Addr const& addr)
   if (ff::listen(this->fd()) < 0)
     return false;
   return true;
+}
+
+
+// Initiate a connection to the application given by addr. Returns
+// false, if an error occurred.
+template<typename Addr>
+inline bool
+Stream_socket<Addr>::connect(Addr const& addr)
+{
+  return ff::connect(this->fd(), addr) == 0;
 }
 
 

@@ -5,3 +5,4 @@ macro(add_driver target)
 endmacro()
 
 add_driver(fp-wire-select wire-select.cpp)
+add_driver(fp-wire-poll  wire-poll.cpp)

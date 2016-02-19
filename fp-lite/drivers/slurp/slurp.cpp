@@ -5,8 +5,9 @@
 #include "context.hpp"
 #include "application.hpp"
 
+#include <freeflow/time.hpp>
 #include <freeflow/socket.hpp>
-#include <freeflow/select.hpp>
+#include <freeflow/poll.hpp>
 
 #include <string>
 #include <iostream>
@@ -17,18 +18,36 @@ using namespace ff;
 using namespace fp;
 
 
-// Emulate a 2 port wire running over TCP ports.
+// The slurp device simply receives packets from a single
+// connected port. Note that this does not drive an application.
+// This used only to measure performance of ingress ports.
+//
+// TODO: Allow this to have multiple ports?
+
 
 // NOTE: Clang will optimize assume that the running loop
 // never terminates if this is not declared volatile.
 // Go figure.
 static bool volatile running;
 
+
+// When getting a particular kind of signal. Indicate that we should
+// stop running.
 void
 on_signal(int sig)
 {
   running = false;
 }
+
+
+// Records statistics about a live connection.
+struct Connection
+{
+  Time start;
+  Time stop;
+  std::uint64_t packets;
+  std::uint64_t bytes;
+};
 
 
 int
@@ -46,23 +65,26 @@ main()
   // TODO: Handle exceptions.
 
   // Pre-create all standard ports.
-  Port_eth_tcp port1(0);
-  Port_eth_tcp port2(1);
+  Port_eth_tcp port(0);
 
   // Configure the dataplane. Ports must be added before
   // applications are loaded.
   fp::Dataplane dp = "dp1";
-  dp.add_port(&port1);
-  dp.add_port(&port2);
-  dp.add_drop_port();
-  dp.load_application("apps/wire.app");
+  dp.add_port(&port);
+  dp.load_application("apps/nop.app");
   dp.up();
 
   // Set up the initial polling state.
-  Select_set ss;
+  Poll_file fds[] {
+    { server.fd(), POLLIN },
+    { -1, 0 },
+  };
+
+  // FIXME: I don't need this. There's only 0 or 1 port.
   int nports = 0; // Current number of ports
-  // Add the server socket to the select set.
-  ss.add_read(server.fd());
+
+  // Save stats for the connection.
+  Connection con;
 
   // FIXME: Factor the accept/ingress code into something
   // a little more reusable.
@@ -70,7 +92,6 @@ main()
   // Accept connections from the server socket.
   auto accept = [&](Ipv4_stream_socket& server)
   {
-    std::cout << "[flowpath] accept\n";
     // Accept the connection.
     Ipv4_socket_address addr;
     Ipv4_stream_socket client = server.accept(addr);
@@ -79,37 +100,32 @@ main()
 
     // If we already have two endpoints, just return, which
     // will cause the socket to be closed.
-    if (nports == 2) {
-      std::cout << "[flowpath] reject connection " << addr.port() << '\n';
+    if (nports == 1) {
+      std::cout << "[slurp] reject connection " << addr.port() << '\n';
       return;
     }
-    std::cout << "[flowpath] accept connection " << addr.port() << '\n';
+    std::cout << "[slurp] accept connection " << addr.port() << '\n';
 
     // Update the poll set.
-    ss.add_read(client.fd());
+    fds[1] = { client.fd(), POLLIN };
 
     // Bind the socket to a port.
     // TODO: Emit a port status change to the application. Does
     // that happen implicitly, or do we have to cause the dataplane
     // to do it.
-    Port_tcp* port = nullptr;
-    if (nports == 0)
-      port = &port1;
-    if (nports == 1)
-      port = &port2;
-    port->attach(std::move(client));
-    ++nports;
+    port.attach(std::move(client));
+    nports = 1;
 
-    // Notify the application of the port change.
-    Application* app = dp.get_application();
-    app->port_changed(*port);
+    // Reset connetion stats.
+    con = Connection();
+    con.start = now();
   };
 
   // Handle input from the client socket.
   //
   // TODO: This defines the basic ingress pipeline. How
   // do we refactor this to make it reasonably composable.
-  auto ingress = [&](Port_tcp& port)
+  auto ingress = [&]()
   {
     // Ingress the packet.
     Byte buf[2048];
@@ -118,58 +134,51 @@ main()
 
     // Handle error or closure.
     if (!ok) {
+      std::cout << "[slurp] close connection\n";
+
+      // Finish and print stats. prior to detaching the socket.
+      con.stop = now();
+      Fp_seconds dur = con.stop - con.start;
+      double s = dur.count();
+      double Pps = con.packets / s;
+      double Mb = double(con.bytes * 8) / (1 << 20);
+      double Mbps = Mb / s;
+
+      std::cout << "[slurp] received " << con.packets << " packets in "
+                << s << " seconds (" << Pps << " Pps)\n";
+      std::cout << "[slurp] received " << con.bytes << " bytes in "
+                << s << " seconds (" << Mbps << " Mbps)\n";
+
       // Detache the socket.
       Ipv4_stream_socket client = port.detach();
 
-      // Notify the application of the port change.
-      Application* app = dp.get_application();
-      app->port_changed(port);
-
       // Update the poll set.
-      ss.del_read(client.fd());
-      --nports;
+      fds[1] = { -1, 0 };
+      nports = 0;
       return;
     }
 
-    // Otherwise, process the application.
-    //
-    // TODO: This really just runs one step of the pipeline. This needs
-    // to be a loop that continues processing until there are no further
-    // table redirections.
-    Application* app = dp.get_application();
-    app->process(cxt);
-
-    // Assuming there's an output send to it.
-    if (Port* out = cxt.output_port())
-      out->send(cxt);
+    // FIXME: Update local counts, etc, but otherwise, don't
+    // actually do anything
+    con.packets += 1;
+    con.bytes += cxt.packet().size();
   };
 
-  // Select a port to handle input.
-  auto input = [&](int fd)
-  {
-    if (fd == port1.fd())
-      ingress(port1);
-    else
-      ingress(port2);
-  };
+  // Print fancy numbers.
+  std::cout.imbue(std::locale(""));
 
   // Main lookp.
   running = true;
   while (running) {
-    // Wait for 100 milliseconds. Note that this can fail with
+    // Poll for 100 milliseconds. Note that this can fail with
     // EINTR, which really isn't an error.
-    //
-    // NOTE: It seems the common practice is to re-poll when EINTR
-    // occurs since like you said, it's not really an error. Most
-    // impls just stick it in a do-while(errno != EINTR);
-    select(ss, 1000);
+    poll(fds, 1 + nports, 1000);
 
-    if (ss.can_read(server.fd()))
+    // Process input events.
+    if (fds[0].can_read())
       accept(server);
-    if (ss.can_read(port1.fd()))
-      input(port1.fd());
-    if (ss.can_read(port2.fd()))
-      input(port2.fd());
+    if (fds[1].can_read())
+      ingress();
   }
 
   // Take the dataplane down.
