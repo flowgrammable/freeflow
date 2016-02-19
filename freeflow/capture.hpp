@@ -19,7 +19,7 @@ namespace cap
 
 
 // -------------------------------------------------------------------------- //
-//                            Packet headers
+// Packet headers
 
 // A packet provides a view into captured data from the device.
 // In particular, the packet structure provides access to header
@@ -52,7 +52,26 @@ struct Packet
 
 
 // -------------------------------------------------------------------------- //
-//                            Capture device
+// Link types
+
+
+// Describes the link layer protocol captured by a stream. The
+// capture can occur at any layer, so we need to provide a method
+// for an anlayzer to perform an initial decode.
+//
+// TODO: Where do the LINKTYPE_ names live?
+enum Link_type
+{
+  null_link     = DLT_NULL,
+  ethernet_link = DLT_EN10MB,
+  cooked_link   = DLT_LINUX_SLL,
+  wifi_link     = DLT_IEEE802_11_RADIO,
+  ip_link       = DLT_RAW,
+};
+
+
+// -------------------------------------------------------------------------- //
+// Capture device
 
 // A type used to support the opening of a capture.
 struct Offline_path
@@ -114,6 +133,8 @@ public:
   // Contextual conversion to bool.
   explicit operator bool() const { return ok(); }
 
+  Link_type link_type() const;
+
 private:
   char    error_[PCAP_ERRBUF_SIZE]; // An error message (256 bytes)
   pcap_t* handle_;                  // The underlying device
@@ -148,6 +169,15 @@ Stream::~Stream()
 {
   ::pcap_close(handle_);
 }
+
+
+// Returns the link layer type of the stream.
+inline Link_type
+Stream::link_type() const
+{
+  return (Link_type)pcap_datalink(handle_);
+}
+
 
 
 // Attempt to get the next packet from the stream. Returnsthis object.

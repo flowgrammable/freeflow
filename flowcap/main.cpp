@@ -146,6 +146,11 @@ forward(int argc, char* argv[])
 
   // Open an offline stream capture.
   cap::Stream cap(cap::offline(argv[2]));
+  if (cap.link_type() != cap::ethernet_link) {
+    std::cerr << "error: input is not ethernet\n";
+    return 1;
+  }
+
 
   // Iterate over each packet and and send each packet to the
   // connected host.
@@ -171,39 +176,19 @@ forward(int argc, char* argv[])
   // Make some measurements.
   Fp_seconds dur = stop - start;
   double s = dur.count();
-  // double Gb = double(b * 8) / (1 << 30);
   double Mb = double(b * 8) / (1 << 20);
-  // double Kb = double(b * 8) / (1 << 10);
-  // double Gbps = Gb / s;
   double Mbps = Mb / s;
-  // double Kbps = Kb / s;
   double Pps = n / s;
 
+  // FIXME: Make this pretty.
   std::cout.imbue(std::locale(""));
   std::cout << "sent " << n << " packets in " << s << " seconds (" << Pps << " Pps)\n";
-  // std::cout << "average " << double(b) / n << " Bpp\n";
-
   std::cout.precision(6);
   std::cout << "sent " << b << " bytes";
-
-  // if (Gb > 1)
-  // else if (Mb > 1)
-  //   std::cout << "sent " << Mb << " Mb";
-  // else
-  //   std::cout << "sent " << Kb << " Kb";
-
   std::cout.precision(1);
   std::cout << " in " << s << " (";
-
   std::cout.precision(6);
   std::cout << Mbps << " Mbps)\n";
-
-  // if (Gbps > 1)
-  //   std::cout << Gbps << " Gbps)\n";
-  // else if (Mbps > 1)
-  //   std::cout << Mbps << " Mbps)\n";
-  // else
-  //   std::cout << Kbps << " Kbps)\n";
 
   return 0;
 }
