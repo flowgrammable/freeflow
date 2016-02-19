@@ -2,6 +2,7 @@
 #define FREEFLOW_SELECT_HPP
 
 #include <sys/select.h>
+#include <cstring>
 
 namespace ff
 {
@@ -13,6 +14,7 @@ struct Select_file : fd_set
 {
   Select_file();
   Select_file(Select_file const&);
+  Select_file& operator=(Select_file const&);
 
   inline void add(int);
   inline void del(int);
@@ -31,7 +33,16 @@ Select_file::Select_file()
 // Select file copy ctor.
 Select_file::Select_file(Select_file const& other)
 {
-  *this = other;
+  FD_ZERO(this);
+  std::memcpy(this, &other, sizeof(fd_set));
+}
+
+Select_file&
+Select_file::operator=(Select_file const& other)
+{
+  FD_ZERO(this);
+  std::memcpy(this, &other, sizeof(fd_set));
+  return *this;
 }
 
 
@@ -116,7 +127,11 @@ struct Select_set
 // Select set ctor. Intialize master files and auxilliary files.
 Select_set::Select_set()
   : max_(0)
-{ }
+{ 
+  master_[0] = Select_file();
+  master_[1] = Select_file();
+  master_[2] = Select_file();
+}
 
 
 // Add a file descriptor to the read select file.

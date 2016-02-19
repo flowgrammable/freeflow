@@ -61,6 +61,8 @@ main()
   // Set up the initial polling state.
   Select_set ss;
   int nports = 0; // Current number of ports
+  // Add the server socket to the select set.
+  ss.add_read(server.fd());
 
   // FIXME: Factor the accept/ingress code into something
   // a little more reusable.
@@ -68,6 +70,7 @@ main()
   // Accept connections from the server socket.
   auto accept = [&](Ipv4_stream_socket& server)
   {
+    std::cout << "[flowpath] accept\n";
     // Accept the connection.
     Ipv4_socket_address addr;
     Ipv4_stream_socket client = server.accept(addr);
