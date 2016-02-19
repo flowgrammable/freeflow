@@ -103,13 +103,13 @@ struct Socket_address : sockaddr_in
   using Address = v4::Address;
 
   Socket_address();
-  Socket_address(Address, short);
+  Socket_address(Address, std::uint16_t);
 
   static constexpr Family address_family() { return AF_INET; }
 
-  Family  family() const  { return sin_family; }
-  short    port() const   { return ntohs(sin_port); }
-  Address address() const { return sin_addr; }
+  Family        family() const  { return sin_family; }
+  std::uint16_t port() const    { return ntohs(sin_port); }
+  Address       address() const { return sin_addr; }
 };
 
 
@@ -124,7 +124,7 @@ Socket_address::Socket_address()
 
 // Initialize the socket address.
 inline
-Socket_address::Socket_address(Address a, short p)
+Socket_address::Socket_address(Address a, std::uint16_t p)
   : sockaddr_in()
 {
   sin_family = AF_INET;

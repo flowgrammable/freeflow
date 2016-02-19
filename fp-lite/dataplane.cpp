@@ -84,12 +84,15 @@ Dataplane::unload_application()
 void
 Dataplane::up()
 {
-  assert(app_);
-
   // Start the application.
-  app_->start(*this);
+  if (app_)
+    app_->start(*this);
 
   // And then open all ports.
+  //
+  // FIXME: I don't think that we actually need to do this, but
+  // we probably need to notify the application of all existing
+  // ports.
   for (auto const& kv : portmap_) {
     Port* p = kv.second;
     if (!p->open())
@@ -113,7 +116,8 @@ Dataplane::down()
   }
 
   // Then stop the application.
-  app_->stop(*this);
+  if (app_)
+    app_->stop(*this);
 }
 
 

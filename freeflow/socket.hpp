@@ -12,6 +12,7 @@
 #include "system.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <system_error>
 #include <utility>
 
