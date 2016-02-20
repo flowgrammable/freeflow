@@ -23,6 +23,7 @@ add_library(freeflow SHARED
   memory.cpp
   async.cpp
   poll.cpp
+  epoll.cpp
   select.cpp
   socket.cpp
   ip.cpp

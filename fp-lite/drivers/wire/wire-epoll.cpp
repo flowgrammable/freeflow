@@ -1,3 +1,6 @@
+// Only build this example on a linux machine, as epoll
+// is not portable to Mac.
+
 
 #include "port.hpp"
 #include "port_tcp.hpp"
@@ -6,7 +9,7 @@
 #include "application.hpp"
 
 #include <freeflow/socket.hpp>
-#include <freeflow/select.hpp>
+#include <freeflow/epoll.hpp>
 
 #include <string>
 #include <iostream>
@@ -59,8 +62,10 @@ main()
   dp.up();
 
   // Set up the initial polling state.
-  Select_set ss;
+  Epoll_set eps(3);
   int nports = 0; // Current number of ports
+  // Add the server socket to the select set.
+  eps.add(server.fd());
 
   // FIXME: Factor the accept/ingress code into something
   // a little more reusable.
@@ -68,6 +73,7 @@ main()
   // Accept connections from the server socket.
   auto accept = [&](Ipv4_stream_socket& server)
   {
+    std::cout << "[flowpath] accept\n";
     // Accept the connection.
     Ipv4_socket_address addr;
     Ipv4_stream_socket client = server.accept(addr);
@@ -83,13 +89,13 @@ main()
     std::cout << "[flowpath] accept connection " << addr.port() << '\n';
 
     // Update the poll set.
-    ss.add_read(client.fd());
+    eps.add(client.fd());
 
     // Bind the socket to a port.
     // TODO: Emit a port status change to the application. Does
     // that happen implicitly, or do we have to cause the dataplane
     // to do it.
-    Port_eth_tcp* port = nullptr;
+    Port_tcp* port = nullptr;
     if (nports == 0)
       port = &port1;
     if (nports == 1)
@@ -106,7 +112,7 @@ main()
   //
   // TODO: This defines the basic ingress pipeline. How
   // do we refactor this to make it reasonably composable.
-  auto ingress = [&](Port_eth_tcp& port)
+  auto ingress = [&](Port_tcp& port)
   {
     // Ingress the packet.
     Byte buf[2048];
@@ -123,7 +129,7 @@ main()
       app->port_changed(port);
 
       // Update the poll set.
-      ss.del_read(client.fd());
+      eps.del(client.fd());
       --nports;
       return;
     }
@@ -159,13 +165,13 @@ main()
     // NOTE: It seems the common practice is to re-poll when EINTR
     // occurs since like you said, it's not really an error. Most
     // impls just stick it in a do-while(errno != EINTR);
-    select(ss, 1000);
+    epoll(eps, 1000);
 
-    if (ss.can_read(server.fd()))
+    if (eps.can_read(server.fd()))
       accept(server);
-    if (ss.can_read(port1.fd()))
+    if (eps.can_read(port1.fd()))
       input(port1.fd());
-    if (ss.can_read(port2.fd()))
+    if (eps.can_read(port2.fd()))
       input(port2.fd());
   }
 
