@@ -6,7 +6,7 @@
 #include "application.hpp"
 
 #include <freeflow/socket.hpp>
-#include <freeflow/select.hpp>
+#include <freeflow/poll.hpp>
 
 #include <string>
 #include <iostream>
@@ -59,7 +59,12 @@ main()
   dp.up();
 
   // Set up the initial polling state.
-  Select_set ss;
+  Poll_file fds[] {
+    { server.fd(), POLLIN },
+    { -1, 0 },
+    { -1, 0 }
+  };
+
   int nports = 0; // Current number of ports
 
   // FIXME: Factor the accept/ingress code into something
@@ -83,7 +88,7 @@ main()
     std::cout << "[flowpath] accept connection " << addr.port() << '\n';
 
     // Update the poll set.
-    ss.add_read(client.fd());
+    fds[nports + 1] = { client.fd(), POLLIN };
 
     // Bind the socket to a port.
     // TODO: Emit a port status change to the application. Does
@@ -123,7 +128,13 @@ main()
       app->port_changed(port);
 
       // Update the poll set.
-      ss.del_read(client.fd());
+      if (nports == 2) {
+        if (client.fd() == fds[1].fd)
+          fds[1] = fds[2];
+        fds[2] = { -1, 0 };
+      } else {
+        fds[1] = { -1, 0 };
+      }
       --nports;
       return;
     }
@@ -153,20 +164,20 @@ main()
   // Main lookp.
   running = true;
   while (running) {
-    // Wait for 100 milliseconds. Note that this can fail with
+    // Poll for 100 milliseconds. Note that this can fail with
     // EINTR, which really isn't an error.
     //
     // NOTE: It seems the common practice is to re-poll when EINTR
     // occurs since like you said, it's not really an error. Most
     // impls just stick it in a do-while(errno != EINTR);
-    select(ss, 1000);
+    poll(fds, 1 + nports, 1000);
 
-    if (ss.can_read(server.fd()))
+    if (fds[0].can_read())
       accept(server);
-    if (ss.can_read(port1.fd()))
-      input(port1.fd());
-    if (ss.can_read(port2.fd()))
-      input(port2.fd());
+    if (fds[1].can_read())
+      input(fds[1].fd);
+    if (fds[2].can_read())
+      input(fds[2].fd);
   }
 
   // Take the dataplane down.
