@@ -18,18 +18,17 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -pedantic -Wall -pthread")
 find_package(Boost 1.55.0 REQUIRED)
 include_directories(${Boost_INCLUDE_DIRS})
 
-#set(ODP_DEBUG true)
 # Find system Open Data Plane (ODP) Libraries.
-if (NOT ODP_DEBUG)
+if (ENABLE_ODP AND NOT BUILD_ODP)
   find_library(LIB_ODP odp)
   if (NOT LIB_ODP)
-    message(FATAL_ERROR "Cannot find lib odp")
+    message(FATAL_ERROR "Cannot find lib odp in default paths")
   endif()
   message(STATUS "LIB_ODP: ${LIB_ODP}")
 
   find_path(LIB_ODP_INCLUDE_DIR "odp.h")
   if (NOT LIB_ODP_INCLUDE_DIR)
-    message(FATAL_ERROR "Cannot find odp headers")
+    message(FATAL_ERROR "Expected to find odp.h at root of: ${LIB_ODP}")
   endif()
   message(STATUS "LIB_ODP_INCLUDE_DIR: ${LIB_ODP_INCLUDE_DIR}")
 
@@ -67,20 +66,33 @@ add_library(flowpath-rt SHARED
     system.cpp
     table.cpp
     thread.cpp
-    types.cpp)
+    types.cpp
+)
 
 # Add ODP as dependancy to flowpath-rt.
-if (NOT ODP_DEBUG)
+if (ENABLE_ODP AND NOT BUILD_ODP)
+  # Use system's ODP libs.
   target_link_libraries(flowpath-rt
     ${LIB_ODP}
     crypto
     rt
   )
-else()
+elseif(ENABLE_ODP AND BUILD_ODP AND NOT ENABLE_ODP_DPDK)
+  # Include ODP compiled locally.
   add_dependencies(flowpath-rt odp-linux)
   target_link_libraries(flowpath-rt 
     LINK_PRIVATE debug "${CMAKE_BINARY_DIR}/odp-sysroot/lib/libodp.a"
     LINK_PRIVATE debug "${CMAKE_BINARY_DIR}/odp-sysroot/lib/libodphelper.a"
+    crypto
+    rt
+  )
+elseif(ENABLE_ODP AND BUILD_ODP AND ENABLE_ODP_DPDK)
+  # Include ODP-DPDK compiled locally.
+  add_dependencies(odp-dpdk dpdk)
+  add_dependencies(flowpath-rt odp-dpdk)
+  target_link_libraries(flowpath-rt
+    LINK_PRIVATE debug "${CMAKE_BINARY_DIR}/odp-dpdk-sysroot/lib/libodp.a"
+    LINK_PRIVATE debug "${CMAKE_BINARY_DIR}/odp-dpdk-sysroot/lib/libodphelper.a"
     crypto
     rt
   )

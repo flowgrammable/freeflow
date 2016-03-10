@@ -126,12 +126,14 @@ main()
     // Instantiate ports.
     //
     // P1 : Connected to an echo client.
-    fp::Port* p1 = fp::create_port(fp::Port::Type::odp_burst, "veth1;p1");
+    //fp::Port* p1 = fp::create_port(fp::Port::Type::odp_burst, "veth1;p1");
+    fp::Port* p1 = fp::create_port(fp::Port::Type::odp_burst, "0;p1");
     std::cerr << "Created port " << p1->name() << " with id '" << p1->id() << "'\n";
 
 
     // P2 : Bound to a netcat TCP port; Acts as the entry point.
-    fp::Port* p2 = fp::create_port(fp::Port::Type::odp_burst, "veth3;p2");
+    //fp::Port* p2 = fp::create_port(fp::Port::Type::odp_burst, "veth3;p2");
+    fp::Port* p2 = fp::create_port(fp::Port::Type::odp_burst, "1;p2");
     std::cerr << "Created port " << p2->name() << " with id '" << p2->id() << "'\n";
 
 
@@ -158,7 +160,15 @@ main()
     std::cerr << "Data plane 'dp1' up\n";
 
     // Loop forever.
-    while (running) { };
+    while (running) {
+      // FIXME: Hack to recieve on both ports until new port_table interface is defined...
+      int pkts = 0;
+      pkts = p1->recv();
+      pkts = p1->send();
+
+      pkts = p2->recv();
+      pkts = p2->send();
+    };
 
     // Stop the wire.
     dp->down();

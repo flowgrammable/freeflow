@@ -86,14 +86,14 @@ Port_table::Port_table(int size)
     throw std::string("Error: ODP global init failed.");
   if (odp_init_local(ODP_THREAD_CONTROL))
     throw std::string("Error: ODP local init failed.");
-  thread_.run();
+  //thread_.run();
 }
 
 
 // Port table destructor.
 Port_table::~Port_table()
 {
-  thread_.halt();
+  //thread_.halt();
   data_.clear();
   handles_.clear();
 }

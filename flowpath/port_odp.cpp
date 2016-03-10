@@ -189,16 +189,19 @@ Port_odp::send()
 
   // Send batch of packets.
   // TODO: need to handle case when not all packets can be sent...
-  int sent = odp_pktio_send(pktio_, pkt_tbl, pkts_to_send);
-  if (sent < 0) {
-    printf("Send failed!\n");
-    sent = 0;
-  }
-  if (sent < pkts_to_send) {
-    printf("Send failed to send all packets!\n");
+  int sent = 0;
+  if (pkts_to_send > 0) {
+    sent = odp_pktio_send(pktio_, pkt_tbl, pkts_to_send);
+    if (sent < 0) {
+      printf("Send failed!\n");
+      sent = 0;
+    }
+    if (sent < pkts_to_send) {
+      printf("Send failed to send all packets!\n");
 
-    // Cleanup any ODP packet buffers that failed to send.
-    odp_packet_free_multi(pkt_tbl+sent, pkts_to_send - sent);
+      // Cleanup any ODP packet buffers that failed to send.
+      odp_packet_free_multi(pkt_tbl+sent, pkts_to_send - sent);
+    }
   }
 
   // Cleanup all Contexts after send.

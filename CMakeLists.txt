@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 2.8.12)
 cmake_policy(SET CMP0042 NEW)
 
+include(ExternalProject)
+
 project(freeflow C CXX)
 
 # Configure compiler.
@@ -16,13 +18,107 @@ endif()
 
 
 # C/C++ build flags.
-set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -Wall")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -pthread -O3")
+set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -Wall -fno-omit-frame-pointer")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -pthread -O3 -fno-omit-frame-pointer")
 
 
 # Require Boost C++ Libraries.
 find_package(Boost 1.55.0 REQUIRED)
 include_directories(${Boost_INCLUDE_DIRS})
+
+
+# ODP Linking Options.
+# 1) Look for release build of ODP in system path
+# 2) Build ODP using External Project and statically link
+#   - This allows compiling for release or debug mode
+# 3) Build ODP-DPDK using External Project and statically link
+option(ENABLE_ODP "Enable ODP Ports" OFF)
+option(ENABLE_ODP_DPDK "Enable ODP DPDK Ports" OFF)
+option(BUILD_ODP "Build ODP Library Locally" OFF)
+
+# ODP External Project Module.
+# - This module doesn't appear to get added when flags are changed...
+# -- Thus, need to always include incase it is needed.
+ExternalProject_Add(odp-linux
+  PREFIX odp.git
+  GIT_REPOSITORY http://git.linaro.org/lng/odp.git
+  GIT_TAG v1.7.0.0
+  CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix=<INSTALL_DIR> --with-debug "CFLAGS=${CMAKE_C_FLAGS} -fPIC -g"
+  INSTALL_DIR odp-sysroot
+  UPDATE_COMMAND ""
+  EXCLUDE_FROM_ALL 1
+  BUILD_IN_SOURCE 1
+#  UPDATE_DISCONNECTED 1
+  LOG_DOWNLOAD 1
+  LOG_UPDATE 1
+  LOG_CONFIGURE 1
+  LOG_BUILD 1
+  LOG_INSTALL 1
+)
+ExternalProject_Add_Step(odp-linux bootstrap
+  COMMAND <SOURCE_DIR>/bootstrap
+  COMMENT "Performing odp specific bootstrap step"
+  WORKING_DIRECTORY <SOURCE_DIR>
+  DEPENDERS configure
+  DEPENDEES download update
+  LOG 1
+)
+
+# ODP-DPDK External Project Module.
+ExternalProject_Add(odp-dpdk
+  PREFIX odp-dpdk.git
+  GIT_REPOSITORY http://git.linaro.org/lng/odp-dpdk.git
+  GIT_TAG v1.6.0.0_DPDK_2.2.0
+  CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix=<INSTALL_DIR> --with-platform=linux-dpdk --with-sdk-install-path=<INSTALL_DIR>/../dpdk.git/src/dpdk/x86_64-native-linuxapp-gcc --with-debug "CFLAGS=${CMAKE_C_FLAGS} -fPIC -g"
+  INSTALL_DIR odp-dpdk-sysroot
+  UPDATE_COMMAND ""
+  EXCLUDE_FROM_ALL 1
+  BUILD_IN_SOURCE 1
+#  UPDATE_DISCONNECTED 1
+  LOG_DOWNLOAD 1
+  LOG_UPDATE 1
+  LOG_CONFIGURE 1
+  LOG_BUILD 1
+  LOG_INSTALL 1
+)
+ExternalProject_Add_Step(odp-dpdk bootstrap
+  COMMENT "Performing odp specific bootstrap step"
+  COMMAND <SOURCE_DIR>/bootstrap
+  WORKING_DIRECTORY <SOURCE_DIR>
+  DEPENDERS configure
+  DEPENDEES download update
+  LOG 1
+)
+
+# DPDK External Project Module (required by ODP-DPDK).
+ExternalProject_Add(dpdk
+  PREFIX dpdk.git
+  GIT_REPOSITORY http://dpdk.org/git/dpdk
+  GIT_TAG v2.2.0
+  CONFIGURE_COMMAND $(MAKE) config T=x86_64-native-linuxapp-gcc O=x86_64-native-linuxapp-gcc
+  BUILD_COMMAND $(MAKE) T=x86_64-native-linuxapp-gcc O=x86_64-native-linuxapp-gcc "EXTRA_CFLAGS=-fPIC -g"
+  INSTALL_COMMAND ""
+  UPDATE_COMMAND ""
+  EXCLUDE_FROM_ALL 1
+  BUILD_IN_SOURCE 1
+#  UPDATE_DISCONNECTED 1
+  LOG_DOWNLOAD 1
+  LOG_UPDATE 1
+  LOG_CONFIGURE 1
+  LOG_BUILD 1
+  LOG_INSTALL 1
+)
+ExternalProject_Add_Step(dpdk confpatch
+  COMMENT "Applying patch to DPDK configuration needed by ODP-DPDK"
+  COMMAND sed -i "s,CONFIG_RTE_BUILD_COMBINE_LIBS=.*,CONFIG_RTE_BUILD_COMBINE_LIBS=y," x86_64-native-linuxapp-gcc/.config
+  COMMAND sed -i "s,CONFIG_RTE_BUILD_SHARED_LIB=.*,CONFIG_RTE_BUILD_SHARED_LIB=n," x86_64-native-linuxapp-gcc/.config
+  COMMAND sed -i "s,CONFIG_RTE_LIBRTE_PMD_PCAP=.*,CONFIG_RTE_LIBRTE_PMD_PCAP=y," x86_64-native-linuxapp-gcc/.config
+  WORKING_DIRECTORY <SOURCE_DIR>
+  DEPENDERS build
+  DEPENDEES configure
+  LOG 1
+)
+
 
 # Allow includes to find from headers from this dir.
 include_directories(.)
@@ -32,3 +128,4 @@ add_subdirectory(flowctl)
 add_subdirectory(flowmgr)
 add_subdirectory(flowpath)
 add_subdirectory(util)
+
