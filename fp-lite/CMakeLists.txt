@@ -16,6 +16,7 @@ add_library(fp-lite-rt SHARED
   port.cpp
   port_tcp.cpp
   port_drop.cpp
+  flow.cpp
   table.cpp
   application.cpp
   system.cpp

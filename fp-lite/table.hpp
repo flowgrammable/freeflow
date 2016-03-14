@@ -81,6 +81,7 @@ struct Table
   virtual void insert(Key const&, Flow const&) = 0;
   virtual void erase(Key const&) = 0;
   void insert_miss(Flow const& f) { miss_ = f; }
+  void erase_miss() { miss_ = Flow(); }
 
   Type type()     const { return type_; }
   int  key_size() const { return key_size_; }

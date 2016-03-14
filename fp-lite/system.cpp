@@ -253,4 +253,140 @@ fp_gather(fp::Context* cxt, int key_width, int n, va_list args)
   return fp::Key(buf, key_width);
 }
 
+
+// Creates a new table in the given data plane with the given size,
+// key width, and table type.
+fp::Table*
+fp_create_table(fp::Dataplane* dp, int id, int key_width, int size, fp::Table::Type type)
+{
+  fp::Table* tbl = nullptr;
+  std::cout << "Create table\n";
+
+  switch (type)
+  {
+    case fp::Table::Type::EXACT:
+    // Make a new hash table.
+    tbl = new fp::Hash_table(id, size, key_width);
+    assert(tbl);
+    dp->tables_.insert({id, tbl});
+    break;
+    case fp::Table::Type::PREFIX:
+    // Make a new prefix match table.
+    break;
+    case fp::Table::Type::WILDCARD:
+    // Make a new wildcard match table.
+    break;
+    default:
+    throw std::string("Unknown table type given");
+  }
+
+  std::cout << "Returning table\n";
+  return tbl;
+}
+
+
+// Creates a new flow rule from the given key and function pointer
+// and adds it to the given table.
+//
+// FIXME: Currently ignoring timeout.
+void
+fp_add_init_flow(fp::Table* tbl, void* fn, void* key, unsigned int timeout, unsigned int egress)
+{
+  // std::cout << "Adding flow to " << tbl->id() << '\n';
+  //
+  // get the length of the table's expected key
+  int key_size = tbl->key_size();
+  // std::cout << "Key size: " << key_size << '\n';
+  // cast the key to Byte*
+  fp::Byte* buf = reinterpret_cast<fp::Byte*>(key);
+  // construct a key object
+  fp::Key k(buf, key_size);
+  // cast the flow into a flow instruction
+  fp::Flow_instructions instr = reinterpret_cast<fp::Flow_instructions>(fn);
+  fp::Flow flow(0, fp::Flow_counters(), instr, fp::Flow_timeouts(), 0, 0, egress);
+
+  tbl->insert(k, flow);
+}
+
+
+// FIXME: Ignoring timeouts.
+void
+fp_add_new_flow(fp::Table* tbl, void* fn, void* key, unsigned int timeout, unsigned int egress)
+{
+  int key_size = tbl->key_size();
+  // cast the key to Byte*
+  fp::Byte* buf = reinterpret_cast<fp::Byte*>(key);
+  // construct a key object
+  fp::Key k(buf, key_size);
+  // cast the flow into a flow instruction
+  fp::Flow_instructions instr = reinterpret_cast<fp::Flow_instructions>(fn);
+  fp::Flow flow(0, fp::Flow_counters(), instr, fp::Flow_timeouts(), 0, 0, egress);
+
+  tbl->insert(k, flow);
+}
+
+
+fp::Port::Id
+fp_get_flow_egress(fp::Flow* f)
+{
+  assert(f);
+  assert(f->egress_ > 0);
+  return f->egress_;
+}
+
+
+// Adds the miss case for the table.
+//
+// FIXME: Ignoring timeout value.
+void
+fp_add_miss(fp::Table* tbl, void* fn, unsigned int timeout, unsigned int egress)
+{
+  // cast the flow into a flow instruction
+  fp::Flow_instructions instr = reinterpret_cast<fp::Flow_instructions>(fn);
+  fp::Flow flow(0, fp::Flow_counters(), instr, fp::Flow_timeouts(), 0, 0, egress);
+  tbl->insert_miss(flow);
+}
+
+
+// Removes the given key from the given table, if it exists.
+void
+fp_del_flow(fp::Table* tbl, void* key)
+{
+  // get the length of the table's expected key
+  int key_size = tbl->key_size();
+  // cast the key to Byte*
+  fp::Byte* buf = reinterpret_cast<fp::Byte*>(key);
+  // construct a key object
+  fp::Key k(buf, key_size);
+  // delete the key
+  tbl->erase(k);
+}
+
+// Removes the miss case from the given table and replaces
+// it with the default.
+void
+fp_del_miss(fp::Table* tbl)
+{
+  tbl->erase_miss();
+}
+
+
+// Raise an event.
+// TODO: Make this asynchronous on another thread.
+void
+fp_raise_event(fp::Context* cxt, void* handler)
+{
+  // Cast the handler back to its appropriate function type
+  // of void (*)(Context*)
+  void (*event)(fp::Context*);
+  event = (void (*)(fp::Context*)) (handler);
+  // Invoke the event.
+  // FIXME: This should produce a copy of the context and process it
+  // seperately.
+  //
+  // FIXME: Pass it to a thread instead.
+  event(cxt);
+}
+
+
 } // extern "C"
