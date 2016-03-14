@@ -113,13 +113,8 @@ public:
     : input_(), ctrl_(), decode_(), packet_(p), dp_(dp)
   { }
 
-  Context(Packet p, Dataplane* dp, unsigned int in, unsigned int in_phy, int tunnelid)
-    : input_{in, in_phy, tunnelid}, ctrl_(), decode_(), packet_(p)
-  { }
-
-  Context(Packet p, Dataplane* dp, Port* in, Port* in_phy, int tunnelid)
-    : input_{in->id(), in_phy->id(), tunnelid}, ctrl_(), decode_(), packet_(p)
-  { }
+  Context(Packet p, Dataplane* dp, unsigned int in, unsigned int in_phy, int tunnelid);
+  Context(Packet p, Dataplane* dp, Port* in, Port* in_phy, int tunnelid);
 
   // Returns the packet owned by the context.
   Packet const& packet() const { return packet_; }

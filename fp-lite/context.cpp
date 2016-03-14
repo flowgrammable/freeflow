@@ -3,6 +3,17 @@
 namespace fp
 {
 
+Context::Context(Packet p, Dataplane* dp, unsigned int in, unsigned int in_phy, int tunnelid)
+  : input_{in, in_phy, tunnelid}, ctrl_(), decode_(), packet_(p),
+    dp_(dp)
+{ }
+
+Context::Context(Packet p, Dataplane* dp, Port* in, Port* in_phy, int tunnelid)
+  : input_{in->id(), in_phy->id(), tunnelid}, ctrl_(), decode_(),
+    packet_(p), dp_(dp)
+{ }
+
+
 void
 Context::write_metadata(uint64_t meta)
 {
