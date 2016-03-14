@@ -90,6 +90,7 @@ public:
 
   bool send(Context const&);
   bool recv(Context&);
+  bool recv_exact(Context&);
 };
 
 

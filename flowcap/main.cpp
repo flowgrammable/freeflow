@@ -7,6 +7,7 @@
 #include <iostream>
 #include <iomanip>
 #include <locale>
+#include <cstring>
 
 
 using namespace ff;
@@ -154,12 +155,15 @@ forward(int argc, char* argv[])
 
   // Iterate over each packet and and send each packet to the
   // connected host.
-  Time start = now();
   std::uint64_t n = 0;
   std::uint64_t b = 0;
   cap::Packet p;
+  Time start = now();
   while (cap.get(p)) {
-    int k = sock.send(p.data(), p.captured_size());
+    uint8_t buf[p.captured_size() + 2];
+    std::memset(&buf[0], htons(p.captured_size()), sizeof(short));
+    std::memcpy(&buf[2], p.data(), p.captured_size());
+    int k = sock.send(buf, p.captured_size() + 2);
     if (k <= 0) {
       if (k < 0) {
         std::cerr << "error: " << std::strerror(errno) << '\n';

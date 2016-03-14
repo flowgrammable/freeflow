@@ -135,6 +135,11 @@ public:
   // Sets the output port.
   void set_output_port(Port* p) { ctrl_.out_port = p; }
 
+  // Sets the input port, physical input port, and tunnel id.
+  void set_input(Port*, Port*, int);
+
+
+
   // Returns the current
   Table*   current_table() const { return ctrl_.table; }
   Flow*    current_flow() const  { return ctrl_.flow; }
@@ -263,6 +268,18 @@ inline void
 Context::clear_actions()
 {
   actions_.clear();
+}
+
+
+// Sets the input port, physical input port, and tunnel id.
+inline void
+Context::set_input(Port* in, Port* in_phys, int tunnel)
+{
+  input_ = {
+    in,
+    in_phys,
+    tunnel
+  };
 }
 
 

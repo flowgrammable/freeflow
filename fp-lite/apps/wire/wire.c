@@ -89,7 +89,7 @@ int
 process(struct Context* cxt)
 {
   struct Port* in = fp_context_get_input_port(cxt);
-  printf("[wire] input from: %d\n", fp_port_get_id(in));
+  //printf("[wire] input from: %d\n", fp_port_get_id(in));
   struct Port* out;
   if (in == port1 && port2)
     out = port2;
@@ -97,7 +97,7 @@ process(struct Context* cxt)
     out = port1;
   else
     return 0;
-  printf("[wire] output to: %d\n", fp_port_get_id(out));
+  //printf("[wire] output to: %d\n", fp_port_get_id(out));
   fp_context_set_output_port(cxt, out);
   return 0;
 }
