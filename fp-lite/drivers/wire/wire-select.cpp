@@ -113,7 +113,7 @@ main()
   {
     // Ingress the packet.
     Byte buf[2048];
-    Context cxt(buf);
+    Context cxt(buf, &dp);
     bool ok = port.recv(cxt);
 
     // Handle error or closure.

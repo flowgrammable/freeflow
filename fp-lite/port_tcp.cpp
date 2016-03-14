@@ -29,9 +29,9 @@ Port_eth_tcp::recv(Context& cxt)
   //
   // FIXME: Pretty this up.
   cxt.input_ = {
-    this, // In port
-    this, // In physical port
-    0     // Tunnel id
+    this->id(), // In port
+    this->id(), // In physical port
+    0           // Tunnel id
   };
 
   return true;
