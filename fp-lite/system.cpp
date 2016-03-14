@@ -130,6 +130,15 @@ fp_flood(fp::Context* cxt)
   // flood->send(cxt);
 }
 
+// Outputs the contexts packet on the port with the matching name.
+void
+fp_output_port(fp::Context* cxt, fp::Port::Id id)
+{
+  fp::Port* p = cxt->dataplane()->get_port(id);
+  assert(p);
+  fp_context_set_output_port(cxt, p);
+}
+
 
 // Apply the given action to the context.
 void
@@ -183,16 +192,6 @@ fp_get_port_by_id(fp::Dataplane* dp, unsigned int id)
   fp::Port* p = dp->get_port(id);
   assert(p);
   return id;
-}
-
-
-// Outputs the contexts packet on the port with the matching name.
-void
-fp_output_port(fp::Context* cxt, fp::Port::Id id)
-{
-  // fp::Port* p = dp->get_port(id);
-  // assert(p);
-  // fp_context_set_output_port(cxt, p);
 }
 
 
