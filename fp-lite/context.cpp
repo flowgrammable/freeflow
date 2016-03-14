@@ -1,4 +1,6 @@
 #include "context.hpp"
+#include "endian.hpp"
+#include "system.hpp"
 
 namespace fp
 {
@@ -37,21 +39,27 @@ namespace
 inline void
 apply(Context& cxt, Set_action a)
 {
-
+  // Copy the new data into the packet at the appropriate location.
+  Byte* p = cxt.get_field(a.field.offset);
+  Byte* val = a.value;
+  int len = a.field.length;
+  // Convert native to network order after copying.
+  std::copy(val, val + len, p);
+  native_to_network_order(p, len);
 }
 
 
 inline void
 apply(Context& cxt, Copy_action a)
 {
+  // TODO: Implement me.
 }
 
 
 inline void
 apply(Context& cxt, Output_action a)
 {
-  // FIXME: This requires a lookup.
-  // cxt.ctrl_.out_port = a.port;
+  fp_output_port(&cxt, a.port);
 }
 
 
