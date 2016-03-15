@@ -194,6 +194,24 @@ fp_get_port_by_id(fp::Dataplane* dp, unsigned int id)
   return id;
 }
 
+// Returns whether or not the port is up or down
+bool
+fp_port_id_is_up(fp::Dataplane* dp, fp::Port::Id id)
+{
+  assert(dp);
+  fp::Port* p = dp->get_port(id);
+  return p->is_up();
+}
+
+// Returns whether or not the given id exists.
+bool
+fp_port_id_is_down(fp::Dataplane* dp, fp::Port::Id id)
+{
+  assert(dp);
+  fp::Port* p = dp->get_port(id);
+  return p->is_down();
+}
+
 
 // Copies the values within 'n' fields into a byte buffer
 // and constructs a key from it.
