@@ -14,6 +14,8 @@
 #include <string>
 #include <iostream>
 #include <signal.h>
+#include <ctime>
+#include <unistd.h>
 
 
 using namespace ff;
@@ -45,12 +47,17 @@ main()
   // Build a server socket that will accept network connections.
   Ipv4_socket_address addr(Ipv4_address::any(), 5000);
   Ipv4_stream_socket server(addr);
+  set_option(server.fd(), reuse_address(true));
 
   // TODO: Handle exceptions.
 
   // Pre-create all standard ports.
   Port_eth_tcp port1(0);
   Port_eth_tcp port2(1);
+
+  // Reporting stastics init.
+  Port::Statistics p1_stats;
+  Port::Statistics p2_stats;
 
   // Configure the dataplane. Ports must be added before
   // applications are loaded.
@@ -73,7 +80,6 @@ main()
   // Accept connections from the server socket.
   auto accept = [&](Ipv4_stream_socket& server)
   {
-    std::cout << "[flowpath] accept\n";
     // Accept the connection.
     Ipv4_socket_address addr;
     Ipv4_stream_socket client = server.accept(addr);
@@ -112,12 +118,13 @@ main()
   //
   // TODO: This defines the basic ingress pipeline. How
   // do we refactor this to make it reasonably composable.
-  auto ingress = [&](Port_tcp& port)
+  auto ingress = [&](Port_eth_tcp& port)
   {
+    //std::cout << "[wire] ingress on: " << port.id() << '\n';
     // Ingress the packet.
     Byte buf[2048];
     Context cxt(buf);
-    bool ok = port.recv(cxt);
+    bool ok = port.recv_exact(cxt);
 
     // Handle error or closure.
     if (!ok) {
@@ -156,8 +163,27 @@ main()
       ingress(port2);
   };
 
+  // Report statistics.
+  auto report = [&]()
+  {
+    auto p1_curr = port1.stats();
+    auto p2_curr = port2.stats();
+    // Clears the screen.
+    system("clear");
+    std::cerr << "Receive Rate (Pkt/s): " << (p2_curr.packets_rx - p2_stats.packets_rx) <<
+      " Transmit Rate (Pkt/s): " << (p1_curr.packets_tx - p2_stats.packets_tx) << "\n";
+
+    p1_stats = p1_curr;
+    p2_stats = p2_curr;
+  };
+
   // Main lookp.
   running = true;
+
+  // Init timer for reporting.
+  std::clock_t last = clock();
+  std::clock_t curr;
+
   while (running) {
     // Wait for 100 milliseconds. Note that this can fail with
     // EINTR, which really isn't an error.
@@ -173,7 +199,16 @@ main()
       input(port1.fd());
     if (eps.can_read(port2.fd()))
       input(port2.fd());
+
+    curr = clock();
+    long double duration = (last - curr) / (double) CLOCKS_PER_SEC;
+    if (duration >= 1.0l) {
+      report();
+      last = curr;
+    }
   }
+
+  eps.clear();
 
   // Take the dataplane down.
   dp.down();

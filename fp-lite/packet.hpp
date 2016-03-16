@@ -41,6 +41,8 @@ struct Packet
   Byte*       data()       { return buf_; }
   int         size() const { return size_; }
 
+  void set_size(int size) { size_ = size; }
+
   void limit(int n);
 
   // Data members.
@@ -50,6 +52,8 @@ struct Packet
   uint64_t  timestamp_;  // Time of packet arrival.
 
   // TODO: What is this used for?
+  //
+  // NOTE: Nothing at the moment...
   void*     buf_handle_; // [optional] port-specific buffer handle.
   Buff_t    buf_dev_;    // [optional] owner of buffer handle (dev*).
 };
