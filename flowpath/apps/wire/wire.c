@@ -50,6 +50,7 @@ config(void)
 void
 ports(void* ret)
 {
+  // Declare the max number of ports for application:
   *((int*)ret) = 2;
   puts("[wire] called ports\n");
 }

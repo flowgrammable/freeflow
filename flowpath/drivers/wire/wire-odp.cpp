@@ -18,7 +18,7 @@ sig_handle(int sig)
 }
 
 int
-main()
+main(int argc, const char* argv[])
 {
   signal(SIGINT, sig_handle);
   signal(SIGKILL, sig_handle);
@@ -128,36 +128,40 @@ main()
     // P1 : Connected to an echo client.
     //fp::Port* p1 = fp::create_port(fp::Port::Type::odp_burst, "veth1;p1");
     fp::Port* p1 = fp::create_port(fp::Port::Type::odp_burst, "0;p1");
-    std::cerr << "Created port " << p1->name() << " with id '" << p1->id() << "'\n";
+    std::cerr << "Created port " << p1->name() << " with id '" << p1->id() << std::endl;
 
 
     // P2 : Bound to a netcat TCP port; Acts as the entry point.
     //fp::Port* p2 = fp::create_port(fp::Port::Type::odp_burst, "veth3;p2");
     fp::Port* p2 = fp::create_port(fp::Port::Type::odp_burst, "1;p2");
-    std::cerr << "Created port " << p2->name() << " with id '" << p2->id() << "'\n";
+    std::cerr << "Created port " << p2->name() << " with id '" << p2->id() << std::endl;
 
 
     // Load the application library
-    fp::load_application("apps/wire.app");
-    std::cerr << "Loaded application 'apps/wire.app'\n";
+    const char* appPath = "apps/wire.app";
+    if (argc == 2)
+      appPath = argv[1];
+
+    fp::load_application(appPath);
+    std::cerr << "Loaded application " << appPath << std::endl;
 
     // Create the dataplane with the loaded application library.
-    fp::Dataplane* dp = fp::create_dataplane("dp1", "apps/wire.app");
-    std::cerr << "Created data plane '" << dp->name() << "'\n";
+    fp::Dataplane* dp = fp::create_dataplane("dp1", appPath);
+    std::cerr << "Created data plane '" << dp->name() << std::endl;
 
     // Configure the data plane based on the applications needs.
     dp->configure();
-    std::cerr << "Data plane configured\n";
+    std::cerr << "Data plane configured" << std::endl;
 
     // Add all ports
     dp->add_port(p1);
-    std::cerr << "Added port 'p1' to data plane 'dp1'\n";
+    std::cerr << "Added port 'p1' to data plane 'dp1'" << std::endl;
     dp->add_port(p2);
-    std::cerr << "Added port 'p2' to data plane 'dp1'\n";
+    std::cerr << "Added port 'p2' to data plane 'dp1'" << std::endl;
 
     // Start the wire.
     dp->up();
-    std::cerr << "Data plane 'dp1' up\n";
+    std::cerr << "Data plane 'dp1' up" << std::endl;
 
     // Loop forever.
     while (running) {
@@ -172,20 +176,20 @@ main()
 
     // Stop the wire.
     dp->down();
-    std::cerr << "Data plane 'dp1' down\n";
+    std::cerr << "Data plane 'dp1' down" << std::endl;
 
     // TODO: Report some statistics?
     // dp->app()->statistics(); ?
 
     // Cleanup
     fp::delete_port(p1->id());
-    std::cerr << "Deleted port 'p1' with id '" << p1->id() << "'\n";
+    std::cerr << "Deleted port 'p1' with id '" << p1->id() << std::endl;
     fp::delete_port(p2->id());
-    std::cerr << "Deleted port 'p2' with id '" << p1->id() << "'\n";
+    std::cerr << "Deleted port 'p2' with id '" << p1->id() << std::endl;
     fp::delete_dataplane("dp1");
 
     fp::unload_application("apps/wire.app");
-    std::cerr << "Unloaded application 'apps/wire.app'\n";
+    std::cerr << "Unloaded application 'apps/wire.app'" << std::endl;
   }
   catch (std::string msg)
   {
