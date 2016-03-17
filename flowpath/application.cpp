@@ -49,9 +49,9 @@ void
 Application::add_port(Port* p)
 {
   // Check if all allocated.
-  if (ports_.size() == num_ports_)
-    throw std::string("All ports have been added");
-  else if (std::find(ports_.begin(), ports_.end(), p) == ports_.end()) {
+  //if (ports_.size() == num_ports_)
+  //  throw std::string("Failed to add port, all ports have already been added");
+  if (std::find(ports_.begin(), ports_.end(), p) == ports_.end()) {
     ports_.push_back(p);
   }
   else
