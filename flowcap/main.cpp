@@ -123,6 +123,10 @@ forward(int argc, char* argv[])
   std::string host = argv[3];
   std::string port = argv[4];
 
+  int iterations = 1;
+  if (argc > 5)
+    iterations = std::stoi(argv[5]);
+
   // Convert the host name to an address.
   Ipv4_address addr;
   try {
@@ -162,21 +166,25 @@ forward(int argc, char* argv[])
   std::uint64_t b = 0;
   cap::Packet p;
   Time start = now();
+
   while (cap.get(p)) {
-    uint8_t buf[p.captured_size() + 2];
-    std::memset(&buf[0], htons(p.captured_size()), sizeof(short));
-    std::memcpy(&buf[2], p.data(), p.captured_size());
-    int k = sock.send(buf, p.captured_size() + 2);
-    if (k <= 0) {
-      if (k < 0) {
-        std::cerr << "error: " << std::strerror(errno) << '\n';
-        return 1;
+    for (int i = 0; i < iterations; i++) {
+      std::uint8_t buf[p.captured_size() + 4];
+      std::uint32_t len = htonl(p.captured_size());
+      std::memcpy(&buf[0], &len, 4);
+      std::memcpy(&buf[4], p.data(), p.captured_size());
+      int k = sock.send(buf, p.captured_size() + 4);
+      if (k <= 0) {
+        if (k < 0) {
+          std::cerr << "error: " << std::strerror(errno) << '\n';
+          return 1;
+        }
+        return 0;
       }
-      return 0;
+      // std::cout << "sent: " << p.captured_size() << " bytes\n";
+      ++n;
+      b += p.captured_size();
     }
-    // std::cout << "sent: " << p.captured_size() << " bytes\n";
-    ++n;
-    b += p.captured_size();
   }
   Time stop = now();
 
