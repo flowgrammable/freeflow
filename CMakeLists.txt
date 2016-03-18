@@ -33,12 +33,13 @@ include_directories(${Boost_INCLUDE_DIRS})
 #   - This allows compiling for release or debug mode
 # 3) Build ODP-DPDK using External Project and statically link
 option(ENABLE_ODP "Enable ODP Ports" OFF)
-option(ENABLE_ODP_DPDK "Enable ODP DPDK Ports" OFF)
 option(BUILD_ODP "Build ODP Library Locally" OFF)
+option(BUILD_ODP_DPDK "Enable Build of ODP DPDK Ports" OFF)
 
 # ODP External Project Module.
-# - This module doesn't appear to get added when flags are changed...
-# -- Thus, need to always include incase it is needed.
+# - This module doesn't appear to get added when options are changed...
+# -- Thus, need to always include incase it is needed (doesn't actually
+#    build unless BUILD_ODP* options are enabled).
 ExternalProject_Add(odp-linux
   PREFIX odp.git
   GIT_REPOSITORY http://git.linaro.org/lng/odp.git
