@@ -18,6 +18,7 @@
 
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <fcntl.h>
 
 
 namespace ff
@@ -295,6 +296,13 @@ inline int
 set_option(int sd, reuse_address opt)
 {
   return ::setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, &opt.value, sizeof(opt.value));
+}
+
+
+inline int
+set_option(int sd, nonblocking opt)
+{
+  return fcntl(sd, F_SETFL, fcntl(sd, F_GETFL, 0) | O_NONBLOCK);
 }
 
 
