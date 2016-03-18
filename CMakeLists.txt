@@ -18,8 +18,17 @@ endif()
 
 
 # C/C++ build flags.
-set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -Wall -fno-omit-frame-pointer")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -pthread -O3 -fno-omit-frame-pointer")
+# - Use CMAKE_BUILD_TYPE={Debug, Release, RelWithDebInfo} to set optimization.
+set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -Wall")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -pthread")
+
+
+# Extra build flags for profiling.
+option(ENABLE_PERF "Enables frame-pointer for profiling with Perf" OFF)
+if (ENABLE_PERF)
+  set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -fno-omit-frame-pointer")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-omit-frame-pointer")
+endif()
 
 
 # Require Boost C++ Libraries.
