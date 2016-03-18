@@ -81,7 +81,6 @@ private:
 
 extern Port_table port_table;
 extern void* port_table_work(void*);
-extern void* port_table_work_poll(void*);
 
 } // end namespace fp
 

@@ -13,8 +13,6 @@
 
 #include <fcntl.h>
 
-#include <unistd.h> // Temporary include for usleep()
-
 namespace fp
 {
 
@@ -71,21 +69,12 @@ Port_table::Port_table()
 
 // Port table constructor with initial size.
 Port_table::Port_table(int size)
-  : data_(size, nullptr), handles_(), thread_(0, port_table_work_poll)
+  : data_(size, nullptr), handles_(), thread_(0, port_table_work)
 {
   flood_port_ = new Port_flood("127.0.0.1:8675;flood");
   //flood_port_->thread_->assign(flood_port_->id_, flood);
   //broad_port_ = new Port_broad(":8674");
   //drop_port_ = new Port_drop(":8673");
-
-  // HACK: ODP needs to initalize global control thread before
-  //  child threads.  threads_.run() was causing a race
-  //  condition when odp_init_global() was in main...
-  // TODO: pull out to a extendable backend thread model...
-  if (odp_init_global(NULL, NULL))
-    throw std::string("Error: ODP global init failed.");
-  if (odp_init_local(ODP_THREAD_CONTROL))
-    throw std::string("Error: ODP local init failed.");
   //thread_.run();
 }
 
@@ -93,7 +82,7 @@ Port_table::Port_table(int size)
 // Port table destructor.
 Port_table::~Port_table()
 {
-  //thread_.halt();
+  thread_.halt();
   data_.clear();
   handles_.clear();
 }
@@ -110,17 +99,18 @@ Port_table::alloc(Port::Type port_type, std::string const& args) -> value_type
   // Allocate the proper port type.
   switch (port_type)
   {
-    case Port::Type::udp:
-      data_[idx] = (value_type)new Port_udp(idx+1, args);
+  case Port::Type::udp:
+    data_[idx] = (value_type)new Port_udp(idx+1, args);
     break;
-    case Port::Type::tcp:
-      data_[idx] = (value_type)new Port_tcp(idx+1, args);
+  case Port::Type::tcp:
+    data_[idx] = (value_type)new Port_tcp(idx+1, args);
     break;
-    case Port::Type::odp_burst:
-      data_[idx] = (value_type)new Port_odp(idx+1, args);
-      //TODO: merge in ODP Port:
-      //data_[idx] = (value_type)new Port_odp(idx+1, args);
+  case Port::Type::odp_burst:
+    data_[idx] = (value_type)new Port_odp(idx+1, args);
     break;
+  default:
+    std::cerr << "Warning - unknown Port::Type (" << port_type
+              << ") on Port_table::alloc" << std::endl;
   }
   handles_.insert({data_[idx]->fd(), data_[idx]});
   // Return a pointer to the newly allocated port object.
@@ -202,8 +192,6 @@ Port_table::handle(int fd)
 }
 
 
-// Select FD-based loop.
-// -- Applies to sockets and netmap
 void*
 port_table_work(void* arg)
 {
@@ -246,7 +234,7 @@ port_table_work(void* arg)
     }
 
     // Add new file descriptors to the poll set from the handler map.
-    for (auto const& pair : port_table.handles()) {
+    for (auto const & pair : port_table.handles()) {
       // Set the fd and event type(s).
       event.data.fd = pair.second->fd();
       event.events = EPOLLIN | EPOLLOUT;
@@ -256,48 +244,6 @@ port_table_work(void* arg)
           perror("port_table_work epoll_ctl_add");
     }
   }
-}
-
-
-// Poll-based Loop.
-// - Applies to ODP and DPDK
-// NOTE: this poll function is extremly simplified w/
-//   improper work distrobution.  Need to review pkt dataflow through system.
-void*
-port_table_work_poll(void* arg)
-{
-  // HACK: sleep 10 seconds to ensure ports are created
-  usleep(1000000);
-
-  // HACK: ODP needs to initalize thread...
-  // TODO: pull out to a extendable backend thread model...
-  odp_init_local(ODP_THREAD_WORKER);
-
-  // Start polling...
-  //
-  // FIXME: Create a condition for running...
-  while (true) {
-    // for each port.
-    //for (auto* const port : port_table.list()) { // seg faults because size is static 100 ports...
-    //for (auto const& pair : port_table.handles()) { // port_table.handles() is never called again?
-    auto ports = port_table.list();
-    for (int i = 0; i < 2; i++) {
-      Port* const port = ports[i];
-      int pkts = port->recv();
-      // for each packet recv'd.
-      //for (int i = 0; i < pkts; i++) {
-        // schedule for processing
-        // already handled by recv() function...?
-      //}
-
-      // ensure any queued packets are sent.
-      pkts = port->send();
-    }
-  }
-
-  // See odp_init_local
-  odp_term_local();
-  return NULL;
 }
 
 
