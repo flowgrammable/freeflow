@@ -1,9 +1,10 @@
 #include "port_odp.hpp"
+
+#ifdef FP_ENABLE_ODP
+
 #include "packet.hpp"
 #include "context.hpp"
 
-//#include <arpa/inet.h>
-//#include <netinet/in.h>
 #include <stdio.h>
 #include <cstring>
 #include <string>
@@ -20,7 +21,6 @@
 
 namespace fp
 {
-
 
 // ODP Port constructor. Parses the device name from
 // the input string given, allocates a new internal ID.
@@ -220,3 +220,5 @@ Port_odp::send()
 }
 
 } // end namespace fp
+
+#endif // FP_ENABLE_ODP

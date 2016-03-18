@@ -5,6 +5,7 @@
 #include <vector>
 #include <algorithm>
 #include <iterator>
+#include <iostream>
 
 // FIXME: OSX uses kqueue rather than epoll.
 #if ! __APPLE__
@@ -105,9 +106,11 @@ Port_table::alloc(Port::Type port_type, std::string const& args) -> value_type
   case Port::Type::tcp:
     data_[idx] = (value_type)new Port_tcp(idx+1, args);
     break;
+#ifdef FP_ENABLE_ODP
   case Port::Type::odp_burst:
     data_[idx] = (value_type)new Port_odp(idx+1, args);
     break;
+#endif // FP_ENABLE_ODP
   default:
     std::cerr << "Warning - unknown Port::Type (" << port_type
               << ") on Port_table::alloc" << std::endl;

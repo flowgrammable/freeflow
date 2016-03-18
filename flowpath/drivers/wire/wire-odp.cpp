@@ -30,16 +30,17 @@ main(int argc, const char* argv[])
 
     /* Init ODP before calling anything else */
     // ODP Library: initialize global ODP framework.  (once / process).
-    //if (odp_init_global(NULL, NULL))
-    //  throw std::string("Error: ODP global init failed.");
+    if (odp_init_global(NULL, NULL))
+      throw std::string("Error: ODP global init failed.");
 
     /* Init this thread */
     // ODP Library: initialize thread-specific ODP framework (once / thread).
     // - ODP_THREAD_CONTROL: allows scheduling by OS
     // - ODP_THREAD_WORKER:  pins thread and tries to prevent scheduling by OS
     // WARN: segfaults if any child threads do not call odp_init_local(...)
-    //if (odp_init_local(ODP_THREAD_CONTROL))
-    //  throw std::string("Error: ODP local init failed.");
+    ///if (odp_init_local(ODP_THREAD_CONTROL))
+    if (odp_init_local(ODP_THREAD_WORKER))
+      throw std::string("Error: ODP local init failed.");
 
     /* Create packet pool */
     // ODP Library: Create ODP packet pool.
@@ -164,6 +165,7 @@ main(int argc, const char* argv[])
     std::cerr << "Data plane 'dp1' up" << std::endl;
 
     // Loop forever.
+    // - currently recv() automatically runs packet through pipeline.
     while (running) {
       // FIXME: Hack to recieve on both ports until new port_table interface is defined...
       int pkts = 0;

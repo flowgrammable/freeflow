@@ -69,6 +69,11 @@ add_library(flowpath-rt SHARED
     types.cpp
 )
 
+# Add C-Define to enable compilation of port_odp.cpp
+if (ENABLE_ODP)
+  add_definitions(-DFP_ENABLE_ODP)
+endif()
+
 # Add ODP as dependancy to flowpath-rt.
 if (ENABLE_ODP AND NOT BUILD_ODP)
   # Use system's ODP libs.

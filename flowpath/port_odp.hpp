@@ -1,12 +1,13 @@
 #ifndef FP_PORT_ODP_HPP
 #define FP_PORT_ODP_HPP
 
-#include "port.hpp"
+#ifdef FP_ENABLE_ODP
 
-#include <string>
+#include "port.hpp"
 
 // Open Data Plane:
 #include <odp.h>  // extern "C" protection provided
+#include <string>
 
 namespace fp
 {
@@ -57,5 +58,7 @@ private:
 };
 
 } // end namespace fp
+
+#endif // FP_ENABLE_ODP
 
 #endif
