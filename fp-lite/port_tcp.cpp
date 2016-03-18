@@ -49,18 +49,16 @@ Port_eth_tcp::recv_exact(Context& cxt)
   Socket& sock = socket();
   Packet& p = cxt.packet();
 
-  // Receive the 2-byte (short) header.
-  short recv_size = 0;
-  int n = sock.recv((char*)&recv_size, 2);
-  // If we don't receive the 2-byte header, or encounter an error, return.
-  if (n <= 0 || n != 2)
+  // Receive the 4-byte (short) header.
+  char hdr[4];
+  int n = sock.recv(hdr, 4);
+  // If we don't receive the 4-byte header, or encounter an error, return.
+  if (n <= 0 || n != 4)
     return false;
 
   // Transform the network short to host byte order.
-  recv_size = ntohs(recv_size);
-  // FIXME: Currently limiting size of frames to size of local buffer
-  // in driver.
-  recv_size = recv_size > 2048 ? 2048 : recv_size;
+  int recv_size = ntohl(*((int*)hdr));
+
   // Receive until recv_size bytes have been read.
   Byte* data_ptr = p.data();
   n = recv_size;
