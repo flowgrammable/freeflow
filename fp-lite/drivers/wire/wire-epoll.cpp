@@ -10,12 +10,13 @@
 
 #include <freeflow/socket.hpp>
 #include <freeflow/epoll.hpp>
+#include <freeflow/time.hpp>
 
 #include <string>
 #include <iostream>
 #include <signal.h>
-#include <ctime>
 #include <unistd.h>
+
 
 
 using namespace ff;
@@ -48,6 +49,7 @@ main()
   Ipv4_socket_address addr(Ipv4_address::any(), 5000);
   Ipv4_stream_socket server(addr);
   set_option(server.fd(), reuse_address(true));
+  set_option(server.fd(), nonblocking(true));
 
   // TODO: Handle exceptions.
 
@@ -96,6 +98,8 @@ main()
 
     // Update the poll set.
     eps.add(client.fd());
+    // Set non-blocking.
+    set_option(client.fd(), nonblocking(true));
 
     // Bind the socket to a port.
     // TODO: Emit a port status change to the application. Does
@@ -122,13 +126,13 @@ main()
   {
     //std::cout << "[wire] ingress on: " << port.id() << '\n';
     // Ingress the packet.
-    Byte buf[2048];
+    Byte buf[4096];
     Context cxt(buf);
     bool ok = port.recv_exact(cxt);
 
     // Handle error or closure.
     if (!ok) {
-      // Detache the socket.
+      // Detach the socket.
       Ipv4_stream_socket client = port.detach();
 
       // Notify the application of the port change.
@@ -170,20 +174,24 @@ main()
     auto p2_curr = port2.stats();
     // Clears the screen.
     system("clear");
-    std::cerr << "Receive Rate (Pkt/s): " << (p2_curr.packets_rx - p2_stats.packets_rx) <<
-      " Transmit Rate (Pkt/s): " << (p1_curr.packets_tx - p2_stats.packets_tx) << "\n";
-
+    std::cout << "Receive Rate  (Pkt/s): " << (p2_curr.packets_rx -
+      p2_stats.packets_rx) << '\n';
+    std::cout << "Receive Rate   (Mb/s): " <<  ((p2_curr.bytes_rx -
+      p2_stats.bytes_rx) * 8.0 / (1 << 20)) << '\n';
+    std::cout << "Transmit Rate (Pkt/s): " << (p1_curr.packets_tx -
+      p2_stats.packets_tx) << "\n";
+    std::cout << "Transmit Rate  (Mb/s): " <<  ((p1_curr.bytes_tx -
+      p2_stats.bytes_tx) * 8.0 / (1 << 20)) << "\n\n";
     p1_stats = p1_curr;
     p2_stats = p2_curr;
   };
 
-  // Main lookp.
+  // Main lookup.
   running = true;
 
   // Init timer for reporting.
-  std::clock_t last = clock();
-  std::clock_t curr;
-
+  Time last = now();
+  Time curr;
   while (running) {
     // Wait for 100 milliseconds. Note that this can fail with
     // EINTR, which really isn't an error.
@@ -200,9 +208,10 @@ main()
     if (eps.can_read(port2.fd()))
       input(port2.fd());
 
-    curr = clock();
-    long double duration = (last - curr) / (double) CLOCKS_PER_SEC;
-    if (duration >= 1.0l) {
+    curr = now();
+    Fp_seconds dur = curr - last;
+    double duration = dur.count();
+    if (duration >= 1.0) {
       report();
       last = curr;
     }
