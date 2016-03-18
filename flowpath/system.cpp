@@ -179,30 +179,6 @@ fp_goto_table(fp::Context* cxt, fp::Table* tbl, int n, ...)
 // Port and table operations
 
 // Returns the port matching the given name.
-fp::Port::Id
-fp_get_port_by_name(char const* name)
-{
-  // std::cout << "GETTING PORT\n";
-  fp::Port* p = fp::port_table.find(name);
-  // std::cout << "FOUND PORT\n";
-  assert(p);
-  return p->id();
-}
-
-
-// Returns the port matching the given id or error otherwise.
-fp::Port::Id
-fp_get_port_by_id(unsigned int id)
-{
-  // std::cout << "GETTING PORT\n";
-  fp::Port* p = fp::port_table.find(id);
-  // std::cout << "FOUND PORT\n";
-  assert(p);
-  return id;
-}
-
-
-// Returns the port matching the given name.
 fp::Port*
 fp_get_port(char const* name)
 {
@@ -227,10 +203,8 @@ fp_get_inputPortId(fp::Context* cxt)
 
 // Outputs the contexts packet on the port.
 void
-fp_output_port(fp::Context* cxt, fp::Port::Id id)
+fp_output_port(fp::Context* cxt, fp::Port* p)
 {
-  // std::cout << "ID: " << id << '\n';
-  fp::Port* p = fp::port_table.find(id);
   p->send(cxt);
 }
 
