@@ -14,7 +14,6 @@ namespace fp
 Dataplane::~Dataplane()
 {
   delete drop_;
-  std::cout << "dp dtor called\n";
 }
 
 
