@@ -23,7 +23,7 @@ using namespace ff;
 using namespace fp;
 
 
-// Emulate a 2 port wire running over TCP ports.
+// Emulate a 2 port wire running over TCP ports in an STA.
 
 // NOTE: Clang will optimize assume that the running loop
 // never terminates if this is not declared volatile.
