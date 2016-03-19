@@ -29,7 +29,7 @@ public:
   // Packet related funtions.
   bool open();
   bool close();
-  bool send(Context const&);
+  bool send(Context);
   bool recv(Context&);
 };
 
@@ -49,7 +49,7 @@ Port_drop::close()
 
 
 inline bool
-Port_drop::send(Context const&)
+Port_drop::send(Context)
 {
   return true;
 }

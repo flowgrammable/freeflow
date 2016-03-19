@@ -12,39 +12,13 @@
 namespace fp
 {
 
-// Read an ethernet frame from the stream.
-bool
-Port_eth_tcp::recv(Context& cxt)
-{
-  Socket& sock = socket();
-  Packet& p = cxt.packet();
-  int n = sock.recv(p.data(), p.size());
-  if (n <= 0)
-    return false;
-
-  // Adjust the packet size to the number of bytes read.
-  p.size_ = n;
-
-  // Set up the input context.
-  //
-  // FIXME: Pretty this up.
-  cxt.input_ = {
-    this, // In port
-    this, // In physical port
-    0     // Tunnel id
-  };
-
-  return true;
-}
-
-
 // Read an ethernet frame from the stream. This recv function utilizes a
 // simple protocol to establish the length of the frame being received. We
 // establish the length with a 2-byte (short) integer value, in network byte
 // order, at the head of the message. If there is not a 2-byte header present,
 // undefined behavior ensues.
 bool
-Port_eth_tcp::recv_exact(Context& cxt)
+Port_eth_tcp::recv(Context& cxt)
 {
   Socket& sock = socket();
   Packet& p = cxt.packet();
@@ -64,8 +38,14 @@ Port_eth_tcp::recv_exact(Context& cxt)
   n = recv_size;
   while (recv_size) {
     int k = sock.recv(data_ptr, recv_size);
-    if (k <= 0)
-      break;
+    if (k <= 0) {
+      if (k == 0)
+        break;
+      if (k < 0 && errno != EAGAIN)
+        return false;
+      else
+        continue;
+    }
     recv_size -= k;
     data_ptr += k;
   }
@@ -87,12 +67,14 @@ Port_eth_tcp::recv_exact(Context& cxt)
 
 // Writes a packet to the output stream.
 bool
-Port_eth_tcp::send(Context const& cxt)
+Port_eth_tcp::send(Context cxt)
 {
   Socket& sock = socket();
   Packet const& p = cxt.packet();
   int n = sock.send(p.data(), p.size());
   if (n <= 0) {
+    if (errno == EAGAIN)
+      return true;
     detach();
     return n < 0;
   }
@@ -100,8 +82,6 @@ Port_eth_tcp::send(Context const& cxt)
   // Update port stats.
   stats_.packets_tx++;
   stats_.bytes_tx += n;
-
-  // Return send status.
   return true;
 }
 
