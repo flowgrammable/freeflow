@@ -7,6 +7,7 @@
 #include "dataplane.hpp"
 #include "context.hpp"
 #include "application.hpp"
+#include "queue.hpp"
 
 #include <freeflow/socket.hpp>
 #include <freeflow/epoll.hpp>
@@ -54,12 +55,15 @@ main()
   // TODO: Handle exceptions.
 
   // Pre-create all standard ports.
-  Port_eth_tcp port1(0);
-  Port_eth_tcp port2(1);
+  Port_eth_tcp port1(1);
+  Port_eth_tcp port2(2);
 
   // Reporting stastics init.
   Port::Statistics p1_stats;
   Port::Statistics p2_stats;
+
+  // Egress queue.
+  Queue<Context> egress_queue;
 
   // Configure the dataplane. Ports must be added before
   // applications are loaded.
@@ -128,7 +132,7 @@ main()
     // Ingress the packet.
     Byte buf[4096];
     Context cxt(buf);
-    bool ok = port.recv_exact(cxt);
+    bool ok = port.recv(cxt);
 
     // Handle error or closure.
     if (!ok) {
@@ -154,8 +158,8 @@ main()
     app->process(cxt);
 
     // Assuming there's an output send to it.
-    if (Port* out = cxt.output_port())
-      out->send(cxt);
+    if (cxt.output_port())
+      egress_queue.enqueue(cxt);
   };
 
   // Select a port to handle input.
@@ -165,6 +169,25 @@ main()
       ingress(port1);
     else
       ingress(port2);
+  };
+
+
+  // Apply egress processing on a port.
+  auto egress = [&](Port_eth_tcp& port)
+  {
+    while (egress_queue.size()) {
+      Context cxt = egress_queue.dequeue();
+      port.send(cxt);
+    }
+  };
+
+  // Select a port to handle output.
+  auto output = [&](int fd)
+  {
+    if (fd == port1.fd())
+      egress(port1);
+    else
+      egress(port2);
   };
 
   // Report statistics.
@@ -179,9 +202,9 @@ main()
     std::cout << "Receive Rate   (Mb/s): " <<  ((p2_curr.bytes_rx -
       p2_stats.bytes_rx) * 8.0 / (1 << 20)) << '\n';
     std::cout << "Transmit Rate (Pkt/s): " << (p1_curr.packets_tx -
-      p2_stats.packets_tx) << "\n";
+      p1_stats.packets_tx) << "\n";
     std::cout << "Transmit Rate  (Mb/s): " <<  ((p1_curr.bytes_tx -
-      p2_stats.bytes_tx) * 8.0 / (1 << 20)) << "\n\n";
+      p1_stats.bytes_tx) * 8.0 / (1 << 20)) << "\n\n";
     p1_stats = p1_curr;
     p2_stats = p2_curr;
   };
@@ -203,11 +226,17 @@ main()
 
     if (eps.can_read(server.fd()))
       accept(server);
-    if (eps.can_read(port1.fd()))
-      input(port1.fd());
-    if (eps.can_read(port2.fd()))
+    
+    if (eps.has_error(port2.fd()))
+      std::cout << "Error: Port 2\n" << eps.get_error(port2.fd()) << '\n';
+    else if (eps.can_read(port2.fd()))
       input(port2.fd());
 
+    if (eps.has_error(port1.fd()))
+      std::cout << "Error: Port 1\n" << eps.get_error(port1.fd()) << '\n';
+    else if (eps.can_write(port1.fd()))
+      output(port1.fd());
+    
     curr = now();
     Fp_seconds dur = curr - last;
     double duration = dur.count();
