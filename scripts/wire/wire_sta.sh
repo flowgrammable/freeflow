@@ -18,6 +18,7 @@ cd fp-lite
 # Start the wire application.
 output=$PWD/wire_sta.txt
 drivers/wire/fp-wire-epoll-sta &> $output &
+WIRE_PID=$!
 echo "Wire-STA started... writing to $output"
 
 # Pause for a second.
@@ -27,6 +28,7 @@ cd ../flowcap
 
 # Start the sink (netcat)
 netcat localhost 5000 &>> /dev/null &
+NC_PID=$!
 echo "Sink (netcat) started..."
 
 # Pause for a second.
@@ -35,3 +37,10 @@ sleep 1
 # Start the source (flowcap)
 echo "Starting $PWD/flowcap..."
 ./flowcap forward $input/smallFlows.pcap 127.0.0.1 5000 100
+
+sleep 2
+echo "Closing sink (netcat)..."
+kill -9 $NC_PID
+
+echo "Stopping Wire-STA..."
+kill -2 $WIRE_PID
