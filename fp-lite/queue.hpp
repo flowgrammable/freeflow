@@ -3,56 +3,80 @@
 
 #include <queue>
 #include <cassert>
-#include <pthread.h>
+#include <mutex>
+#include <shared_mutex>
 
 namespace fp
 {
 
 
-// The flowpath mutex object. Wraps a pthread mutex.
-class Mutex
-{
-public:
-  Mutex();
-  ~Mutex();
-
-  void lock();
-  void unlock();
-
-private:
-  pthread_mutex_t mutex_;
-};
-
-
-// The flowpath locking queue. Uses a mutex to ensure atomic addition
-// and/or retrieval of queued items.
+// The flowpath standard queue.
 template <typename T>
-class Locking_queue
+class Queue
 {
 public:
-  Locking_queue();
-  ~Locking_queue();
+  Queue()
+    : queue_()
+  { }
+
+  ~Queue() = default;
 
   void enqueue(T);
   T dequeue();
 
   int size() const { return queue_.size(); }
   bool empty() const { return queue_.empty(); }
-  
-private:
-  std::queue<T> queue_;
-  Mutex mutex_;
+
+  std::queue<T>     queue_;
 };
 
 
 template <typename T>
-Locking_queue<T>::Locking_queue()
+void
+Queue<T>::enqueue(T v)
+{
+  queue_.push(v);
+}
+
+template <typename T>
+T
+Queue<T>::dequeue()
+{
+  T temp = queue_.front();
+  queue_.pop();
+  return temp;
+}
+
+
+// The flowpath locked queue. Uses read/write locks to allow for multiple
+// readers and single writer.
+template <typename T>
+class Locked_queue
+{
+public:
+  Locked_queue();
+  ~Locked_queue();
+
+  void enqueue(T);
+  T dequeue();
+
+  int size();
+  bool empty() { return size(); }
+
+private:
+  std::queue<T>           queue_;
+  std::shared_timed_mutex mutex_;
+};
+
+
+template <typename T>
+Locked_queue<T>::Locked_queue()
   : queue_(), mutex_()
 { }
 
 
 template <typename T>
-Locking_queue<T>::~Locking_queue()
+Locked_queue<T>::~Locked_queue()
 {
   while (!queue_.empty())
     queue_.pop();
@@ -60,8 +84,20 @@ Locking_queue<T>::~Locking_queue()
 
 
 template <typename T>
+int
+Locked_queue<T>::size()
+{
+  int size = 0;
+  mutex_.lock_shared();
+  size = queue_.size();
+  mutex_.unlock_shared();
+  return size;
+}
+
+
+template <typename T>
 void
-Locking_queue<T>::enqueue(T v)
+Locked_queue<T>::enqueue(T v)
 {
   mutex_.lock();
   queue_.push(v);
@@ -71,13 +107,12 @@ Locking_queue<T>::enqueue(T v)
 
 template <typename T>
 T
-Locking_queue<T>::dequeue()
+Locked_queue<T>::dequeue()
 {
-  assert(queue_.size());
-  mutex_.lock();
+  mutex_.lock_shared();
   T ret = queue_.front();
   queue_.pop();
-  mutex_.unlock();
+  mutex_.unlock_shared();
   return ret;
 }
 
