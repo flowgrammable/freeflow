@@ -5,8 +5,11 @@
 //#ifdef LINUX
 
 #include <sys/epoll.h>
+#include <sys/socket.h>
+#include <cstring>
 #include <vector>
 #include <algorithm>
+#include <string>
 
 namespace ff
 {
@@ -17,11 +20,11 @@ struct Epoll_event : epoll_event
   Epoll_event() = default;
 
   // Returns true if a read event occurred.
-  bool can_read() const { return (events & EPOLLIN) == EPOLLIN; }
+  bool can_read() const { return (events & EPOLLIN); }
   // Returns true if a write event occurred.
-  bool can_write() const { return (events & EPOLLOUT) == EPOLLOUT; }
+  bool can_write() const { return (events & EPOLLOUT); }
   // Returns true if a error event occurred.
-  bool has_error() const { return (events & EPOLLERR) == EPOLLERR; }
+  bool has_error() const { return (events & EPOLLERR); }
 
   // Get the file descriptor associated with the event.
   inline int fd() const { return data.fd; }
@@ -54,6 +57,9 @@ struct Epoll_set : std::vector<Epoll_event>
   // Returns true if the given file descriptor has an error.
   bool has_error(int);
 
+  // Reports the error for the given file descriptor.
+  std::string get_error(int);
+
   // Data Members.
   //
   // Epoll file descriptor.
@@ -78,7 +84,7 @@ Epoll_set::Epoll_set(int size)
 inline void
 Epoll_set::add(int fd)
 {
-  epev_.events = EPOLLIN;
+  epev_.events = EPOLLIN | EPOLLOUT;
   epev_.data.fd = fd;
   epoll_ctl(epfd_, EPOLL_CTL_ADD, fd, &epev_);
 }
@@ -127,6 +133,17 @@ Epoll_set::has_error(int fd)
   return std::find_if(begin(), end(), [fd](Epoll_event& epev) {
     return (epev.fd() == fd && epev.has_error());
   }) != end();
+}
+
+
+//
+inline std::string
+Epoll_set::get_error(int fd)
+{
+  int err = 0;
+  socklen_t errlen = sizeof(err);
+  getsockopt(fd, SOL_SOCKET, SO_ERROR, (void*)&err, &errlen);
+  return strerror(err);
 }
 
 
