@@ -8,6 +8,7 @@
 // Open Data Plane:
 #include <odp.h>  // extern "C" protection provided
 #include <string>
+#include <new>
 
 namespace fp
 {

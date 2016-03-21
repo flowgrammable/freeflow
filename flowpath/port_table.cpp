@@ -41,7 +41,7 @@ Port_flood::send()
         continue;
 
       // Send the packet to the next port.
-      int l_bytes = sendto(fd_, cxt->packet_->buf_.data_, cxt->packet_->size_, 0,
+      int l_bytes = sendto(fd_, cxt->packet_->data(), cxt->packet_->size(), 0,
         (struct sockaddr*)&p->src_addr_, sizeof(struct sockaddr_in));
 
       // Destroy the packet data.

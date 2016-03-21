@@ -2,6 +2,8 @@
 #include "dataplane.hpp"
 #include "port.hpp"
 #include "port_odp.hpp"
+#include "packet.hpp" // temporary for sizeof packet
+#include "context.hpp" // temporary for sizeof context
 
 #include <string>
 #include <iostream>
@@ -46,11 +48,13 @@ main(int argc, const char* argv[])
     // ODP Library: Create ODP packet pool.
     // - buffer size
     // - pool size
+    // - provide space for Context and Packet in user area of pkt buffer
     odp_pool_param_t params;
     odp_pool_param_init(&params);
     params.pkt.seg_len = fp::SHM_PKT_POOL_BUF_SIZE;
     params.pkt.len     = fp::SHM_PKT_POOL_BUF_SIZE;
     params.pkt.num     = fp::SHM_PKT_POOL_SIZE/fp::SHM_PKT_POOL_BUF_SIZE;
+    params.pkt.uarea_size  = sizeof(fp::Context) + sizeof(fp::Packet);
     params.type        = ODP_POOL_PACKET;
 
     odp_pool_t pool = odp_pool_create(fp::PKT_POOL_NAME, &params);

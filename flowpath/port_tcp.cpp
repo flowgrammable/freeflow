@@ -105,7 +105,7 @@ Port_tcp::recv()
   // TODO: We should probably have a better buffer management
   // framework so that we don't have to copy each time we
   // create a packet.
-  Packet* pkt = packet_create((unsigned char*)buff, bytes, 0, nullptr, FP_BUF_ALLOC);
+  Packet* pkt = packet_create((unsigned char*)buff, bytes, 0);
   // TODO: We should call functions which ask the application
   // for the maximum desired number of headers and fields
   // that can be extracted so we can produce a context
@@ -137,7 +137,7 @@ Port_tcp::send()
   while (tx_queue_.size()) {
     cxt = tx_queue_.front();
     // Send the packet.
-    int l_bytes = write(fd_, cxt->packet()->data(), cxt->packet()->size_);
+    int l_bytes = write(fd_, cxt->packet()->data(), cxt->packet()->size());
 
     if (bytes < 0)
       continue;

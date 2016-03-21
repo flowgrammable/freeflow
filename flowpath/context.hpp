@@ -7,7 +7,6 @@
 #include "binding.hpp"
 #include "types.hpp"
 
-#include <cstdint>
 #include <utility>
 
 namespace fp

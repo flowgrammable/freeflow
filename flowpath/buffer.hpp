@@ -1,7 +1,7 @@
 #ifndef FP_BUFFER_HPP
 #define FP_BUFFER_HPP
 
-#include <cstdint>
+#include "types.hpp"
 
 namespace fp
 {
@@ -9,12 +9,26 @@ namespace fp
 namespace Buffer
 {
 
+// Buffer type enumeration.
+enum BUF_TYPE {
+  FP_BUF_NULL,
+  FP_BUF_SIMPLE,
+  FP_BUF_DPDK,
+  FP_BUF_NETMAP,
+  FP_BUF_NADK,
+  FP_BUF_ODP
+};
+
+
 struct Base
 {
-  Base(unsigned char*, int);
-  virtual ~Base();
+  Base();
+  ~Base();
 
-  unsigned char* data_;
+  virtual inline const BUF_TYPE type() const { return FP_BUF_NULL; }
+
+  int bytes_;
+  uint8_t* data_;
 };
 
 
@@ -22,36 +36,55 @@ struct Base
 //
 // TODO: Implement a ring buffer so memory is pre-allocated
 // and the contents of each buffer node gets recycled.
-struct Flowpath : public Base
+struct Simple : public Base
 {
   using Base::Base;
-  // TODO: Implement me?
-  // Do we need more than just the base data pointer?
+
+  Simple(uint8_t*, int);
+  ~Simple();
+
+  inline const BUF_TYPE type() const { return FP_BUF_SIMPLE; }
+
+  // TODO: follow up to ensure bytes_ is being used properly...
 };
 
 
 // The NADK buffer type.
-struct Nadk : public Base
+struct Nadk : public Simple
 {
-  using Base::Base;
+  using Simple::Simple;
+
   // TODO: Implement me.
 };
 
 
 // The netmap buffer type.
-struct Netmap : public Base
+struct Netmap : public Simple
 {
-  using Base::Base;
+  using Simple::Simple;
   // TODO: Implement me.
 };
 
 
 // The dpdk buffer type.
-struct Dpdk : public Base
+struct Dpdk : public Simple
 {
-  using Base::Base;
+  using Simple::Simple;
   // TODO: Implement me.
 };
+
+// The odp buffer type.
+// - this buffer type is simply a pointer to a pre-allocated buffer.
+struct Odp : public Base
+{
+  using Base::Base;
+
+  Odp(uint8_t*, int);
+  ~Odp();
+
+  inline const BUF_TYPE type() const { return FP_BUF_ODP; }
+};
+
 
 } // end namespace buffer
 

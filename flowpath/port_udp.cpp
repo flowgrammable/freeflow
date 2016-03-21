@@ -184,7 +184,7 @@ Port_udp::recv()
 
     // Create a new packet, leaving the data in the original buffer.
     Packet* pkt = packet_create((unsigned char*)buffer_[i],
-      messages_[i].msg_len, 0, nullptr, FP_BUF_ALLOC);
+      messages_[i].msg_len, 0);
 
     // Create a new context associated with the packet.
     Context* cxt = new Context(pkt, id_, id_, 0, max_headers, max_fields);

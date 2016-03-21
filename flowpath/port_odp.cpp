@@ -125,15 +125,23 @@ Port_odp::recv()
     // TODO: note that ODP can have multiple segments / packet.
     //   This is exactly what we want.  Need to fully support this!
     if (odp_packet_is_segmented(odp_pkt)) {
-      printf("Unhandled: packet is segmented...\n");
+      std::cerr << "Unhandled: packet is segmented..." << std::endl;
     }
-    void* seg_buf = odp_packet_data(odp_pkt);
+    uint8_t* seg_buf = static_cast<uint8_t*>(odp_packet_data(odp_pkt));
     uint32_t seg_len = odp_packet_len(odp_pkt);
     uint64_t arrival_ns = odp_time_to_ns(arrival);
-    Packet* pkt = packet_create((unsigned char*)seg_buf, seg_len, arrival_ns, odp_pkt, fp::FP_BUF_ODP);
+
+    //Packet* pkt = packet_create((unsigned char*)seg_buf, seg_len, arrival_ns, odp_pkt, fp::FP_BUF_ODP);
+    // Find reserved location in packet buffer.
+    Context* cxt = reinterpret_cast<Context*>(odp_packet_user_area(odp_pkt));
+    Packet* pkt = reinterpret_cast<Packet*>(cxt + sizeof(Context));
+
+    // Construct, but not allocate Packet and Context.
+    new (pkt) Packet(seg_buf, seg_len, arrival_ns, odp_pkt, fp::Buffer::BUF_TYPE::FP_BUF_ODP);
+    new (cxt) Context(pkt, id_, id_, 0, 0, 0);
 
     // Create a new context associated with the packet.
-    Context* cxt = new Context(pkt, id_, id_, 0, 0, 0);
+    //Context* cxt = new Context(pkt, id_, id_, 0, 0, 0);
 
     // Sum up stats for all recieved packets.
     bytes += seg_len;
@@ -164,26 +172,29 @@ Port_odp::send()
   // - Technically MAX_PKT_BURST isn't a real limit, but simplifies things for now
   int pkts = std::min((int)tx_queue_.size(), (int)MAX_PKT_BURST);
   odp_packet_t pkt_tbl[MAX_PKT_BURST];
-  Context* pkt_tbl_cxt[MAX_PKT_BURST];  // need this to delete contexts after send
+  ///Context* pkt_tbl_cxt[MAX_PKT_BURST];  // need this to delete contexts after send
   int pkts_to_send = 0;
 
   // Send packets as long as the queue has work.
   uint64_t bytes = 0;
   for (int i = 0; i < pkts; i++) {
-    // Get the next context, incr packet counter.
+    // Get the next context, inc packet counter.
     Context* cxt = tx_queue_.front();
     tx_queue_.pop();
 
     // Check if packet is and ODP buffer.
-    if (cxt->packet()->buf_dev_ != fp::FP_BUF_ODP) {
-      printf("Not an ODP buffer, can't send out ODP port (unimplemented)\n");
+    if (cxt->packet()->type() != fp::Buffer::BUF_TYPE::FP_BUF_ODP) {
+      std::cerr << "Not an ODP buffer, can't send out ODP port (unimplemented)" << std::endl;
       delete cxt->packet();
       delete cxt;
     }
 
     // Include packet in send batch.
-    pkt_tbl[pkts_to_send] = (odp_packet_t)cxt->packet()->buf_handle_;
-    pkt_tbl_cxt[pkts_to_send] = cxt;
+    pkt_tbl[pkts_to_send] = (odp_packet_t)cxt->packet()->buf_handle();
+    ///pkt_tbl_cxt[pkts_to_send] = cxt;
+    // Destruct Packet and Context prior to send (handing ownership to ODP)
+    delete cxt->packet();
+    delete cxt;
     pkts_to_send++;
   }
 
@@ -193,22 +204,13 @@ Port_odp::send()
   if (pkts_to_send > 0) {
     sent = odp_pktio_send(pktio_, pkt_tbl, pkts_to_send);
     if (sent < 0) {
-      printf("Send failed!\n");
+      std::cerr << "Send failed!" << std::endl;
       sent = 0;
     }
     if (sent < pkts_to_send) {
-      printf("Send failed to send all packets!\n");
-
-      // Cleanup any ODP packet buffers that failed to send.
-      odp_packet_free_multi(pkt_tbl+sent, pkts_to_send - sent);
+      std::cerr<< "Send failed to send all packets!" << std::endl;
+      odp_packet_free_multi(pkt_tbl + sent, pkts_to_send - sent);
     }
-  }
-
-  // Cleanup all Contexts after send.
-  for (int i = 0; i < pkts_to_send; i++) {
-    Context* cxt = pkt_tbl_cxt[i];
-    delete cxt->packet();
-    delete cxt;
   }
 
   // Update port stats.
