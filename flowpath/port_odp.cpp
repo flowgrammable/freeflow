@@ -131,17 +131,17 @@ Port_odp::recv()
     uint32_t seg_len = odp_packet_len(odp_pkt);
     uint64_t arrival_ns = odp_time_to_ns(arrival);
 
-    //Packet* pkt = packet_create((unsigned char*)seg_buf, seg_len, arrival_ns, odp_pkt, fp::FP_BUF_ODP);
+    // Create a new packet and context associated with the packet.
+    Packet* pkt = new Packet(seg_buf, seg_len, arrival_ns, odp_pkt, fp::Buffer::BUF_TYPE::FP_BUF_ODP);
+    Context* cxt = new Context(pkt, id_, id_, 0, 0, 0);
+
     // Find reserved location in packet buffer.
-    Context* cxt = reinterpret_cast<Context*>(odp_packet_user_area(odp_pkt));
-    Packet* pkt = reinterpret_cast<Packet*>(cxt + sizeof(Context));
+    ///Context* cxt = reinterpret_cast<Context*>(odp_packet_user_area(odp_pkt));
+    ///Packet* pkt = reinterpret_cast<Packet*>(cxt + sizeof(Context));
 
-    // Construct, but not allocate Packet and Context.
-    new (pkt) Packet(seg_buf, seg_len, arrival_ns, odp_pkt, fp::Buffer::BUF_TYPE::FP_BUF_ODP);
-    new (cxt) Context(pkt, id_, id_, 0, 0, 0);
-
-    // Create a new context associated with the packet.
-    //Context* cxt = new Context(pkt, id_, id_, 0, 0, 0);
+    // In-place construct, but not allocate Packet and Context.
+    ///new (pkt) Packet(seg_buf, seg_len, arrival_ns, odp_pkt, fp::Buffer::BUF_TYPE::FP_BUF_ODP);
+    ///new (cxt) Context(pkt, id_, id_, 0, 0, 0);
 
     // Sum up stats for all recieved packets.
     bytes += seg_len;
@@ -172,7 +172,6 @@ Port_odp::send()
   // - Technically MAX_PKT_BURST isn't a real limit, but simplifies things for now
   int pkts = std::min((int)tx_queue_.size(), (int)MAX_PKT_BURST);
   odp_packet_t pkt_tbl[MAX_PKT_BURST];
-  ///Context* pkt_tbl_cxt[MAX_PKT_BURST];  // need this to delete contexts after send
   int pkts_to_send = 0;
 
   // Send packets as long as the queue has work.
@@ -191,7 +190,6 @@ Port_odp::send()
 
     // Include packet in send batch.
     pkt_tbl[pkts_to_send] = (odp_packet_t)cxt->packet()->buf_handle();
-    ///pkt_tbl_cxt[pkts_to_send] = cxt;
     // Destruct Packet and Context prior to send (handing ownership to ODP)
     delete cxt->packet();
     delete cxt;
