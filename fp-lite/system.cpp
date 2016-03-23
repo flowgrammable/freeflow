@@ -131,6 +131,7 @@ fp_flood(fp::Context* cxt)
 }
 
 // Outputs a copy of the packet on the port with the matching id.
+// FIXME: Implement differently once we figure out how egress queues work.
 void
 fp_output_port(fp::Context* cxt, fp::Port::Id id)
 {
