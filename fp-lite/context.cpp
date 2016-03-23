@@ -16,6 +16,18 @@ Context::Context(Packet p, Dataplane* dp, Port* in, Port* in_phy, int tunnelid)
 { }
 
 
+// Sets the input port, physical input port, and tunnel id.
+void
+Context::set_input(Port* in, Port* in_phys, int tunnel)
+{
+  input_ = {
+    in->id(),
+    in_phys->id(),
+    tunnel
+  };
+}
+
+
 void
 Context::write_metadata(uint64_t meta)
 {
@@ -59,7 +71,7 @@ apply(Context& cxt, Copy_action a)
 inline void
 apply(Context& cxt, Output_action a)
 {
-  fp_output_port(&cxt, a.port);
+  cxt.set_output_port(a.port);
 }
 
 

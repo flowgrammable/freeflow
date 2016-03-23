@@ -113,6 +113,8 @@ destroy(Thread::Attribute* attr)
 
 } // end namespace Thread_attribute
 
+// Disabling thread pool for now.
+#if 0
 
 // A thread pool instruction entry. Contains a function to be
 // called, the arguments needed.
@@ -201,6 +203,8 @@ private:
 };
 
 extern Thread_pool thread_pool;
+
+#endif // end thread pool
 
 } // end namespace fp
 

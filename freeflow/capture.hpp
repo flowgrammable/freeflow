@@ -43,6 +43,10 @@ struct Packet
   // Returns true when the packet is fully captured.
   bool is_complete() const { return captured_size() == total_size(); }
 
+  /* Returns the time stamp of the packet. This represents the time
+     elapsed since the beginning of the capture. */
+  timeval timestamp() const { return hdr->ts; }
+
   // Returns the underlying packet data.
   uint8_t const* data() const { return buf; }
 

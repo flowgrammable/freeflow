@@ -19,8 +19,11 @@ add_library(fp-lite-rt SHARED
   flow.cpp
   table.cpp
   application.cpp
+  dataplane.cpp
   system.cpp
-  dataplane.cpp)
+  thread.cpp
+  queue.cpp)
+
 target_link_libraries(fp-lite-rt freeflow)
 
 

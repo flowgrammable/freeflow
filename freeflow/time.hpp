@@ -9,6 +9,8 @@
 
 #include <chrono>
 
+#include <sys/time.h>
+
 
 // Bring time literals into scope so we can use them easily within
 // our programs.
@@ -31,6 +33,10 @@ using Time = Clock::time_point;
 using Duration = Clock::duration;
 
 
+// Bring duration_cast into scope.
+using std::chrono::duration_cast;
+
+
 // Durations
 using Nanoseconds = std::chrono::nanoseconds;
 using Microseconds = std::chrono::microseconds;
@@ -49,6 +55,16 @@ inline Time
 now()
 {
   return Clock::now();
+}
+
+
+// Convert a timeval structure to a microsecond duration..
+Microseconds
+to_duration(timeval ts)
+{
+  Nanoseconds ns(ts.tv_sec * 1000000 + ts.tv_usec);
+  return duration_cast<Microseconds>(ns);
+  // return Duration;
 }
 
 

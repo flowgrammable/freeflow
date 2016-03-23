@@ -5,14 +5,12 @@
 #include <list>
 #include <unordered_map>
 
-
 namespace fp
 {
 
 struct Table;
-class Port;
-class Port;
 class Application;
+class Port;
 
 
 // The flowpath data plane module. Contains an application, a name,

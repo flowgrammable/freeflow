@@ -130,7 +130,7 @@ fp_flood(fp::Context* cxt)
   // flood->send(cxt);
 }
 
-// Outputs the contexts packet on the port with the matching name.
+// Outputs a copy of the packet on the port with the matching id.
 void
 fp_output_port(fp::Context* cxt, fp::Port::Id id)
 {

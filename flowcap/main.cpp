@@ -7,6 +7,7 @@
 #include <iostream>
 #include <iomanip>
 #include <locale>
+#include <cstring>
 
 
 using namespace ff;
@@ -18,6 +19,7 @@ int help(int, char**);
 int version(int, char**);
 int dump(int, char**);
 int forward(int, char**);
+int replay(int, char**);
 
 
 int
@@ -37,6 +39,8 @@ main(int argc, char* argv[])
     return dump(argc, argv);
   else if (cmd == "forward")
     return forward(argc, argv);
+    else if (cmd == "replay")
+      return replay(argc, argv);
   else
     return error(argv[1]);
 }
@@ -51,6 +55,7 @@ usage(std::ostream& os)
   os << "    flowcap version\n";
   os << "    flowcap dump <pcap-file>\n";
   os << "    flowcap forward <pcap-file> <hostname> <port>\n";
+  os << "    flowcap replay <pcap-file> <hostname> <port>\n";
   return &os == &std::cerr;
 }
 
@@ -110,7 +115,106 @@ int
 forward(int argc, char* argv[])
 {
   if (argc < 5) {
-    std::cerr << "error: too few arguments to 'dump'\n";
+    std::cerr << "error: too few arguments to 'forward'\n";
+    return usage(std::cerr);
+  }
+
+  std::string path = argv[2];
+  std::string host = argv[3];
+  std::string port = argv[4];
+
+  int iterations = 1;
+  if (argc > 5)
+    iterations = std::stoi(argv[5]);
+
+  // Convert the host name to an address.
+  Ipv4_address addr;
+  try {
+    addr = host;
+  } catch (std::runtime_error& err) {
+    std::cerr << "error: " << err.what() << '\n';
+    return 1;
+  }
+
+  // Convert the port number.
+  std::uint16_t portnum;
+  std::stringstream ss(port);
+  ss >> portnum;
+  if (ss.fail() && !ss.eof()) {
+    std::cerr << "error: invalid port '" << port << "'\n";
+    return 1;
+  }
+
+
+  // Build and connect.
+  Ipv4_stream_socket sock;
+  if (!sock.connect({addr, portnum})) {
+    std::cerr << "error: could not connect to host\n";
+    return -1;
+  }
+
+  // Open an offline stream capture.
+  cap::Stream cap(cap::offline(argv[2]));
+  if (cap.link_type() != cap::ethernet_link) {
+    std::cerr << "error: input is not ethernet\n";
+    return 1;
+  }
+
+  // Iterate over each packet and and send each packet to the
+  // connected host.
+  std::uint64_t n = 0;
+  std::uint64_t b = 0;
+  cap::Packet p;
+  Time start = now();
+
+  while (cap.get(p)) {
+    for (int i = 0; i < iterations; i++) {
+      std::uint8_t buf[p.captured_size() + 4];
+      std::uint32_t len = htonl(p.captured_size());
+      std::memcpy(&buf[0], &len, 4);
+      std::memcpy(&buf[4], p.data(), p.captured_size());
+      int k = sock.send(buf, p.captured_size() + 4);
+      if (k <= 0) {
+        if (k < 0) {
+          std::cerr << "error: " << std::strerror(errno) << '\n';
+          return 1;
+        }
+        return 0;
+      }
+      // std::cout << "sent: " << p.captured_size() << " bytes\n";
+      ++n;
+      b += p.captured_size();
+    }
+  }
+  Time stop = now();
+
+  // Make some measurements.
+  Fp_seconds dur = stop - start;
+  double s = dur.count();
+  double Mb = double(b * 8) / (1 << 20);
+  double Mbps = Mb / s;
+  double Pps = n / s;
+
+  // FIXME: Make this pretty.
+  std::cout.imbue(std::locale(""));
+  std::cout << "sent " << n << " packets in " << s << " seconds (" << Pps << " Pps)\n";
+  std::cout.precision(6);
+  std::cout << "sent " << b << " bytes";
+  std::cout.precision(1);
+  std::cout << " in " << s << " (";
+  std::cout.precision(6);
+  std::cout << Mbps << " Mbps)\n";
+
+  return 0;
+}
+
+
+// TODO: Add options for IP versions, TCP and UDP.
+int
+replay(int argc, char* argv[])
+{
+  if (argc < 5) {
+    std::cerr << "error: too few arguments to 'replay'\n";
     return usage(std::cerr);
   }
 
@@ -151,14 +255,24 @@ forward(int argc, char* argv[])
     return 1;
   }
 
-
   // Iterate over each packet and and send each packet to the
   // connected host.
   Time start = now();
   std::uint64_t n = 0;
   std::uint64_t b = 0;
   cap::Packet p;
+  Microseconds prev = Microseconds::zero();
   while (cap.get(p)) {
+    timeval ts = p.timestamp();
+    Microseconds cur = to_duration(ts);
+
+    // Sleep until the alotted difference between packets has elapsed.
+    if (prev == Microseconds::zero())
+      prev = cur;
+    Microseconds wait = cur - prev;
+    usleep(wait.count());
+    prev = cur;
+
     int k = sock.send(p.data(), p.captured_size());
     if (k <= 0) {
       if (k < 0) {
@@ -167,7 +281,6 @@ forward(int argc, char* argv[])
       }
       return 0;
     }
-    // std::cout << "sent: " << p.captured_size() << " bytes\n";
     ++n;
     b += p.captured_size();
   }

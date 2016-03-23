@@ -88,7 +88,7 @@ class Port_eth_tcp : public Port_tcp
 public:
   using Port_tcp::Port_tcp;
 
-  bool send(Context const&);
+  bool send(Context);
   bool recv(Context&);
 };
 

@@ -2,7 +2,6 @@
 #define FP_CONTEXT_HPP
 
 #include "packet.hpp"
-#include "port.hpp"
 #include "action.hpp"
 #include "binding.hpp"
 #include "types.hpp"
@@ -16,7 +15,6 @@ namespace fp
 
 struct Table;
 struct Flow;
-class Port;
 
 
 // Stores information about the ingress of a packet
@@ -146,13 +144,15 @@ public:
   // Sets the output port.
   void set_output_port(unsigned int p) { ctrl_.out_port = p; }
 
+  // Sets the input port, physical input port, and tunnel id.
+  void set_input(Port*, Port*, int);
+
   // Returns the current
   Table*   current_table() const { return ctrl_.table; }
   Flow*    current_flow() const  { return ctrl_.flow; }
 
   void            write_metadata(uint64_t);
   Metadata const& read_metadata();
-
 
   // Aciton interface
   void apply_action(Action a);

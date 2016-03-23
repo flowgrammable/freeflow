@@ -90,6 +90,8 @@ Thread::assign(int id, Routine work, Barrier* barr, Attribute* attr)
 	attr_ = attr;
 }
 
+// Disabling thread pool for now.
+#if 0
 
 // The default flowpath thread pool ctor.
 Thread_pool::Thread_pool(int size, bool sync)
@@ -102,7 +104,7 @@ Thread_pool::Thread_pool(int size, bool sync)
 
 // The flowpath thread pool dtor.
 Thread_pool::~Thread_pool()
-{ 
+{
 	while (!pool_.empty()) {
 		delete pool_.back();
 		pool_.pop_back();
@@ -305,5 +307,6 @@ Thread_pool_routine(void* args)
 	return 0;
 }
 
+#endif // end thread pool
 
 } // end namespace fp
