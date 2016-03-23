@@ -107,12 +107,12 @@ class Context
 {
 public:
   // Iniitalize the context with a packet.
-  Context(Packet p, Dataplane* dp)
+  Context(Packet const& p, Dataplane* dp)
     : input_(), ctrl_(), decode_(), packet_(p), dp_(dp)
   { }
 
-  Context(Packet p, Dataplane* dp, unsigned int in, unsigned int in_phy, int tunnelid);
-  Context(Packet p, Dataplane* dp, Port* in, Port* in_phy, int tunnelid);
+  Context(Packet const& p, Dataplane* dp, unsigned int in, unsigned int in_phy, int tunnelid);
+  Context(Packet const& p, Dataplane* dp, Port* in, Port* in_phy, int tunnelid);
 
   // Returns the packet owned by the context.
   Packet const& packet() const { return packet_; }
