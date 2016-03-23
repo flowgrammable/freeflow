@@ -310,8 +310,8 @@ Context::clear_actions()
 extern "C"
 {
 
-fp::Port* fp_context_get_input_port(fp::Context*);
-void      fp_context_set_output_port(fp::Context*, fp::Port*);
+unsigned int fp_context_get_input_port(fp::Context*);
+void         fp_context_set_output_port(fp::Context*, unsigned int);
 
 
 } // extern "C"

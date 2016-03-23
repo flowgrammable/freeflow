@@ -114,17 +114,17 @@ Context::apply_action(Action a)
 extern "C"
 {
 
-fp::Port*
+unsigned int
 fp_context_get_input_port(fp::Context* cxt)
 {
-  return cxt->dataplane()->get_port(cxt->input_port_id());
+  return cxt->input_port_id();
 }
 
 
 void
-fp_context_set_output_port(fp::Context* cxt, fp::Port* p)
+fp_context_set_output_port(fp::Context* cxt, unsigned int p)
 {
-  cxt->set_output_port(p->id());
+  cxt->set_output_port(p);
 }
 
 

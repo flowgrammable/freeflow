@@ -118,7 +118,7 @@ void
 fp_drop(fp::Context* cxt)
 {
   fp::Port* drop = cxt->dataplane()->get_drop_port();
-  fp_context_set_output_port(cxt, drop);
+  cxt->set_output_port(drop->id());
 }
 
 
@@ -135,9 +135,9 @@ fp_flood(fp::Context* cxt)
 void
 fp_output_port(fp::Context* cxt, fp::Port::Id id)
 {
-  fp::Port* p = cxt->dataplane()->get_port(id);
-  assert(p);
-  fp_context_set_output_port(cxt, p);
+  // fp::Port* p = cxt->dataplane()->get_port(id);
+  // assert(p);
+  fp_context_set_output_port(cxt, id);
 }
 
 
@@ -210,6 +210,27 @@ fp_port_id_is_down(fp::Dataplane* dp, fp::Port::Id id)
 {
   assert(dp);
   fp::Port* p = dp->get_port(id);
+  return p->is_down();
+}
+
+
+int
+fp_port_get_id(fp::Port* p)
+{
+  return p->id();
+}
+
+
+int
+fp_port_is_up(fp::Port* p)
+{
+  return p->is_up();
+}
+
+
+int
+fp_port_is_down(fp::Port* p)
+{
   return p->is_down();
 }
 

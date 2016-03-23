@@ -159,7 +159,7 @@ int
 Application::port_added(Port& p)
 {
   if (Library::Port_fn f = lib_.port_added)
-    return f(&p);
+    return f(p.id());
   return 0;
 }
 
@@ -168,7 +168,7 @@ int
 Application::port_removed(Port& p)
 {
   if (Library::Port_fn f = lib_.port_removed)
-    return f(&p);
+    return f(p.id());
   return 0;
 }
 
@@ -177,7 +177,7 @@ int
 Application::port_changed(Port& p)
 {
   if (Library::Port_fn f = lib_.port_changed)
-    return f(&p);
+    return f(p.id());
   return 0;
 }
 

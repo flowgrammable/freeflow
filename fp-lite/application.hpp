@@ -1,12 +1,12 @@
 #ifndef FP_APPLICATION_HPP
 #define FP_APPLICATION_HPP
 
+#include "port.hpp"
 
 namespace fp
 {
 
 class Dataplane;
-class Port;
 class Context;
 
 
@@ -14,7 +14,7 @@ class Context;
 struct Library
 {
   using Init_fn = int (*)(Dataplane*);
-  using Port_fn = int (*)(Port*);
+  using Port_fn = int (*)(unsigned int);
   using Proc_fn = int (*)(Context*);
 
   Library(char const*);

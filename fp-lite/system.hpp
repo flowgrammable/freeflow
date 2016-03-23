@@ -26,6 +26,9 @@ fp::Port::Id   fp_get_flow_egress(fp::Flow*);
 fp::Port::Id   fp_get_port_by_id(fp::Dataplane*, unsigned int);
 bool           fp_port_id_is_up(fp::Dataplane*, fp::Port::Id);
 bool           fp_port_id_is_down(fp::Dataplane*, fp::Port::Id);
+int            fp_port_get_id(fp::Port*);
+int            fp_port_is_up(fp::Port*);
+int            fp_port_is_down(fp::Port*);
 
 
 // Flow tables.
