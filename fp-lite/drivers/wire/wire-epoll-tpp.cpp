@@ -19,6 +19,7 @@
 #include <signal.h>
 #include <unistd.h>
 
+#include <boost/lockfree/queue.hpp>
 
 
 using namespace ff;
@@ -57,7 +58,7 @@ int nports = 0;
 Dataplane dp = "dp1";
 
 // Egress processing queue.
-Locked_queue<Context> egress_queue;
+boost::lockfree::queue<Context*> egress_queue(2048);
 
 
 // Signal handling.
@@ -87,17 +88,17 @@ ingress(void* arg)
   // TODO: Figure out a better conditional.
   while (running) {
     Byte buf[4096];
-    Context cxt(buf);
-    ports[id].recv(cxt);
+    Context* cxt = new Context(buf);
+    ports[id].recv(*cxt);
     // TODO: This really just runs one step of the pipeline. This needs
     // to be a loop that continues processing until there are no further
     // table redirections.
     Application* app = dp.get_application();
-    app->process(cxt);
+    app->process(*cxt);
 
     // Assuming there's an output send to it.
-    if (cxt.output_port())
-      egress_queue.enqueue(cxt);
+    if (cxt->output_port())
+      egress_queue.push(cxt);
   }
   
   // Detach the socket.
@@ -128,12 +129,9 @@ egress(void* arg)
   //
   // TODO: Figure out a better conditional.
   while (running) {
-    // Get the current number of items in the egress queue.
-    int num = egress_queue.size();
-    // Send num packets.
-    while (num-- > 0) {
-      Context cxt = egress_queue.dequeue();
-      ports[id].send(cxt);
+    Context* cxt = nullptr;
+    if (egress_queue.pop(cxt)) {
+      ports[id].send(*cxt);
     }
   }
 
