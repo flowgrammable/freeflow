@@ -28,8 +28,21 @@ enum Buff_t {
 // larget than its payload.
 struct Packet
 {
+  Packet();
   Packet(Byte*, int);
   Packet(Byte*, int, uint64_t, void*, Buff_t);
+  ~Packet() { }
+
+  Packet& operator=(Packet const& other)
+  {
+    buf_ = other.buf_;
+    size_ = other.size_;
+    bytes_ = other.bytes_;
+    timestamp_ = other.timestamp_;
+    buf_handle_ = other.buf_handle_;
+    buf_dev_ = other.buf_dev_;
+    return *this;
+  }
 
   template<int N>
   Packet(Byte (&buf)[N])
@@ -57,6 +70,13 @@ struct Packet
   void*     buf_handle_; // [optional] port-specific buffer handle.
   Buff_t    buf_dev_;    // [optional] owner of buffer handle (dev*).
 };
+
+
+inline
+Packet::Packet()
+  : buf_(nullptr), size_(0), bytes_(0), timestamp_(0), buf_handle_(nullptr),
+    buf_dev_(FP_BUF_ALLOC)
+{ }
 
 
 inline
