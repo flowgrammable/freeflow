@@ -44,3 +44,5 @@ kill -9 $NC_PID
 
 echo "Stopping Wire-STA..."
 kill -2 $WIRE_PID
+
+more $output
