@@ -80,6 +80,7 @@ ExternalProject_Add(odp-dpdk
   GIT_REPOSITORY http://git.linaro.org/lng/odp-dpdk.git
   GIT_TAG v1.6.0.0_DPDK_2.2.0
   CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix=<INSTALL_DIR> --with-platform=linux-dpdk --with-sdk-install-path=<INSTALL_DIR>/../dpdk.git/src/dpdk/x86_64-native-linuxapp-gcc --with-debug "CFLAGS=${CMAKE_C_FLAGS} -fPIC -g"
+# TODO: fix dpdk's build / install directory ^^
   INSTALL_DIR odp-dpdk-sysroot
   UPDATE_COMMAND ""
   EXCLUDE_FROM_ALL 1

@@ -88,6 +88,7 @@ elseif(ENABLE_ODP AND BUILD_ODP AND NOT BUILD_ODP_DPDK)
   target_link_libraries(flowpath-rt 
     LINK_PRIVATE debug "${CMAKE_BINARY_DIR}/odp-sysroot/lib/libodp.a"
     LINK_PRIVATE debug "${CMAKE_BINARY_DIR}/odp-sysroot/lib/libodphelper.a"
+    pcap
     crypto
     rt
   )
@@ -98,6 +99,9 @@ elseif(ENABLE_ODP AND BUILD_ODP AND BUILD_ODP_DPDK)
   target_link_libraries(flowpath-rt
     LINK_PRIVATE debug "${CMAKE_BINARY_DIR}/odp-dpdk-sysroot/lib/libodp.a"
     LINK_PRIVATE debug "${CMAKE_BINARY_DIR}/odp-dpdk-sysroot/lib/libodphelper.a"
+    LINK_PRIVATE debug "${CMAKE_BINARY_DIR}/dpdk.git/src/dpdk/x86_64-native-linuxapp-gcc/lib/libdpdk.a"
+# TODO: Make proper build / install paths for dpdk library ^^
+    pcap
     crypto
     rt
   )
