@@ -22,12 +22,12 @@ WIRE_PID=$!
 echo "Wire-TPP started... writing to $output"
 
 # Pause for a second.
-sleep 1
+sleep 2 
 
 cd ../flowcap
 
 # Start the sink (netcat)
-netcat localhost 5000 &>> /dev/null &
+netcat -q 10 -d localhost 5000 &>> /dev/null &
 NC_PID=$!
 echo "Sink (netcat) started..."
 
@@ -36,12 +36,14 @@ sleep 1
 
 # Start the source (flowcap)
 echo "Starting $PWD/flowcap..."
-./flowcap forward $input/smallFlows.pcap 127.0.0.1 5000 100
+./flowcap forward $input/smallFlows.pcap 127.0.0.1 5000 200 
+echo "$PWD/flowcap finished. Waiting 2 seconds..."
+sleep 2 
 
-sleep 2
+# Close the sink.
 echo "Closing sink (netcat)..."
 kill -9 $NC_PID
-
+sleep 1
 echo "Stopping Wire-STA..."
 kill -2 $WIRE_PID
 
