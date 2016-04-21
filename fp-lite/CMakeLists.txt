@@ -4,7 +4,6 @@
 # C++ build flags.
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pedantic -Wall -pthread")
 
-
 # Allow includes to find from headers from this dir.
 include_directories(.)
 
@@ -19,7 +18,8 @@ add_library(fp-lite-rt SHARED
   application.cpp
   dataplane.cpp
   thread.cpp
-  queue.cpp)
+  queue.cpp
+  buffer.cpp)
 target_link_libraries(fp-lite-rt freeflow)
 
 
