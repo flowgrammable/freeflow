@@ -114,6 +114,7 @@ Pool::operator[](int idx)
 inline Buffer&
 Pool::alloc()         
 { 
+  //while (heap_.empty()) { }
   // Lock the heap.
   mutex_.lock();
 
@@ -153,7 +154,7 @@ namespace Buffer_pool
 {
 
 
-static Pool pool(4096);
+static Pool pool(131072 * 3);
 
 static Pool& 
 get_pool()
