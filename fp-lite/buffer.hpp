@@ -154,12 +154,11 @@ namespace Buffer_pool
 {
 
 
-static Pool pool(131072 * 3);
-
 static Pool& 
 get_pool()
 {
-  return pool;
+  static Pool p(131072 * 3);
+  return p;
 }
 
 }
