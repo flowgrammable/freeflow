@@ -18,8 +18,8 @@
 
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <fcntl.h>
-
 
 namespace ff
 {
@@ -288,6 +288,11 @@ struct nonblocking : boolean_option
   using boolean_option::boolean_option;
 };
 
+struct nodelay : boolean_option
+{
+  using boolean_option::boolean_option;
+};
+
 
 // TODO: This could be a made a template, with each of the
 // types above modeling some concept, but I don't feel like
@@ -303,6 +308,13 @@ inline int
 set_option(int sd, nonblocking opt)
 {
   return fcntl(sd, F_SETFL, fcntl(sd, F_GETFL, 0) | O_NONBLOCK);
+}
+
+
+inline int
+set_option(int sd, nodelay opt)
+{
+  return ::setsockopt(sd, SOL_TCP, TCP_NODELAY, &opt.value, sizeof(opt.value));
 }
 
 
