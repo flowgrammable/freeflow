@@ -30,7 +30,7 @@ struct Packet
 {
   Packet();
   Packet(Byte*, int);
-  Packet(Byte*, int, uint64_t, void*, Buff_t);
+  Packet(Byte*, int, int);
   ~Packet() { }
 
   Packet& operator=(Packet const& other)
@@ -39,8 +39,7 @@ struct Packet
     size_ = other.size_;
     bytes_ = other.bytes_;
     timestamp_ = other.timestamp_;
-    buf_handle_ = other.buf_handle_;
-    buf_dev_ = other.buf_dev_;
+    id_ = other.id_;
     return *this;
   }
 
@@ -49,10 +48,12 @@ struct Packet
     : Packet(buf, N)
   { }
 
+
   // Returns a pointer to the raw buffer.
   Byte const* data() const { return buf_; }
   Byte*       data()       { return buf_; }
   int         size() const { return size_; }
+  int         id()   const { return id_; }
 
   void set_size(int size) { size_ = size; }
 
@@ -63,39 +64,31 @@ struct Packet
   int       size_;       // Total buffer size.
   int       bytes_;      // Total bytes in the packet.
   uint64_t  timestamp_;  // Time of packet arrival.
-
-  // TODO: What is this used for?
-  //
-  // NOTE: Nothing at the moment...
-  void*     buf_handle_; // [optional] port-specific buffer handle.
-  Buff_t    buf_dev_;    // [optional] owner of buffer handle (dev*).
+  int       id_;         // The packet id.
 };
 
 
 inline
 Packet::Packet()
-  : buf_(nullptr), size_(0), bytes_(0), timestamp_(0), buf_handle_(nullptr),
-    buf_dev_(FP_BUF_ALLOC)
+  : buf_(nullptr), size_(0), bytes_(0), timestamp_(0), id_(0)
 { }
 
 
 inline
-Packet::Packet(Byte* data, int size)
+Packet::Packet(Byte* data, int id)
+	: buf_(data)
+  , size_(0)
+  , timestamp_(0)
+  , id_(id)
+{ }
+
+
+inline
+Packet::Packet(Byte* data, int id, int size)
 	: buf_(data)
   , size_(size)
   , timestamp_(0)
-  , buf_handle_(nullptr)
-  , buf_dev_(FP_BUF_ALLOC)
-{ }
-
-
-inline
-Packet::Packet(Byte* data, int size, uint64_t time, void* buf_handle, Buff_t buf_dev)
-	: buf_(data)
-  , size_(size)
-  , timestamp_(time)
-  , buf_handle_(buf_handle)
-  , buf_dev_(buf_dev)
+  , id_(id)
 { }
 
 
