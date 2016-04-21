@@ -57,8 +57,8 @@ public:
   Locked_queue();
   ~Locked_queue();
 
-  void enqueue(T);
-  T dequeue();
+  void enqueue(T&);
+  bool dequeue(T&);
 
   int size();
   bool empty() { return size(); }
@@ -87,17 +87,13 @@ template <typename T>
 int
 Locked_queue<T>::size()
 {
-  int size = 0;
-  mutex_.lock_shared();
-  size = queue_.size();
-  mutex_.unlock_shared();
-  return size;
+  return queue_.size();
 }
 
 
 template <typename T>
 void
-Locked_queue<T>::enqueue(T v)
+Locked_queue<T>::enqueue(T& v)
 {
   mutex_.lock();
   queue_.push(v);
@@ -106,12 +102,16 @@ Locked_queue<T>::enqueue(T v)
 
 
 template <typename T>
-T
-Locked_queue<T>::dequeue()
+bool
+Locked_queue<T>::dequeue(T& v)
 {
+  bool ret = false;
   mutex_.lock_shared();
-  T ret = queue_.front();
-  queue_.pop();
+  if (queue_.size()) {
+    v = queue_.front();
+    queue_.pop();
+    ret = true;
+  }
   mutex_.unlock_shared();
   return ret;
 }
