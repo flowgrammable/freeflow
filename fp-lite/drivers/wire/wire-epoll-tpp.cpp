@@ -9,12 +9,14 @@
 #include "application.hpp"
 #include "thread.hpp"
 #include "queue.hpp"
+#include "buffer.hpp"
 
 #include <freeflow/socket.hpp>
 #include <freeflow/epoll.hpp>
 #include <freeflow/time.hpp>
 
 #include <string>
+#include <queue>
 #include <iostream>
 #include <signal.h>
 #include <unistd.h>
@@ -57,9 +59,15 @@ int nports = 0;
 // The data plane object.
 Dataplane dp = "dp1";
 
-// Egress processing queue.
-boost::lockfree::queue<Context*> egress_queue(2048);
+// Port send queues.
+//boost::lockfree::queue<int, boost::lockfree::fixed_sized<false>> send_queue[2];
+Locked_queue<std::vector<int>> send_queue[2];
 
+// The packet buffer pool.
+static Pool& buffer_pool = Buffer_pool::get_pool();
+
+// Set up the initial polling state.
+Epoll_set eps(3);
 
 // Signal handling.
 //
@@ -78,28 +86,66 @@ on_signal(int sig)
 // Maybe wrap ingress and egress calls into a different function
 // and use epoll to determine if you should send/recv?
 void*
-ingress(void* arg)
+port_work(void* arg)
 {
   int id = *((int*)arg);
-  //Port_eth_tcp* self = &ports[id];
-  
-  // Ingress the packet.
-  //
+  int fd = ports[id].fd();
+  std::vector<int> recv_vec(1024);
+  std::vector<int> send_vec(1024);
+  int num_recv = 0;
   // TODO: Figure out a better conditional.
   while (running) {
-    Byte buf[4096];
-    Context* cxt = new Context(buf);
-    ports[id].recv(*cxt);
-    // TODO: This really just runs one step of the pipeline. This needs
-    // to be a loop that continues processing until there are no further
-    // table redirections.
-    Application* app = dp.get_application();
-    app->process(*cxt);
+    // Check if the fd is able to read/recv.
+    if (eps.can_read(fd)) {
+      
+      // Get the next free buffer from the pool.
+      Buffer& buf = buffer_pool.alloc();
 
-    // Assuming there's an output send to it.
-    if (cxt->output_port())
-      egress_queue.push(cxt);
-  }
+      // Ingress the packet.
+      if (ports[id].recv(buf.context())) {
+        // TODO: This really just runs one step of the pipeline. This needs
+        // to be a loop that continues processing until there are no further
+        // table redirections.
+        Application* app = dp.get_application();
+
+        // NOTE: Have process return the number of redirections to indicate
+        // if further processing should happen? Something like...
+        //
+        // while (app->process(buf.cxt_)) { }
+        app->process(buf.context());
+
+        // Apply actions.
+        buf.context().apply_actions();
+
+        // Assuming there's an output send to it.
+        if (buf.context().output_port()) {
+          // Cache in local container.
+          recv_vec.push_back(buf.id());
+
+          // If local container is 'full', push it to the global queue for sending.
+          if (++num_recv == 1024) {
+            send_queue[buf.context().output_port()->id() - 1].enqueue(recv_vec);
+            num_recv = 0;
+            recv_vec.clear();
+          }
+        }
+      }
+      else
+        buffer_pool.dealloc(buf.id());
+
+    } // end if-can-read
+  
+    // Check if the fd is able to write/send.
+    if (eps.can_write(fd)) {
+      if (send_queue[id].dequeue(send_vec)) {
+        for (int& idx : send_vec) {
+          ports[id].send(buffer_pool[idx].context());
+          buffer_pool.dealloc(idx);
+        }
+      }
+    } // end if-can-write
+
+  } // end while-running
   
   // Detach the socket.
   Ipv4_stream_socket client = ports[id].detach();
@@ -107,41 +153,6 @@ ingress(void* arg)
   // Notify the application of the port change.
   Application* app = dp.get_application();
   app->port_changed(ports[id]);
-
-  --nports;
-  return 0;
-}
-
-
-// Apply egress processing on a context. Fetches a context from
-// the egress queue and sends it.
-//
-// FIXME: Currently we assume egress processing happens on port1.
-// Maybe wrap ingress and egress calls into a different function
-// and use epoll to determine if you should send/recv?
-void*
-egress(void* arg)
-{
-  // Figure out who I am.
-  int id = *((int*)arg);
-
-  // Egress a packet.
-  //
-  // TODO: Figure out a better conditional.
-  while (running) {
-    Context* cxt = nullptr;
-    if (egress_queue.pop(cxt)) {
-      ports[id].send(*cxt);
-    }
-  }
-
-  // Detach the socket.
-  Ipv4_stream_socket client = ports[id].detach();
-
-  // Notify the application of the port change.
-  Application* app = dp.get_application();
-  app->port_changed(ports[id]);
-
   --nports;
   return 0;
 }
@@ -176,7 +187,8 @@ main()
       return;
     }
     std::cout << "[flowpath] accept connection " << addr.port() << '\n';
-    set_option(client.fd(), nonblocking(true));
+    //set_option(client.fd(), nodelay(true));
+    eps.add(client.fd());
     // Bind the socket to a port.
     // TODO: Emit a port status change to the application. Does
     // that happen implicitly, or do we have to cause the dataplane
@@ -202,16 +214,15 @@ main()
   // Configure the dataplane. Ports must be added before
   // applications are loaded.
 
-  dp.add_port(&ports[0]);
-  dp.add_port(&ports[1]);
-  port_thread[0].assign(0, egress);
-  port_thread[1].assign(1, ingress);
+  for (int i = 0; i < 2; i++) {
+    dp.add_port(&ports[i]);
+    port_thread[i].assign(i, port_work);
+  }
+
   dp.add_drop_port();
+
   dp.load_application("apps/wire.app");
   dp.up();
-
-  // Set up the initial polling state.
-  Epoll_set eps(1);
 
   // Add the server socket to the select set.
   eps.add(server.fd());
@@ -222,16 +233,16 @@ main()
     auto p1_curr = ports[0].stats();
     auto p2_curr = ports[1].stats();
 
-    int pkt_tx = p1_curr.packets_tx - p1_stats.packets_tx;
-    int pkt_rx = p2_curr.packets_rx - p2_stats.packets_rx;
-    double bit_tx = (p1_curr.bytes_tx - p1_stats.bytes_tx) * 8.0 / (1 << 20);
-    double bit_rx = (p2_curr.bytes_rx - p2_stats.bytes_rx) * 8.0 / (1 << 20);
+    uint64_t pkt_tx = p1_curr.packets_tx - p1_stats.packets_tx;
+    uint64_t pkt_rx = p2_curr.packets_rx - p2_stats.packets_rx;
+    long double bit_tx = (p1_curr.bytes_tx - p1_stats.bytes_tx) * 8.0 / (1 << 20);
+    long double bit_rx = (p2_curr.bytes_rx - p2_stats.bytes_rx) * 8.0 / (1 << 20);
     // Clears the screen.
-    system("clear");
+    (void)system("clear");
     std::cout << "Receive Rate  (Pkt/s): " << pkt_rx << '\n';
     std::cout << "Receive Rate   (Mb/s): " <<  bit_rx << '\n';
     std::cout << "Transmit Rate (Pkt/s): " << pkt_tx << '\n';
-    std::cout << "Transmit Rate  (Mb/s): " <<  bit_tx << '\n';
+    std::cout << "Transmit Rate  (Mb/s): " <<  bit_tx << "\n\n";
     p1_stats = p1_curr;
     p2_stats = p2_curr;
   };
@@ -248,7 +259,7 @@ main()
     // NOTE: It seems the common practice is to re-poll when EINTR
     // occurs since like you said, it's not really an error. Most
     // impls just stick it in a do-while(errno != EINTR);
-    epoll(eps, 1000);
+    epoll(eps, 100);
 
     if (eps.can_read(server.fd()))
       accept(server);
