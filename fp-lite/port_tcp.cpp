@@ -14,8 +14,8 @@ namespace fp
 
 // Read an ethernet frame from the stream. This recv function utilizes a
 // simple protocol to establish the length of the frame being received. We
-// establish the length with a 2-byte (short) integer value, in network byte
-// order, at the head of the message. If there is not a 2-byte header present,
+// establish the length with a 4-byte integer value, in network byte
+// order, at the head of the message. If there is not a 4-byte header present,
 // undefined behavior ensues.
 bool
 Port_eth_tcp::recv(Context& cxt)
@@ -23,15 +23,15 @@ Port_eth_tcp::recv(Context& cxt)
   Socket& sock = socket();
   Packet& p = cxt.packet();
 
-  // Receive the 4-byte (short) header.
+  // Receive the 4-byte header.
   char hdr[4];
   int n = sock.recv(hdr, 4);
   // If we don't receive the 4-byte header, or encounter an error, return.
   if (n <= 0 || n != 4)
     return false;
 
-  // Transform the network short to host byte order.
-  int recv_size = ntohl(*((int*)hdr));
+  // Transform the network integer to host byte order.
+  int recv_size = ntohl(*((int*)&hdr));
 
   // Receive until recv_size bytes have been read.
   Byte* data_ptr = p.data();
@@ -69,14 +69,28 @@ Port_eth_tcp::recv(Context& cxt)
 bool
 Port_eth_tcp::send(Context cxt)
 {
+  // Get the ports socket.
   Socket& sock = socket();
+  
+  // Get the packet from the context.
   Packet const& p = cxt.packet();
-  int n = sock.send(p.data(), p.size());
-  if (n <= 0) {
-    if (errno == EAGAIN)
-      return true;
-    detach();
-    return n < 0;
+  Byte const* data_ptr = p.data();
+  int send_size = p.size();
+  int n = send_size;
+  while (send_size) {
+    // Send the packet.
+    int k = sock.send(data_ptr, send_size);
+
+    // Check for errors.
+    if (k <= 0) {
+      if (k < 0)
+        perror("send");
+        std::cout << strerror(errno) << '\n';
+      return false;
+    }
+
+    send_size -= k;
+    data_ptr += k;
   }
 
   // Update port stats.
