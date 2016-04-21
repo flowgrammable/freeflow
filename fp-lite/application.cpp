@@ -183,10 +183,10 @@ Application::port_changed(Port& p)
 
 
 int
-Application::process(Context& dp)
+Application::process(Context& cxt)
 {
   assert(state_ == RUNNING);
-  return lib_.proc(&dp);
+  return lib_.proc(&cxt);
 }
 
 
