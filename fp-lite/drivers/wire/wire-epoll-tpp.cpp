@@ -1,6 +1,11 @@
 // Only build this example on a linux machine, as epoll
 // is not portable to Mac.
 
+#define BOOST 1
+#define FP 0
+
+#define ARRAY 0
+#define VECTOR 0
 
 #include "port.hpp"
 #include "port_tcp.hpp"
@@ -17,6 +22,8 @@
 
 #include <string>
 #include <queue>
+#include <array>
+#include <vector>
 #include <iostream>
 #include <signal.h>
 #include <unistd.h>
@@ -60,8 +67,16 @@ int nports = 0;
 Dataplane dp = "dp1";
 
 // Port send queues.
-//boost::lockfree::queue<int, boost::lockfree::fixed_sized<false>> send_queue[2];
-Locked_queue<std::vector<int>> send_queue[2];
+#if BOOST
+  //boost::lockfree::queue<int, boost::lockfree::fixed_sized<false>> send_queue[2];
+  boost::lockfree::queue<std::array<int, 2048>, boost::lockfree::capacity<65534>> send_queue[2];
+#else
+  #if ARRAY
+    Locked_queue<std::array<int, 1024>> send_queue[2];
+  #else
+    Locked_queue<std::vector<int>> send_queue[2];
+  #endif
+#endif
 
 // The packet buffer pool.
 static Pool& buffer_pool = Buffer_pool::get_pool();
@@ -90,9 +105,21 @@ port_work(void* arg)
 {
   int id = *((int*)arg);
   int fd = ports[id].fd();
-  std::vector<int> recv_vec(1024);
-  std::vector<int> send_vec(1024);
+  #if FP
+    #if ARRAY
+      std::array<int, 1024> recv_bin;
+      std::array<int, 1024> send_bin;
+    #else
+      std::vector<int> recv_bin(1024);
+      std::vector<int> send_bin(1024);
+    #endif
+  #else
+    std::array<int, 2048> recv_bin;
+    std::array<int, 2048> send_bin;
+  #endif
   int num_recv = 0;
+
+
   // TODO: Figure out a better conditional.
   while (running) {
     // Check if the fd is able to read/recv.
@@ -119,15 +146,32 @@ port_work(void* arg)
 
         // Assuming there's an output send to it.
         if (buf.context().output_port()) {
-          // Cache in local container.
-          recv_vec.push_back(buf.id());
+          #if BOOST
+            //while (!send_queue[buf.context().output_port()->id() - 1].bounded_push(buf.id())){ }
+            //send_queue[buf.context().output_port()->id() - 1].push(buf.id());
+            recv_bin[num_recv++] = buf.id();
+            if (num_recv == 2048) {
+              send_queue[buf.context().output_port()->id() - 1].push(recv_bin);
+              num_recv = 0;
+            }
+          #else
+            // Cache in local container.
+            #if ARRAY
+              recv_bin[num_recv] = buf.id();
+            #else
+              recv_bin.push_back(buf.id());
+            #endif
+            // If local container is 'full', push it to the global queue for sending.
+            if (++num_recv == 1024) {
+              send_queue[buf.context().output_port()->id() - 1].enqueue(recv_bin);
+              
+              #if VECTOR
+                recv_bin.clear();
+              #endif
 
-          // If local container is 'full', push it to the global queue for sending.
-          if (++num_recv == 1024) {
-            send_queue[buf.context().output_port()->id() - 1].enqueue(recv_vec);
-            num_recv = 0;
-            recv_vec.clear();
-          }
+              num_recv = 0;
+            }
+          #endif
         }
       }
       else
@@ -137,12 +181,20 @@ port_work(void* arg)
   
     // Check if the fd is able to write/send.
     if (eps.can_write(fd)) {
-      if (send_queue[id].dequeue(send_vec)) {
-        for (int& idx : send_vec) {
+      //#if FP
+        while (send_queue[id].pop(send_bin)) {
+          for (int& idx : send_bin) {
+            ports[id].send(buffer_pool[idx].context());
+            buffer_pool.dealloc(idx);
+          }
+        }
+      #if 0
+        int idx = -1;
+        while (send_queue[id].pop(idx)) {
           ports[id].send(buffer_pool[idx].context());
           buffer_pool.dealloc(idx);
         }
-      }
+      #endif
     } // end if-can-write
 
   } // end while-running
@@ -154,6 +206,10 @@ port_work(void* arg)
   Application* app = dp.get_application();
   app->port_changed(ports[id]);
   --nports;
+  std::string stats = "port[" + std::to_string(id) + "] recv: " + 
+    std::to_string(ports[id].stats().packets_rx) + " sent: " + 
+    std::to_string(ports[id].stats().packets_tx) + "\n";
+  std::cout << stats;
   return 0;
 }
 
@@ -193,7 +249,7 @@ main()
     // TODO: Emit a port status change to the application. Does
     // that happen implicitly, or do we have to cause the dataplane
     // to do it.
-    Port_tcp* port;
+    Port_tcp* port = nullptr;
     if (nports == 0) 
       port = &ports[0];
     else if (nports == 1)
@@ -208,8 +264,8 @@ main()
   };
 
   // Reporting stastics init.
-  Port::Statistics p1_stats;
-  Port::Statistics p2_stats;
+  Port::Statistics p1_stats = {0,0,0,0};
+  Port::Statistics p2_stats = {0,0,0,0};
 
   // Configure the dataplane. Ports must be added before
   // applications are loaded.
@@ -240,9 +296,9 @@ main()
     // Clears the screen.
     (void)system("clear");
     std::cout << "Receive Rate  (Pkt/s): " << pkt_rx << '\n';
-    std::cout << "Receive Rate   (Mb/s): " <<  bit_rx << '\n';
+    std::cout << "Receive Rate   (Mb/s): " << bit_rx << '\n';
     std::cout << "Transmit Rate (Pkt/s): " << pkt_tx << '\n';
-    std::cout << "Transmit Rate  (Mb/s): " <<  bit_tx << "\n\n";
+    std::cout << "Transmit Rate  (Mb/s): " << bit_tx << "\n\n";
     p1_stats = p1_curr;
     p2_stats = p2_curr;
   };
@@ -273,9 +329,9 @@ main()
     }
   }
 
-  eps.clear();
   port_thread[0].halt();
   port_thread[1].halt();
+  eps.clear();
   // Take the dataplane down.
   dp.down();
   dp.unload_application();
