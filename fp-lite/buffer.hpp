@@ -157,7 +157,7 @@ namespace Buffer_pool
 static Pool& 
 get_pool()
 {
-  static Pool p(131072 * 3);
+  static Pool p(1024 * 256 + 1024);
   return p;
 }
 
