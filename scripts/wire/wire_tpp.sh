@@ -18,6 +18,11 @@ cd fp-lite
 # Start the wire application.
 output=$PWD/wire_tpp.txt
 drivers/wire/fp-wire-epoll-tpp &> $output &
+if [ $? -ne 0 ];
+	then
+	echo "Error. Failed to start wire"
+	exit 1
+fi
 WIRE_PID=$!
 echo "Wire-TPP started... writing to $output"
 
@@ -27,7 +32,7 @@ sleep 2
 cd ../flowcap
 
 # Start the sink (netcat)
-netcat -q 10 -d localhost 5000 &>> /dev/null &
+netcat -q 15 -d localhost 5000 &>> /dev/null &
 NC_PID=$!
 echo "Sink (netcat) started..."
 

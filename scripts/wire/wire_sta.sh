@@ -27,7 +27,7 @@ sleep 1
 cd ../flowcap
 
 # Start the sink (netcat)
-netcat localhost 5000 &>> /dev/null &
+netcat localhost -q 15 -d 5000 &>> /dev/null &
 NC_PID=$!
 echo "Sink (netcat) started..."
 
@@ -36,8 +36,9 @@ sleep 1
 
 # Start the source (flowcap)
 echo "Starting $PWD/flowcap..."
-./flowcap forward $input/smallFlows.pcap 127.0.0.1 5000 100
+./flowcap forward $input/smallFlows.pcap 127.0.0.1 5000 200
 
+# Close the sink
 sleep 2
 echo "Closing sink (netcat)..."
 kill -9 $NC_PID
