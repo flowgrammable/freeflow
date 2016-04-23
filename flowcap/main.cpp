@@ -181,7 +181,6 @@ forward(int argc, char* argv[])
         }
         return 0;
       }
-      // std::cout << "sent: " << p.captured_size() << " bytes\n";
       ++n;
       b += p.captured_size();
     }
