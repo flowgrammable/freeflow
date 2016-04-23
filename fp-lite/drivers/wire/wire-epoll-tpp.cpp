@@ -1,12 +1,6 @@
 // Only build this example on a linux machine, as epoll
 // is not portable to Mac.
 
-#define BOOST 1
-#define FP 0
-
-#define ARRAY 0
-#define VECTOR 0
-
 #include "port.hpp"
 #include "port_tcp.hpp"
 #include "dataplane.hpp"
@@ -66,17 +60,12 @@ int nports = 0;
 // The data plane object.
 Dataplane dp = "dp1";
 
+// Local send/recv buffer size.
+constexpr int local_buf_size = 2048;
+
 // Port send queues.
-#if BOOST
-  //boost::lockfree::queue<int, boost::lockfree::fixed_sized<false>> send_queue[2];
-  boost::lockfree::queue<std::array<int, 2048>, boost::lockfree::capacity<65534>> send_queue[2];
-#else
-  #if ARRAY
-    Locked_queue<std::array<int, 1024>> send_queue[2];
-  #else
-    Locked_queue<std::vector<int>> send_queue[2];
-  #endif
-#endif
+boost::lockfree::queue<std::array<int, local_buf_size>, boost::lockfree::capacity<65534>> send_queue[2];
+
 
 // The packet buffer pool.
 static Pool& buffer_pool = Buffer_pool::get_pool();
@@ -103,23 +92,15 @@ on_signal(int sig)
 void*
 port_work(void* arg)
 {
+  // Thread ID.
   int id = *((int*)arg);
+  // Port FD.
   int fd = ports[id].fd();
-  #if FP
-    #if ARRAY
-      std::array<int, 1024> recv_bin;
-      std::array<int, 1024> send_bin;
-    #else
-      std::vector<int> recv_bin(1024);
-      std::vector<int> send_bin(1024);
-    #endif
-  #else
-    std::array<int, 2048> recv_bin;
-    std::array<int, 2048> send_bin;
-  #endif
-  int num_recv = 0;
-
-
+  // Local recv/send buffers.
+  std::array<int, local_buf_size> recv_buf;
+  std::array<int, local_buf_size> send_buf;
+  // Iterator to fill local recv buffer.
+  auto recv_iter = recv_buf.begin();
   // TODO: Figure out a better conditional.
   while (running) {
     // Check if the fd is able to read/recv.
@@ -146,59 +127,33 @@ port_work(void* arg)
 
         // Assuming there's an output send to it.
         if (buf.context().output_port()) {
-          #if BOOST
-            //while (!send_queue[buf.context().output_port()->id() - 1].bounded_push(buf.id())){ }
-            //send_queue[buf.context().output_port()->id() - 1].push(buf.id());
-            recv_bin[num_recv++] = buf.id();
-            if (num_recv == 2048) {
-              send_queue[buf.context().output_port()->id() - 1].push(recv_bin);
-              num_recv = 0;
-            }
-          #else
-            // Cache in local container.
-            #if ARRAY
-              recv_bin[num_recv] = buf.id();
-            #else
-              recv_bin.push_back(buf.id());
-            #endif
-            // If local container is 'full', push it to the global queue for sending.
-            if (++num_recv == 1024) {
-              send_queue[buf.context().output_port()->id() - 1].enqueue(recv_bin);
-              
-              #if VECTOR
-                recv_bin.clear();
-              #endif
-
-              num_recv = 0;
-            }
-          #endif
+          // If the buffer is full, push it into the send queue.
+          if (++recv_iter == recv_buf.end()) {
+            send_queue[buf.context().output_port()->id() - 1].push(recv_buf);
+            recv_iter = recv_buf.begin() + 1;
+          }
+          // Add the packet buffer index to the local buffer.
+          *recv_iter = buf.id();
         }
       }
       else
         buffer_pool.dealloc(buf.id());
-
     } // end if-can-read
   
     // Check if the fd is able to write/send.
     if (eps.can_write(fd)) {
-      //#if FP
-        while (send_queue[id].pop(send_bin)) {
-          for (int& idx : send_bin) {
-            ports[id].send(buffer_pool[idx].context());
-            buffer_pool.dealloc(idx);
-          }
-        }
-      #if 0
-        int idx = -1;
-        while (send_queue[id].pop(idx)) {
+      // Drain the send queue.
+      while (send_queue[id].pop(send_buf)) {
+        for (int const& idx : send_buf) {
           ports[id].send(buffer_pool[idx].context());
           buffer_pool.dealloc(idx);
         }
-      #endif
+      }
     } // end if-can-write
-
   } // end while-running
-  
+
+  // Cleanup.
+  //
   // Detach the socket.
   Ipv4_stream_socket client = ports[id].detach();
 
@@ -206,8 +161,10 @@ port_work(void* arg)
   Application* app = dp.get_application();
   app->port_changed(ports[id]);
   --nports;
-  std::string stats = "port[" + std::to_string(id) + "] recv: " + 
-    std::to_string(ports[id].stats().packets_rx) + " sent: " + 
+
+  // Report.
+  std::string stats = "port[" + std::to_string(id) + "] RX: " +
+    std::to_string(ports[id].stats().packets_rx) + " TX: " + 
     std::to_string(ports[id].stats().packets_tx) + "\n";
   std::cout << stats;
   return 0;
@@ -289,10 +246,10 @@ main()
     auto p1_curr = ports[0].stats();
     auto p2_curr = ports[1].stats();
 
-    uint64_t pkt_tx = p1_curr.packets_tx - p1_stats.packets_tx;
-    uint64_t pkt_rx = p2_curr.packets_rx - p2_stats.packets_rx;
-    long double bit_tx = (p1_curr.bytes_tx - p1_stats.bytes_tx) * 8.0 / (1 << 20);
-    long double bit_rx = (p2_curr.bytes_rx - p2_stats.bytes_rx) * 8.0 / (1 << 20);
+    uint64_t pkt_tx = (p1_curr.packets_tx - p1_stats.packets_tx) / 2;
+    uint64_t pkt_rx = (p2_curr.packets_rx - p2_stats.packets_rx) / 2;
+    double bit_tx = ((p1_curr.bytes_tx - p1_stats.bytes_tx) * 8.0 / (1 << 20)) / 2.0;
+    double bit_rx = ((p2_curr.bytes_rx - p2_stats.bytes_rx) * 8.0 / (1 << 20)) / 2.0;
     // Clears the screen.
     (void)system("clear");
     std::cout << "Receive Rate  (Pkt/s): " << pkt_rx << '\n';
@@ -323,9 +280,9 @@ main()
     curr = now();
     Fp_seconds dur = curr - last;
     double duration = dur.count();
-    if (duration >= 1.0) {
+    if (duration >= 2.0) {
       report();
-      last = curr;
+      last = now();
     }
   }
 
