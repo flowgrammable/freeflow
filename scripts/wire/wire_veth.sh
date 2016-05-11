@@ -1,3 +1,5 @@
+#!/bin/bash
+
 # Set input file.
 input=$PWD/input
 

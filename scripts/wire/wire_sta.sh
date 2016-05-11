@@ -1,3 +1,8 @@
+#!/bin/bash
+
+# Set script path.
+bin=$PWD
+
 # Set input file.
 input=$PWD/input
 
@@ -17,7 +22,7 @@ cd fp-lite
 
 # Start the wire application.
 output=$PWD/wire_sta.txt
-drivers/wire/fp-wire-epoll-sta &> $output &
+taskset -c 2 drivers/wire/fp-wire-epoll-sta &> $output &
 WIRE_PID=$!
 echo "Wire-STA started... writing to $output"
 
@@ -27,7 +32,7 @@ sleep 1
 cd ../flowcap
 
 # Start the sink (netcat)
-netcat localhost -q 15 -d 5000 &>> /dev/null &
+taskset -c 1 netcat localhost -q 15 -d 5000 &>> /dev/null &
 NC_PID=$!
 echo "Sink (netcat) started..."
 
@@ -36,7 +41,7 @@ sleep 1
 
 # Start the source (flowcap)
 echo "Starting $PWD/flowcap..."
-./flowcap forward $input/smallFlows.pcap 127.0.0.1 5000 200
+time taskset -c 1 ./flowcap forward $input/smallFlows.pcap 127.0.0.1 5000 200
 
 # Close the sink
 sleep 2
@@ -46,4 +51,5 @@ kill -9 $NC_PID
 echo "Stopping Wire-STA..."
 kill -2 $WIRE_PID
 
-more $output
+cat $output
+
