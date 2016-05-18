@@ -22,7 +22,8 @@ cd fp-lite
 
 # Start the wire application.
 output=$PWD/wire_sta.txt
-taskset -c 2 drivers/wire/fp-wire-epoll-sta &> $output &
+#taskset -c 2 drivers/wire/fp-wire-epoll-sta &> $output &
+drivers/wire/fp-wire-epoll-sta &> $output &
 WIRE_PID=$!
 echo "Wire-STA started... writing to $output"
 
@@ -32,7 +33,8 @@ sleep 1
 cd ../flowcap
 
 # Start the sink (netcat)
-taskset -c 1 netcat localhost -q 15 -d 5000 &>> /dev/null &
+#taskset -c 1 netcat localhost -q 15 -d 5000 &>> /dev/null &
+netcat localhost -q 15 -d 5000 &>> /dev/null &
 NC_PID=$!
 echo "Sink (netcat) started..."
 
@@ -41,7 +43,9 @@ sleep 1
 
 # Start the source (flowcap)
 echo "Starting $PWD/flowcap..."
-time taskset -c 1 ./flowcap forward $input/smallFlows.pcap 127.0.0.1 5000 200
+#time taskset -c 1 ./flowcap forward $input/smallFlows.pcap 127.0.0.1 5000 200
+#time ./flowcap forward $input/smallFlows.pcap 127.0.0.1 5000 200
+time $bin/wire_source.sh
 
 # Close the sink
 sleep 2

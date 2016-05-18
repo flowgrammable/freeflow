@@ -15,10 +15,10 @@ ip netns exec host0 ip addr add 10.0.0.1/24 dev veth0
 ip netns exec host1 ip addr add 10.0.0.2/24 dev veth2
 
 # Disable Segmentation & Checksum Offload
-ip netns exec host0 ethtool -K veth0 tso off ufo off gso off tx off rx off
-ip netns exec host1 ethtool -K veth2 tso off ufo off gso off tx off rx off
-ethtool -K veth1 tso off ufo off gso off tx off rx off
-ethtool -K veth3 tso off ufo off gso off tx off rx off
+#ip netns exec host0 ethtool -K veth0 tso off ufo off gso off
+#ip netns exec host1 ethtool -K veth2 tso off ufo off gso off
+#ethtool -K veth1 tso off ufo off gso off
+#ethtool -K veth3 tso off ufo off gso off
 
 # Create a host bridge and add the virtual interfaces
 brctl addbr br0

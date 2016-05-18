@@ -1,3 +1,8 @@
+#!/bin/bash
+
+# Set script path.
+bin=$PWD
+
 # Set input file.
 input=$PWD/input
 
@@ -41,7 +46,8 @@ sleep 1
 
 # Start the source (flowcap)
 echo "Starting $PWD/flowcap..."
-./flowcap forward $input/smallFlows.pcap 127.0.0.1 5000 200 
+#./flowcap forward $input/smallFlows.pcap 127.0.0.1 5000 200 
+time $bin/wire_source.sh
 echo "$PWD/flowcap finished. Waiting 2 seconds..."
 sleep 2 
 
