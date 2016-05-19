@@ -26,9 +26,9 @@ cd ../flowcap
 #netcat localhost -q 15 -d 5000 &>> /dev/null &
 #netcat -l -q 15 -d 10.0.0.2 5000 &> /dev/null &
 #command='netcat -l -q 15 -d 10.0.0.2 5000 &>> /dev/null'
-$bin/wire_sink.sh &
+$bin/wire_sink.sh 127.0.0.1 &
 NC_PID=$!
-echo "Sink (netcat) started..."
+#echo "Sink (netcat) started..."
 
 # Pause for a second.
 sleep 1

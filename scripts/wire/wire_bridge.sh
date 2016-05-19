@@ -32,7 +32,7 @@ cd ../flowcap
 #netcat localhost -q 15 -d 5000 &>> /dev/null &
 #netcat -l -q 15 -d 10.0.0.2 5000 &> /dev/null &
 #command='netcat -l -q 15 -d 10.0.0.2 5000 &>> /dev/null'
-ip netns exec host1 $bin/wire_sink.sh &
+ip netns exec host1 $bin/wire_sink.sh 10.0.0.2 &
 #NC_PID=$!
 echo "Sink (netcat) started..."
 
