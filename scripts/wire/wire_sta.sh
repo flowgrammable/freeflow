@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # Set script path.
-bin=$PWD
+export bin=$PWD
 
 # Set input file.
-input=$PWD/input
+export input=$PWD/input
 
 # Move to build folder.
 cd ../../build
@@ -42,10 +42,11 @@ echo "Sink (netcat) started..."
 sleep 1
 
 # Start the source (flowcap)
-echo "Starting $PWD/flowcap..."
+#echo "Starting $PWD/flowcap..."
 #time taskset -c 1 ./flowcap forward $input/smallFlows.pcap 127.0.0.1 5000 200
 #time ./flowcap forward $input/smallFlows.pcap 127.0.0.1 5000 200
-time $bin/wire_source.sh
+#time ./flowcap forward $input/bigFlows.pcap 127.0.0.1 5000 25
+time $bin/wire_source.sh 127.0.0.1
 
 # Close the sink
 sleep 2
@@ -55,5 +56,5 @@ kill -9 $NC_PID
 echo "Stopping Wire-STA..."
 kill -2 $WIRE_PID
 
-cat $output
+#cat $output
 

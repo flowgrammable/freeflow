@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Set script path.
-bin=$PWD
+export bin=$PWD
 
 # Set input file.
 export input=$PWD/input
@@ -40,7 +40,7 @@ echo "Sink (netcat) started..."
 sleep 1
 
 # Start the source (flowcap)
-time ip netns exec host0 $bin/wire_source.sh
+time ip netns exec host0 $bin/wire_source.sh 10.0.0.2
 
 # Close the sink
 sleep 2

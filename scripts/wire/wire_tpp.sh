@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # Set script path.
-bin=$PWD
+export bin=$PWD
 
 # Set input file.
-input=$PWD/input
+export input=$PWD/inpu
 
 # Move to build folder.
 cd ../../build
@@ -47,7 +47,7 @@ sleep 1
 # Start the source (flowcap)
 echo "Starting $PWD/flowcap..."
 #./flowcap forward $input/smallFlows.pcap 127.0.0.1 5000 200 
-time $bin/wire_source.sh
+time $bin/wire_source.sh 127.0.0.1
 echo "$PWD/flowcap finished. Waiting 2 seconds..."
 sleep 2 
 
@@ -58,4 +58,4 @@ sleep 1
 echo "Stopping Wire-STA..."
 kill -2 $WIRE_PID
 
-more $output
+#more $output
