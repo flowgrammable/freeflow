@@ -4,7 +4,7 @@
 export bin=$PWD
 
 # Set input file.
-export input=$PWD/inpu
+export input=$PWD/input
 
 # Move to build folder.
 cd ../../build
@@ -45,7 +45,7 @@ echo "Sink (netcat) started..."
 sleep 1
 
 # Start the source (flowcap)
-echo "Starting $PWD/flowcap..."
+#echo "Starting $PWD/flowcap..."
 #./flowcap forward $input/smallFlows.pcap 127.0.0.1 5000 200 
 time $bin/wire_source.sh 127.0.0.1
 echo "$PWD/flowcap finished. Waiting 2 seconds..."
