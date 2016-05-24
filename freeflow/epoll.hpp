@@ -2,7 +2,7 @@
 #define FREEFLOW_EPOLL_HPP
 
 // Only build on a linux machine.
-//#ifdef LINUX
+#ifdef __linux__
 
 #include <sys/epoll.h>
 #include <sys/socket.h>
@@ -159,9 +159,9 @@ epoll(Epoll_set& eps, int timeout)
   return eps.num_events_;
 }
 
-} // end namespace ff
+} // namespace ff
 
-//#endif
-// end if LINUX
+#endif
+
 
 #endif

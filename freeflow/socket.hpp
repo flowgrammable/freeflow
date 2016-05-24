@@ -300,7 +300,12 @@ struct nodelay : boolean_option
 inline int
 set_option(int sd, reuse_address opt)
 {
+// FIXME: Do better than this.
+#ifdef __linux__
   return ::setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, &opt.value, sizeof(opt.value));
+#else
+  return 0;
+#endif
 }
 
 
@@ -314,7 +319,12 @@ set_option(int sd, nonblocking opt)
 inline int
 set_option(int sd, nodelay opt)
 {
+// FIXME: Do better than this.
+#ifdef __linux__
   return ::setsockopt(sd, SOL_TCP, TCP_NODELAY, &opt.value, sizeof(opt.value));
+#else
+  return 0;
+#endif
 }
 
 
