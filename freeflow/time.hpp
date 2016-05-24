@@ -59,7 +59,7 @@ now()
 
 
 // Convert a timeval structure to a microsecond duration..
-Microseconds
+inline Microseconds
 to_duration(timeval ts)
 {
   Nanoseconds ns(ts.tv_sec * 1000000 + ts.tv_usec);
