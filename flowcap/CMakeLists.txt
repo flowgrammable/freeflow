@@ -1,3 +1,6 @@
 
-add_executable(flowcap main.cpp)
+add_executable(flowcap 
+  main.cpp 
+  replay.cpp
+  expect.cpp)
 target_link_libraries(flowcap freeflow pcap)
