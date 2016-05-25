@@ -21,8 +21,10 @@ struct Epoll_event : epoll_event
 
   // Returns true if a read event occurred.
   bool can_read() const { return (events & EPOLLIN); }
+  
   // Returns true if a write event occurred.
   bool can_write() const { return (events & EPOLLOUT); }
+  
   // Returns true if a error event occurred.
   bool has_error() const { return (events & EPOLLERR); }
 
@@ -46,8 +48,10 @@ struct Epoll_set : std::vector<Epoll_event>
   //
   // Return the epoll file descriptor.
   inline int fd() const { return epfd_; }
+  
   // Return the maximum number of events to listen for.
   inline int max() const { return max_; }
+  
   // Returns true if the given file descriptor can read.
   bool can_read(int);
 
@@ -64,10 +68,13 @@ struct Epoll_set : std::vector<Epoll_event>
   //
   // Epoll file descriptor.
   int epfd_;
+  
   // Number of events after a call to epoll_wait.
   int num_events_;
+  
   // Maximum number of events to listen for.
   int max_;
+  
   // The epoll master event.
   Epoll_event epev_;
 };
@@ -148,10 +155,11 @@ Epoll_set::get_error(int fd)
 
 
 // Epoll operations.
-//
 
 // Call epoll on an epoll set with a given timeout. Returns the number of
 // events, or -1 if an error occurred.
+//
+// FIXME: Take a duration, not an int.
 inline int
 epoll(Epoll_set& eps, int timeout)
 {

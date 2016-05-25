@@ -11,8 +11,8 @@
 namespace fp
 {
 
-struct Application;
-struct Context;
+class Application;
+class Context;
 
 #if __APPLE__
 using Barrier_type = void*;
