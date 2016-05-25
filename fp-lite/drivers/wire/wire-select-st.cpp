@@ -227,7 +227,7 @@ main(int argc, char* argv[])
   double Pps = npackets / s;
 
   // FIXME: Make this pretty.
-  std::cout.imbue(std::locale(""));
+  // std::cout.imbue(std::locale(""));
   std::cout.precision(6);
   std::cout << "processed " << npackets << " packets in " 
             << s << " seconds (" << Pps << " Pps)\n";

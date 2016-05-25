@@ -33,7 +33,9 @@ Port_eth_tcp::recv(Context& cxt)
     return false;
 
   // Transform the network integer to host byte order.
-  int32_t expect = ntohl(*reinterpret_cast<int32_t*>(hdr));
+  int32_t expect;
+  memcpy(&expect, hdr, sizeof(int32_t));
+  expect = ntohl(expect);
  
   // Receive until recv_size bytes have been read.
   Byte* ptr = p.data();

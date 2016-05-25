@@ -203,7 +203,7 @@ forward(int argc, char* argv[])
   double Pps = n / s;
 
   // FIXME: Make this pretty.
-  std::cout.imbue(std::locale(""));
+  // std::cout.imbue(std::locale(""));
   std::cout << "received " << n << " packets in " 
             << s << " seconds (" << Pps << " Pps)\n";
   std::cout << "received " << b << " bytes in " 
