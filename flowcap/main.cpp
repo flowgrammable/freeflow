@@ -132,9 +132,9 @@ forward(int argc, char* argv[])
   std::string host = argv[3];
   std::string port = argv[4];
 
-  int iterations = 1;
-  if (argc > 5)
-    iterations = std::stoi(argv[5]);
+  // int iterations = 1;
+  // if (argc > 5)
+  //   iterations = std::stoi(argv[5]);
 
   // Convert the host name to an address.
   Ipv4_address addr;
@@ -177,26 +177,32 @@ forward(int argc, char* argv[])
   Time start = now();
 
   while (cap.get(p)) {
-    for (int i = 0; i < iterations; i++) {
-      std::uint8_t buf[4096];
-      std::uint32_t len = htonl(p.captured_size());
-      std::memcpy(&buf[0], &len, 4);
-      std::memcpy(&buf[4], p.data(), p.captured_size());
-      // std::cout << "SEND " << n << " " << p.captured_size() << '\n';
-      int k = sock.send(buf, p.captured_size() + 4);
-      if (k <= 0) {
-        if (k < 0) {
-          std::cerr << "error: " << std::strerror(errno) << '\n';
-          return 1;
-        }
-        return 0;
+    std::uint8_t buf[4096];
+    std::uint32_t len = htonl(p.captured_size());
+    std::memcpy(&buf[0], &len, 4);
+    std::memcpy(&buf[4], p.data(), p.captured_size());
+    std::cout << "SEND " << n << " " << p.captured_size() << '\n';
+    int k = sock.send(buf, p.captured_size() + 4);
+    std::cout << "WAS " << k << '\n';    
+    std::cout.flush();
+    std::cerr.flush();
+
+    if (k <= 0) {
+      if (k < 0) {
+        std::cerr << "error: " << std::strerror(errno) << '\n';
+        std::cin.get();
+        return 1;
       }
-      // std::cin.get();
-      ++n;
-      b += p.captured_size();
+      std::cout << "HERE!\n";
+      std::cin.get();
+      break;
     }
+    // std::cin.get();
+    ++n;
+    b += p.captured_size();
   }
   Time stop = now();
+  std::cout << "HERE\n";
 
   // Make some measurements.
   Fp_seconds dur = stop - start;

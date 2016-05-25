@@ -79,15 +79,16 @@ expect(int argc, char* argv[])
     // in a packet. We should receive exactly that many.
     char buf[4096];
     assert(p.captured_size() < 4096);
-    int k = client.recv(buf, p.captured_size());
+    int k = client.recv(buf, p.captured_size() + 4);
+    // int k = client.recv(buf, p.captured_size());
     if (k <= 0) {
       if (k < 0) {
         std::cerr << "error: " << std::strerror(errno) << '\n';
         return 1;
       }
-      return 0;
+      break;
     }
-    assert(k == p.captured_size());
+    assert(k == p.captured_size() + 4);
 
     // TODO: Verify that the content captured actually matches the content
     // sent. That seems like a good idea.

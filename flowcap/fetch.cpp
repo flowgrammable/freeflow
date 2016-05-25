@@ -1,6 +1,7 @@
 
 #include <freeflow/time.hpp>
 #include <freeflow/ip.hpp>
+#include <freeflow/select.hpp>
 #include <freeflow/capture.hpp>
 
 #include <cassert>
@@ -74,6 +75,7 @@ fetch(int argc, char* argv[])
   Time start = now();
   std::uint64_t n = 0;
   std::uint64_t b = 0;
+
   cap::Packet p;
   while (cap.get(p)) {
     // FIXME: This is broken. We know exactly how many bytes are expected 
