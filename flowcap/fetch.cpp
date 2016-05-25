@@ -72,9 +72,12 @@ fetch(int argc, char* argv[])
 
   // Iterate over each packet and and send each packet to the
   // connected host.
-  Time start = now();
   std::uint64_t n = 0;
   std::uint64_t b = 0;
+
+  // Records the start time.
+  Time start;
+  bool started = false;
 
   cap::Packet p;
   while (cap.get(p)) {
@@ -92,6 +95,12 @@ fetch(int argc, char* argv[])
       return 0;
     }
     // assert(k == p.captured_size() + 4);
+
+    // Start the timer on receipt of the first packet.
+    if (!started) {
+      start = now();
+      started = true;
+    }
 
     // TODO: Verify that the content captured actually matches the content
     // sent. That seems like a good idea.

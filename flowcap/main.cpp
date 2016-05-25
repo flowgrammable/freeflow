@@ -181,20 +181,12 @@ forward(int argc, char* argv[])
     std::uint32_t len = htonl(p.captured_size());
     std::memcpy(&buf[0], &len, 4);
     std::memcpy(&buf[4], p.data(), p.captured_size());
-    std::cout << "SEND " << n << " " << p.captured_size() << '\n';
     int k = sock.send(buf, p.captured_size() + 4);
-    std::cout << "WAS " << k << '\n';    
-    std::cout.flush();
-    std::cerr.flush();
-
     if (k <= 0) {
       if (k < 0) {
         std::cerr << "error: " << std::strerror(errno) << '\n';
-        std::cin.get();
         return 1;
       }
-      std::cout << "HERE!\n";
-      std::cin.get();
       break;
     }
     // std::cin.get();
@@ -202,7 +194,6 @@ forward(int argc, char* argv[])
     b += p.captured_size();
   }
   Time stop = now();
-  std::cout << "HERE\n";
 
   // Make some measurements.
   Fp_seconds dur = stop - start;

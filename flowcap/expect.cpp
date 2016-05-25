@@ -70,10 +70,14 @@ expect(int argc, char* argv[])
 
   // Iterate over each packet and and send each packet to the
   // connected host.
-  Time start = now();
   std::uint64_t n = 0;
   std::uint64_t b = 0;
   cap::Packet p;
+  
+  // Records the start time.
+  Time start;
+  bool started = false;
+
   while (cap.get(p)) {
     // FIXME: This is broken. We know exactly how many bytes are expected 
     // in a packet. We should receive exactly that many.
@@ -89,6 +93,12 @@ expect(int argc, char* argv[])
       break;
     }
     assert(k == p.captured_size() + 4);
+
+    // Record the start time after receiving the first packet.
+    if (!started) {
+      start = now();
+      started = true;
+    }
 
     // TODO: Verify that the content captured actually matches the content
     // sent. That seems like a good idea.
