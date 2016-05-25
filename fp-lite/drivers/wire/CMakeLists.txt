@@ -4,8 +4,9 @@ macro(add_driver target)
   target_link_libraries(${target} fp-lite-rt ${CMAKE_DL_LIBS})
 endmacro()
 
-# POSIX-compliant drivers.
-add_driver(fp-wire-select wire-select.cpp)
+# Single-threaded select
+add_driver(fp-wire-select-st wire-select-st.cpp)
+
 add_driver(fp-wire-poll  wire-poll.cpp)
 
 # Don't build epoll apps for Mac.

@@ -64,7 +64,6 @@ to_duration(timeval ts)
 {
   Nanoseconds ns(ts.tv_sec * 1000000 + ts.tv_usec);
   return duration_cast<Microseconds>(ns);
-  // return Duration;
 }
 
 

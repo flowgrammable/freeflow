@@ -48,7 +48,6 @@ struct Packet
     : Packet(buf, N)
   { }
 
-
   // Returns a pointer to the raw buffer.
   Byte const* data() const { return buf_; }
   Byte*       data()       { return buf_; }

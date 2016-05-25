@@ -7,6 +7,7 @@
 
 #include <freeflow/socket.hpp>
 #include <freeflow/select.hpp>
+#include <freeflow/time.hpp>
 
 #include <string>
 #include <iostream>
@@ -19,10 +20,14 @@ using namespace fp;
 
 // Emulate a 2 port wire running over TCP ports.
 
-// NOTE: Clang will optimize assume that the running loop
-// never terminates if this is not declared volatile.
-// Go figure.
-static bool volatile running;
+// NOTE: Clang will optimize assume that the running loop never terminates 
+// if this is not declared volatile. Go figure.
+static bool running;
+
+// If true, the dataplane will terminate after forwarding packets from
+// a source to a destination.
+static bool once = false;
+
 
 void
 on_signal(int sig)
@@ -32,8 +37,14 @@ on_signal(int sig)
 
 
 int
-main()
+main(int argc, char* argv[])
 {
+  // Parse command line arguments.
+  if (argc == 2) {
+    if (std::string(argv[1]) == "once")
+      once = true;
+  }
+
   // TODO: Use sigaction.
   signal(SIGINT, on_signal);
   signal(SIGKILL, on_signal);
@@ -60,25 +71,36 @@ main()
 
   // Set up the initial polling state.
   Select_set ss;
-  int nports = 0; // Current number of ports
-  // Add the server socket to the select set.
   ss.add_read(server.fd());
 
-  // FIXME: Factor the accept/ingress code into something
-  // a little more reusable.
+  int nports = 0; // Current number of devices.
+
+  // Timing information.
+  Time start;               // Records when both ends have connected
+  Time stop;                // Records when both ends have disconnected
+  Fp_seconds duration(0.0); // Cumulative time spent forwarding
+
+  // System stats
+  uint64_t npackets = 0;  // Total number of packets processed
+  uint64_t nbytes = 0;    // Total number of bytes processed
+
+
+  // FIXME: Factor the accept/ingress code into something a little more 
+  // reusable.
 
   // Accept connections from the server socket.
   auto accept = [&](Ipv4_stream_socket& server)
   {
     std::cout << "[flowpath] accept\n";
+    
     // Accept the connection.
     Ipv4_socket_address addr;
     Ipv4_stream_socket client = server.accept(addr);
     if (!client)
       return; // TODO: Log the error.
 
-    // If we already have two endpoints, just return, which
-    // will cause the socket to be closed.
+    // If we already have two endpoints, just return, which will cause 
+    // the socket to be closed.
     if (nports == 2) {
       std::cout << "[flowpath] reject connection " << addr.port() << '\n';
       return;
@@ -100,6 +122,10 @@ main()
     port->attach(std::move(client));
     ++nports;
 
+    // Once we have two connections, start the timer.
+    if (nports == 2)
+      start = now();
+
     // Notify the application of the port change.
     Application* app = dp.get_application();
     app->port_changed(*port);
@@ -118,7 +144,7 @@ main()
 
     // Handle error or closure.
     if (!ok) {
-      // Detache the socket.
+      // Detach the socket.
       Ipv4_stream_socket client = port.detach();
 
       // Notify the application of the port change.
@@ -128,7 +154,21 @@ main()
       // Update the poll set.
       ss.del_read(client.fd());
       --nports;
+
+      // Once both ports have disconnected, accumulate statistics.
+      if (nports == 0) {
+        stop = now();
+        duration += stop - start;
+
+        // If running in one-shot mode, stop now.
+        if (once)
+          running = false;
+      }
       return;
+    }
+    else {
+      ++npackets;
+      nbytes += cxt.packet().size();
     }
 
     // Otherwise, process the application.
@@ -153,7 +193,7 @@ main()
       ingress(port2);
   };
 
-  // Main lookp.
+  // Main loop.
   running = true;
   while (running) {
     // Wait for 100 milliseconds. Note that this can fail with
@@ -162,19 +202,37 @@ main()
     // NOTE: It seems the common practice is to re-poll when EINTR
     // occurs since like you said, it's not really an error. Most
     // impls just stick it in a do-while(errno != EINTR);
-    select(ss, 1000);
+    int n = select(ss, 10ms);
+    if (n <= 0)
+      continue;
 
+    // Is a connection available?
     if (ss.can_read(server.fd()))
       accept(server);
-    if (ss.can_read(port1.fd()))
+
+    if (port1.fd() > 0 && ss.can_read(port1.fd()))
       input(port1.fd());
-    if (ss.can_read(port2.fd()))
+    if (port2.fd() > 0 && ss.can_read(port2.fd()))
       input(port2.fd());
   }
 
   // Take the dataplane down.
   dp.down();
   dp.unload_application();
+
+  // Write out stats.
+  double s = duration.count();
+  double Mb = double(nbytes * 8) / (1 << 20);
+  double Mbps = Mb / s;
+  double Pps = npackets / s;
+
+  // FIXME: Make this pretty.
+  std::cout.imbue(std::locale(""));
+  std::cout.precision(6);
+  std::cout << "processed " << npackets << " packets in " 
+            << s << " seconds (" << Pps << " Pps)\n";
+  std::cout << "processed " << nbytes << " bytes in " 
+            << s << " seconds (" << Mbps << " Mbps)\n";
 
   return 0;
 }

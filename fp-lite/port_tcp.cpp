@@ -26,18 +26,20 @@ Port_eth_tcp::recv(Context& cxt)
   // Receive the 4-byte header.
   char hdr[4];
   int n = sock.recv(hdr, 4);
-  // If we don't receive the 4-byte header, or encounter an error, return.
+  
+  // If we don't receive the 4-byte header, or if we encounter an error
+  // then give up.
   if (n <= 0 || n != 4)
     return false;
 
   // Transform the network integer to host byte order.
-  int recv_size = ntohl(*((int*)&hdr));
-
+  int32_t expect = ntohl(*reinterpret_cast<int32_t*>(hdr));
+ 
   // Receive until recv_size bytes have been read.
-  Byte* data_ptr = p.data();
-  n = recv_size;
-  while (recv_size) {
-    int k = sock.recv(data_ptr, recv_size);
+  Byte* ptr = p.data();
+  int32_t rem = expect;
+  while (rem != 0) {
+    int k = sock.recv(ptr, rem);
     if (k <= 0) {
       if (k == 0)
         break;
@@ -46,12 +48,12 @@ Port_eth_tcp::recv(Context& cxt)
       else
         continue;
     }
-    recv_size -= k;
-    data_ptr += k;
+    rem -= k;
+    ptr += k;
   }
 
   // Adjust the packet size to the number of bytes read.
-  p.set_size(n);
+  p.set_size(expect);
 
   // Set up the input context.
   cxt.set_input(this, this, 0);
@@ -60,28 +62,41 @@ Port_eth_tcp::recv(Context& cxt)
   stats_.packets_rx++;
   stats_.bytes_rx += n;
 
-  // Return recv status.
   return true;
 }
 
 
 // Writes a packet to the output stream.
 bool
-Port_eth_tcp::send(Context cxt)
+Port_eth_tcp::send(Context& cxt)
 {
   // Get the ports socket.
   Socket& sock = socket();
   
   // Get the packet from the context.
   Packet const& p = cxt.packet();
-  Byte const* data_ptr = p.data();
+
+  // Build the send buffer (badly).
+  char buf[4096];
+  std::uint32_t len = htons(p.size());
+  memcpy(buf, &len, 4);
+  memcpy(buf + 4, p.data(), p.size());
+
+  // Send the number of bytes in the packet.
+  int k = sock.send(buf, p.size() + 4);
+  if (k <= 0) {
+    if (k < 0)
+      perror("send");
+      std::cout << strerror(errno) << '\n';
+    return false;
+  }
+
+  /*
   int send_size = p.size();
   int n = send_size;
   while (send_size) {
     // Send the packet.
     int k = sock.send(data_ptr, send_size);
-
-    // Check for errors.
     if (k <= 0) {
       if (k < 0)
         perror("send");
@@ -92,10 +107,12 @@ Port_eth_tcp::send(Context cxt)
     send_size -= k;
     data_ptr += k;
   }
+  */
 
   // Update port stats.
   stats_.packets_tx++;
-  stats_.bytes_tx += n;
+  stats_.bytes_tx += k;
+
   return true;
 }
 

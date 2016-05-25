@@ -1,3 +1,4 @@
+
 #ifndef FP_PORT_HPP
 #define FP_PORT_HPP
 
@@ -62,7 +63,7 @@ public:
   // must define.
   virtual bool open() = 0;
   virtual bool close() = 0;
-  virtual bool send(Context) = 0;
+  virtual bool send(Context&) = 0;
   virtual bool recv(Context&) = 0;
 
   // Set the ports state to 'up' or 'down'.

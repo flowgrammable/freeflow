@@ -21,6 +21,7 @@ int dump(int, char**);
 int forward(int, char**);
 extern int replay(int, char**);
 extern int expect(int, char**);
+extern int fetch(int, char**);
 
 
 int
@@ -31,6 +32,7 @@ main(int argc, char* argv[])
     return usage(std::cerr);
   }
 
+  // TODO: This is slow.
   std::string cmd = argv[1];
   if (cmd == "help")
     return help(argc, argv);
@@ -44,6 +46,8 @@ main(int argc, char* argv[])
     return replay(argc, argv);
   else if (cmd == "expect")
     return expect(argc, argv);
+  else if (cmd == "fetch")
+    return fetch(argc, argv);
   else
     return error(argv[1]);
 }
@@ -60,6 +64,7 @@ usage(std::ostream& os)
   os << "    flowcap forward <pcap-file> <hostname> <port>\n";
   os << "    flowcap replay <pcap-file> <hostname> <port>\n";
   os << "    flowcap expect <pcap-file> <hostname> <port>\n";
+  os << "    flowcap fetch <pcap-file> <hostname> <port>\n";
   return &os == &std::cerr;
 }
 
@@ -173,10 +178,11 @@ forward(int argc, char* argv[])
 
   while (cap.get(p)) {
     for (int i = 0; i < iterations; i++) {
-      std::uint8_t buf[p.captured_size() + 4];
+      std::uint8_t buf[4096];
       std::uint32_t len = htonl(p.captured_size());
       std::memcpy(&buf[0], &len, 4);
       std::memcpy(&buf[4], p.data(), p.captured_size());
+      // std::cout << "SEND " << n << " " << p.captured_size() << '\n';
       int k = sock.send(buf, p.captured_size() + 4);
       if (k <= 0) {
         if (k < 0) {
@@ -185,6 +191,7 @@ forward(int argc, char* argv[])
         }
         return 0;
       }
+      // std::cin.get();
       ++n;
       b += p.captured_size();
     }
@@ -200,13 +207,10 @@ forward(int argc, char* argv[])
 
   // FIXME: Make this pretty.
   std::cout.imbue(std::locale(""));
-  std::cout << "sent " << n << " packets in " << s << " seconds (" << Pps << " Pps)\n";
-  std::cout.precision(6);
-  std::cout << "sent " << b << " bytes";
-  std::cout.precision(1);
-  std::cout << " in " << s << " (";
-  std::cout.precision(6);
-  std::cout << Mbps << " Mbps)\n";
+  std::cout << "received " << n << " packets in " 
+            << s << " seconds (" << Pps << " Pps)\n";
+  std::cout << "received " << b << " bytes in " 
+            << s << " seconds (" << Mbps << " Mbps)\n";
 
   return 0;
 }
