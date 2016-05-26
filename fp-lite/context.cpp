@@ -1,7 +1,32 @@
 #include "context.hpp"
+#include "endian.hpp"
+#include "system.hpp"
 
 namespace fp
 {
+
+Context::Context(Packet const& p, Dataplane* dp, unsigned int in, unsigned int in_phy, int tunnelid)
+  : input_{in, in_phy, tunnelid}, ctrl_(), decode_(), packet_(p),
+    dp_(dp)
+{ }
+
+Context::Context(Packet const& p, Dataplane* dp, Port* in, Port* in_phy, int tunnelid)
+  : input_{in->id(), in_phy->id(), tunnelid}, ctrl_(), decode_(),
+    packet_(p), dp_(dp)
+{ }
+
+
+// Sets the input port, physical input port, and tunnel id.
+void
+Context::set_input(Port* in, Port* in_phys, int tunnel)
+{
+  input_ = {
+    in->id(),
+    in_phys->id(),
+    tunnel
+  };
+}
+
 
 void
 Context::write_metadata(uint64_t meta)
@@ -26,21 +51,27 @@ namespace
 inline void
 apply(Context& cxt, Set_action a)
 {
-
+  // Copy the new data into the packet at the appropriate location.
+  Byte* p = cxt.get_field(a.field.offset);
+  Byte* val = a.value;
+  int len = a.field.length;
+  // Convert native to network order after copying.
+  std::copy(val, val + len, p);
+  native_to_network_order(p, len);
 }
 
 
 inline void
 apply(Context& cxt, Copy_action a)
 {
+  // TODO: Implement me.
 }
 
 
 inline void
 apply(Context& cxt, Output_action a)
 {
-  // FIXME: This requires a lookup.
-  // cxt.ctrl_.out_port = a.port;
+  cxt.set_output_port(a.port);
 }
 
 
@@ -83,15 +114,15 @@ Context::apply_action(Action a)
 extern "C"
 {
 
-fp::Port*
+unsigned int
 fp_context_get_input_port(fp::Context* cxt)
 {
-  return cxt->input_port();
+  return cxt->input_port_id();
 }
 
 
 void
-fp_context_set_output_port(fp::Context* cxt, fp::Port* p)
+fp_context_set_output_port(fp::Context* cxt, unsigned int p)
 {
   cxt->set_output_port(p);
 }

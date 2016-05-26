@@ -231,7 +231,7 @@ main()
       input(port2.fd());
     if (eps.can_write(port1.fd()))
       output(port1.fd());
-    
+
     curr = now();
     Fp_seconds dur = curr - last;
     double duration = dur.count();

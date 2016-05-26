@@ -2,10 +2,10 @@
 #define FP_CONTEXT_HPP
 
 #include "packet.hpp"
-#include "port.hpp"
 #include "action.hpp"
 #include "binding.hpp"
 #include "types.hpp"
+#include "dataplane.hpp"
 
 #include <cstdint>
 #include <utility>
@@ -15,7 +15,6 @@ namespace fp
 
 struct Table;
 struct Flow;
-class Port;
 
 
 // Stores information about the ingress of a packet
@@ -24,8 +23,8 @@ class Port;
 // TODO: Save the time stamp here?
 struct Ingress_info
 {
-  Port* in_port;
-  Port* in_phy_port;
+  unsigned int in_port;
+  unsigned int in_phy_port;
   int   tunnel_id;
 };
 
@@ -36,7 +35,7 @@ struct Ingress_info
 // FIXME: Am I actually using the table and flow?
 struct Control_info
 {
-  Port*  out_port; // The selected output port.
+  unsigned int out_port; // The selected output port.
   Table* table;
   Flow*  flow;
 };
@@ -113,9 +112,12 @@ public:
   { }
 
   // Iniitalize the context with a packet.
-  Context(Packet p)
-    : input_(), ctrl_(), decode_(), packet_(p)
+  Context(Packet const& p, Dataplane* dp)
+    : input_(), ctrl_(), decode_(), packet_(p), dp_(dp)
   { }
+
+  Context(Packet const&, Dataplane*, unsigned int, unsigned int, int);
+  Context(Packet const&, Dataplane*, Port*, Port*, int);
 
   // Copy constructor.
   Context(Context const& other)
@@ -123,8 +125,6 @@ public:
     *this = other;
   }
 
-  // Context dtor.
-  ~Context() { }
 
   Context& operator=(Context const& other)
   {
@@ -137,9 +137,15 @@ public:
     return *this;
   }
 
+  // Context dtor.
+  ~Context() { }
+
   // Returns the packet owned by the context.
   Packet const& packet() const { return packet_; }
   Packet&       packet()       { return packet_; }
+
+  // Returns a pointer to the dataplane which created the context.
+  Dataplane const* dataplane() const { return dp_; }
 
   // Returns the metadata owned by the context.
   Metadata const& metadata() const { return metadata_; }
@@ -153,17 +159,19 @@ public:
 
   // Returns the input and output ports associated with
   // the context.
-  Port*   input_port() const          { return input_.in_port; }
-  Port*   input_physical_port() const { return input_.in_phy_port; }
-  Port*   output_port() const         { return ctrl_.out_port; }
+  Port*   input_port() const;
+  Port*   input_physical_port() const;
+  Port*   output_port() const;
+
+  unsigned int output_port_id()         const { return ctrl_.out_port; }
+  unsigned int input_port_id()          const { return input_.in_port; }
+  unsigned int input_physical_port_id() const { return input_.in_phy_port; }
 
   // Sets the output port.
-  void set_output_port(Port* p) { ctrl_.out_port = p; }
+  void set_output_port(unsigned int p) { ctrl_.out_port = p; }
 
   // Sets the input port, physical input port, and tunnel id.
   void set_input(Port*, Port*, int);
-
-
 
   // Returns the current
   Table*   current_table() const { return ctrl_.table; }
@@ -197,7 +205,31 @@ public:
 
   // The action set.
   Action_set actions_;
+
+  // A pointer to the dataplane which constructed the context.
+  Dataplane* dp_;
 };
+
+
+inline Port*
+Context::input_port() const
+{
+  return dataplane()->get_port(input_.in_port);
+}
+
+
+inline Port*
+Context::input_physical_port() const
+{
+  return dataplane()->get_port(input_.in_phy_port);
+}
+
+
+inline Port*
+Context::output_port() const
+{
+  return dataplane()->get_port(ctrl_.out_port);
+}
 
 
 // Advance the current header offset by n bytes.
@@ -295,19 +327,6 @@ Context::clear_actions()
   actions_.clear();
 }
 
-
-// Sets the input port, physical input port, and tunnel id.
-inline void
-Context::set_input(Port* in, Port* in_phys, int tunnel)
-{
-  input_ = {
-    in,
-    in_phys,
-    tunnel
-  };
-}
-
-
 } // namespace fp
 
 
@@ -317,8 +336,8 @@ Context::set_input(Port* in, Port* in_phys, int tunnel)
 extern "C"
 {
 
-fp::Port* fp_context_get_input_port(fp::Context*);
-void      fp_context_set_output_port(fp::Context*, fp::Port*);
+unsigned int fp_context_get_input_port(fp::Context*);
+void         fp_context_set_output_port(fp::Context*, unsigned int);
 
 
 } // extern "C"

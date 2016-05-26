@@ -76,11 +76,12 @@ struct Table
 
   virtual ~Table() { }
 
-  virtual Flow& find(Key const&) = 0;
-  virtual Flow const& find(Key const&) const = 0;
+  virtual Flow& search(Key const&) = 0;
+  virtual Flow const& search(Key const&) const = 0;
   virtual void insert(Key const&, Flow const&) = 0;
   virtual void erase(Key const&) = 0;
   void insert_miss(Flow const& f) { miss_ = f; }
+  void erase_miss() { miss_ = Flow(); }
 
   Type type()     const { return type_; }
   int  key_size() const { return key_size_; }
@@ -115,8 +116,8 @@ struct Hash_table : Table, private std::unordered_map<Key, Flow, Key_hash>
     : Table(Table::EXACT, id, k), Map(size)
   { }
 
-  Flow&       find(Key const&);
-  Flow const& find(Key const&) const;
+  Flow&       search(Key const&);
+  Flow const& search(Key const&) const;
 
   void insert(Key const&, Flow const&);
   void erase(Key const&);

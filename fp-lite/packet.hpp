@@ -5,6 +5,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <algorithm>
 
 namespace fp
 {
@@ -48,11 +49,17 @@ struct Packet
     : Packet(buf, N)
   { }
 
+  Packet(Packet const&);
+
+  ~Packet();
+
   // Returns a pointer to the raw buffer.
   Byte const* data() const { return buf_; }
   Byte*       data()       { return buf_; }
   int         size() const { return size_; }
   int         id()   const { return id_; }
+
+  uint64_t    timestamp() const { return timestamp_; }
 
   void set_size(int size) { size_ = size; }
 
@@ -98,7 +105,6 @@ Packet::limit(int n)
   assert(n <= size_);
   size_ = n;
 }
-
 
 
 Packet*   packet_create(Byte*, int, uint64_t, void*, Buff_t);

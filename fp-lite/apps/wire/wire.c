@@ -2,6 +2,8 @@
 // A simple, full-duplex wire. Frames from one endpoint are
 // delivered to the other endpoint.
 
+typedef unsigned int Port;
+
 struct Dataplane;
 struct Context;
 struct Port;
@@ -9,19 +11,17 @@ struct Port;
 extern int puts(char const*);
 extern int printf(char const*, ...);
 
+extern int fp_port_id_is_up(struct Dataplane*, Port);
+extern int fp_port_id_is_down(struct Dataplane*, Port);
 
-extern int fp_port_get_id(struct Port*);
-extern int fp_port_is_up(struct Port*);
-extern int fp_port_is_down(struct Port*);
-
-extern struct Port* fp_context_get_input_port(struct Context*);
-extern void         fp_context_set_output_port(struct Context*, struct Port*);
+extern Port fp_context_get_input_port(struct Context*);
+extern void fp_context_set_output_port(struct Context*, Port);
 
 
-struct Port* port1;
-struct Port* port2;
-struct Port* drop;
-
+Port port1;
+Port port2;
+Port drop;
+struct Dataplane* dp_;
 
 // When an application is loaded, it must perform an initial
 // discovery of its environment. Minimally, we should establish
@@ -32,6 +32,8 @@ load(struct Dataplane* dp)
   puts("[wire] load");
   port1 = 0;
   port2 = 0;
+  drop = 0;
+  dp_ = dp;
   return 0;
 }
 
@@ -65,20 +67,20 @@ stop(struct Dataplane* dp)
 
 
 int
-port_changed(struct Port* port)
+port_changed(Port port_id)
 {
-  if (fp_port_is_up(port)) {
-    printf("[wire] port up: %d\n", fp_port_get_id(port));
-    if (!port1)
-      port1 = port;
-    else if (!port2)
-      port2 = port;
+  if (fp_port_id_is_up(dp_, port_id)) {
+    printf("[wire] port up: %d\n", port_id);
+    if (port1 == 0)
+      port1 = port_id;
+    else if (port2 == 0)
+      port2 = port_id;
   }
-  else if (fp_port_is_down(port)) {
-    printf("[wire] port down: %d\n", fp_port_get_id(port));
-    if (port == port1)
+  else if (fp_port_id_is_down(dp_, port_id)) {
+    printf("[wire] port down: %d\n", port_id);
+    if (port_id == port1)
       port1 = 0;
-    else
+    else if (port_id == port2)
       port2 = 0;
   }
   return 0;
@@ -88,9 +90,9 @@ port_changed(struct Port* port)
 int
 process(struct Context* cxt)
 {
-  struct Port* in = fp_context_get_input_port(cxt);
+  Port in = fp_context_get_input_port(cxt);
   //printf("[wire] input from: %d\n", fp_port_get_id(in));
-  struct Port* out;
+  Port out;
   if (in == port1 && port2)
     out = port2;
   else if (in == port2 && port1)
