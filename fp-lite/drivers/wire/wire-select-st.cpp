@@ -80,7 +80,7 @@ main(int argc, char* argv[])
   Time stop;                // Records when both ends have disconnected
   Fp_seconds duration(0.0); // Cumulative time spent forwarding
 
-  // System stats
+  // System stats.
   uint64_t npackets = 0;  // Total number of packets processed
   uint64_t nbytes = 0;    // Total number of bytes processed
 
@@ -179,6 +179,9 @@ main(int argc, char* argv[])
     Application* app = dp.get_application();
     app->process(cxt);
 
+    // Apply actions after pipeline processing.
+    cxt.apply_actions();
+
     // Assuming there's an output send to it.
     if (Port* out = cxt.output_port())
       out->send(cxt);
@@ -224,7 +227,7 @@ main(int argc, char* argv[])
   double s = duration.count();
   double Mb = double(nbytes * 8) / (1 << 20);
   double Mbps = Mb / s;
-  double Pps = npackets / s;
+  long Pps = npackets / s;
 
   // FIXME: Make this pretty.
   // std::cout.imbue(std::locale(""));
