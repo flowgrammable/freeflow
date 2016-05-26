@@ -32,7 +32,6 @@ struct Packet
   Packet();
   Packet(Byte*, int);
   Packet(Byte*, int, int);
-  ~Packet() { }
 
   Packet& operator=(Packet const& other)
   {
@@ -49,9 +48,7 @@ struct Packet
     : Packet(buf, N)
   { }
 
-  Packet(Packet const&);
-
-  ~Packet();
+  ~Packet() { }
 
   // Returns a pointer to the raw buffer.
   Byte const* data() const { return buf_; }

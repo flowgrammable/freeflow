@@ -68,7 +68,7 @@ boost::lockfree::queue<std::array<int, local_buf_size>, boost::lockfree::capacit
 
 
 // The packet buffer pool.
-static Pool& buffer_pool = Buffer_pool::get_pool();
+static Pool& buffer_pool = Buffer_pool::get_pool(&dp);
 
 // Set up the initial polling state.
 Epoll_set eps(3);

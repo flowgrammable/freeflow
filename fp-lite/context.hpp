@@ -111,7 +111,7 @@ public:
     : input_(), ctrl_(), decode_(), packet_()
   { }
 
-  // Iniitalize the context with a packet.
+  // Initalize the context with a packet.
   Context(Packet const& p, Dataplane* dp)
     : input_(), ctrl_(), decode_(), packet_(p), dp_(dp)
   { }

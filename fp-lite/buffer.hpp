@@ -12,6 +12,7 @@
 namespace fp
 {
 
+class Dataplane;
 
 // The flowpath packet buffer. Contains an ID, a packet data
 // store, and the context associated with the packet. There is
@@ -22,8 +23,8 @@ namespace fp
 struct Buffer
 {
   // Buffer ctor.
-  Buffer(int id)
-    : id_(id), data_(new Byte[2048]), cxt_({data_, id, 2048})
+  Buffer(int id, Dataplane* dp)
+    : id_(id), data_(new Byte[2048]), cxt_({data_, id, 2048}, dp)
   { }
 
   // Accessors.
@@ -53,9 +54,9 @@ public:
   using Heap_type = std::priority_queue<int, std::vector<int>, std::greater<int>>;
   using Mutex_type = std::mutex;
 
-  Pool();
+  Pool(Dataplane*);
 
-  Pool(int);
+  Pool(int, Dataplane*);
 
   ~Pool();
 
@@ -80,19 +81,19 @@ private:
 
 
 // Buffer pool default ctor.
-Pool::Pool()
-  : Pool(4096)
+Pool::Pool(Dataplane* dp)
+  : Pool(4096, dp)
 { }
 
 
 // Buffer pool sized ctor. Intializes the free-list (min-heap)
 // and the pool of buffers.
-Pool::Pool(int size)
+Pool::Pool(int size, Dataplane* dp)
   : data_(), heap_(), mutex_()
 { 
   for (int i = 0; i < size; i++) {
     heap_.push(i);
-    data_.push_back(Buffer(i));
+    data_.push_back(Buffer(i, dp));
   }
 }
 
@@ -155,9 +156,9 @@ namespace Buffer_pool
 
 
 static Pool& 
-get_pool()
+get_pool(Dataplane* dp)
 {
-  static Pool p(1024 * 256 + 1024);
+  static Pool p(1024 * 256 + 1024, dp);
   return p;
 }
 
