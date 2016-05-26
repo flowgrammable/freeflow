@@ -64,7 +64,7 @@ Dataplane dp = "dp1";
 constexpr int local_buf_size = 2048;
 
 // Port send queues.
-boost::lockfree::queue<std::array<int, local_buf_size>, boost::lockfree::capacity<65534>> send_queue[2];
+boost::lockfree::queue<std::array<int, local_buf_size>, boost::lockfree::capacity<2048>> send_queue[2];
 
 
 // The packet buffer pool.
@@ -248,14 +248,14 @@ main()
 
     uint64_t pkt_tx = (p1_curr.packets_tx - p1_stats.packets_tx) / 2;
     uint64_t pkt_rx = (p2_curr.packets_rx - p2_stats.packets_rx) / 2;
-    double bit_tx = ((p1_curr.bytes_tx - p1_stats.bytes_tx) * 8.0 / (1 << 20)) / 2.0;
-    double bit_rx = ((p2_curr.bytes_rx - p2_stats.bytes_rx) * 8.0 / (1 << 20)) / 2.0;
+    double bit_tx = ((p1_curr.bytes_tx - p1_stats.bytes_tx) * 8.0 / (1 << 30)) / 2.0;
+    double bit_rx = ((p2_curr.bytes_rx - p2_stats.bytes_rx) * 8.0 / (1 << 30)) / 2.0;
     // Clears the screen.
     (void)system("clear");
     std::cout << "Receive Rate  (Pkt/s): " << pkt_rx << '\n';
-    std::cout << "Receive Rate   (Mb/s): " << bit_rx << '\n';
+    std::cout << "Receive Rate   (Gb/s): " << bit_rx << '\n';
     std::cout << "Transmit Rate (Pkt/s): " << pkt_tx << '\n';
-    std::cout << "Transmit Rate  (Mb/s): " << bit_tx << "\n\n";
+    std::cout << "Transmit Rate  (Gb/s): " << bit_tx << "\n\n";
     p1_stats = p1_curr;
     p2_stats = p2_curr;
   };

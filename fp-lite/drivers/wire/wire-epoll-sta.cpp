@@ -59,8 +59,8 @@ main()
   Port_eth_tcp port2(2);
 
   // Reporting stastics init.
-  Port::Statistics p1_stats;
-  Port::Statistics p2_stats;
+  Port::Statistics p1_stats = {0,0,0,0};
+  Port::Statistics p2_stats = {0,0,0,0};
 
   // Egress queue.
   Queue<Context> egress_queue;
@@ -76,7 +76,8 @@ main()
 
   // Set up the initial polling state.
   Epoll_set eps(3);
-  int nports = 0; // Current number of ports
+  // Current number of ports.
+  int nports = 0; 
   // Add the server socket to the select set.
   eps.add(server.fd());
 
@@ -130,7 +131,7 @@ main()
   {
     //std::cout << "[wire] ingress on: " << port.id() << '\n';
     // Ingress the packet.
-    Byte buf[4096];
+    Byte buf[2048];
     Context cxt(buf);
     bool ok = port.recv(cxt);
 
@@ -199,12 +200,12 @@ main()
     system("clear");
     std::cout << "Receive Rate  (Pkt/s): " << (p2_curr.packets_rx -
       p2_stats.packets_rx) << '\n';
-    std::cout << "Receive Rate   (Mb/s): " <<  ((p2_curr.bytes_rx -
-      p2_stats.bytes_rx) * 8.0 / (1 << 20)) << '\n';
+    std::cout << "Receive Rate   (Gb/s): " <<  ((p2_curr.bytes_rx -
+      p2_stats.bytes_rx) * 8.0 / (1 << 30)) << '\n';
     std::cout << "Transmit Rate (Pkt/s): " << (p1_curr.packets_tx -
       p1_stats.packets_tx) << "\n";
-    std::cout << "Transmit Rate  (Mb/s): " <<  ((p1_curr.bytes_tx -
-      p1_stats.bytes_tx) * 8.0 / (1 << 20)) << "\n\n";
+    std::cout << "Transmit Rate  (Gb/s): " <<  ((p1_curr.bytes_tx -
+      p1_stats.bytes_tx) * 8.0 / (1 << 30)) << "\n\n";
     p1_stats = p1_curr;
     p2_stats = p2_curr;
   };
@@ -222,19 +223,13 @@ main()
     // NOTE: It seems the common practice is to re-poll when EINTR
     // occurs since like you said, it's not really an error. Most
     // impls just stick it in a do-while(errno != EINTR);
-    epoll(eps, 1000);
+    epoll(eps, 100);
 
     if (eps.can_read(server.fd()))
       accept(server);
-    
-    if (eps.has_error(port2.fd()))
-      std::cout << "Error: Port 2\n" << eps.get_error(port2.fd()) << '\n';
-    else if (eps.can_read(port2.fd()))
+    if (eps.can_read(port2.fd()))
       input(port2.fd());
-
-    if (eps.has_error(port1.fd()))
-      std::cout << "Error: Port 1\n" << eps.get_error(port1.fd()) << '\n';
-    else if (eps.can_write(port1.fd()))
+    if (eps.can_write(port1.fd()))
       output(port1.fd());
     
     curr = now();
