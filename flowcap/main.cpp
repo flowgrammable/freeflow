@@ -169,7 +169,7 @@ forward(int argc, char* argv[])
     return 1;
   }
 
-  // Iterate over each packet and and send each packet to the
+  // Iterate over each packet and send each packet to the
   // connected host.
   std::uint64_t n = 0;
   std::uint64_t b = 0;
@@ -200,13 +200,13 @@ forward(int argc, char* argv[])
   double s = dur.count();
   double Mb = double(b * 8) / (1 << 20);
   double Mbps = Mb / s;
-  double Pps = n / s;
+  std::uint64_t Pps = n / s;
 
   // FIXME: Make this pretty.
   // std::cout.imbue(std::locale(""));
-  std::cout << "received " << n << " packets in " 
+  std::cout << "sent " << n << " packets in " 
             << s << " seconds (" << Pps << " Pps)\n";
-  std::cout << "received " << b << " bytes in " 
+  std::cout << "sent " << b << " bytes in " 
             << s << " seconds (" << Mbps << " Mbps)\n";
 
   return 0;

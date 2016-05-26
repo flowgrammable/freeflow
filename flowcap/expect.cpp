@@ -113,7 +113,7 @@ expect(int argc, char* argv[])
   double s = dur.count();
   double Mb = double(b * 8) / (1 << 20);
   double Mbps = Mb / s;
-  double Pps = n / s;
+  std::uint64_t Pps = n / s;
 
   // FIXME: Make this pretty.
   // std::cout.imbue(std::locale(""));
