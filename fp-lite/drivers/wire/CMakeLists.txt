@@ -6,6 +6,7 @@ endmacro()
 
 # Single-threaded select
 add_driver(fp-wire-select-st wire-select-st.cpp)
+add_driver(fp-wire-select-mt wire-select-mt.cpp)
 
 add_driver(fp-wire-poll  wire-poll.cpp)
 
