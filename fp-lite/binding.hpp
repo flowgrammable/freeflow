@@ -28,18 +28,18 @@ struct Binding
 {
   Binding() = default;
 
-  Binding(std::uint16_t o, std::uint16_t n)
+  Binding(std::uint32_t o, std::uint32_t n)
     : offset(o), length(n)
   { assert(n != 0); }
 
-  Binding(std::uint16_t o)
+  Binding(std::uint32_t o)
     : offset(o), length(0)
   { }
 
   bool is_partial() const { return length == 0; }
 
-  std::uint16_t offset;
-  std::uint16_t length;
+  std::uint32_t offset;
+  std::uint32_t length;
 };
 
 
