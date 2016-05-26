@@ -26,7 +26,7 @@ cd ../flowcap
 #netcat localhost -q 15 -d 5000 &>> /dev/null &
 #netcat -l -q 15 -d 10.0.0.2 5000 &> /dev/null &
 #command='netcat -l -q 15 -d 10.0.0.2 5000 &>> /dev/null'
-$bin/wire_sink.sh 127.0.0.1 &
+$bin/wire_sink.sh "expect" 127.0.0.1 &
 NC_PID=$!
 #echo "Sink (netcat) started..."
 
@@ -34,14 +34,6 @@ NC_PID=$!
 sleep 1
 
 # Start the source (flowcap)
-time $bin/wire_source.sh 127.0.0.1
-
-# Close the sink
-sleep 2
-echo "Closing sink (netcat)..."
-kill -9 $NC_PID
+$bin/wire_source.sh 127.0.0.1 &
 
 #$bin/teardown_bridge.sh
-
-#cat $output
-
