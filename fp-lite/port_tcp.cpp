@@ -45,8 +45,10 @@ Port_eth_tcp::recv(Context& cxt)
     if (k <= 0) {
       if (k == 0)
         break;
-      if (k < 0 && errno != EAGAIN)
+      if (k < 0 && errno != EAGAIN) {
+        state_.link_down = true;
         return false;
+      }
       else
         continue;
     }
@@ -87,9 +89,7 @@ Port_eth_tcp::send(Context& cxt)
   // Send the number of bytes in the packet.
   int k = sock.send(buf, p.size() + 4);
   if (k <= 0) {
-    if (k < 0)
-      perror("send");
-      std::cout << strerror(errno) << '\n';
+    state_.link_down = true;
     return false;
   }
 
