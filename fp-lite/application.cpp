@@ -101,7 +101,7 @@ Application::load(Dataplane& dp)
   int ret = 0;
   if (lib_.load)
     ret = lib_.load(&dp);
-  if (!ret)
+  //if (!ret)
     state_ = READY;
   return ret;
 }
@@ -121,7 +121,7 @@ Application::unload(Dataplane& dp)
   int ret = 0;
   if (lib_.unload)
     ret = lib_.unload(&dp);
-  if (!ret)
+  //if (!ret)
     state_ = INIT;
   return ret;
 }
@@ -135,7 +135,7 @@ Application::start(Dataplane& dp)
   int ret = 0;
   if (lib_.start)
     ret = lib_.start(&dp);
-  if (!ret)
+  //if (!ret)
     state_ = RUNNING;
   return 0;
 }
@@ -149,7 +149,7 @@ Application::stop(Dataplane& dp)
   int ret = 0;
   if (lib_.stop)
     ret = lib_.stop(&dp);
-  if (!ret)
+  //if (!ret)
     state_ = STOPPED;
   return 0;
 }

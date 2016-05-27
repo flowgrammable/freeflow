@@ -108,6 +108,7 @@ namespace fp
 // These are the set of system calls that an application can expect
 // to be able to call at runtime.
 
+// TODO: Add some proper error handling.
 
 extern "C"
 {
@@ -117,8 +118,12 @@ extern "C"
 void
 fp_drop(fp::Context* cxt)
 {
-  fp::Port* drop = cxt->dataplane()->get_drop_port();
-  cxt->set_output_port(drop->id());
+  if (!cxt)
+    throw std::string("Null context pointer");
+  if (fp::Port* drop = cxt->dataplane()->get_drop_port())
+    cxt->set_output_port(drop->id());
+  else
+    throw std::string("No drop port allocated");
 }
 
 
@@ -190,48 +195,72 @@ fp_goto_table(fp::Context* cxt, fp::Table* tbl, int n, ...)
 fp::Port::Id
 fp_get_port_by_id(fp::Dataplane* dp, unsigned int id)
 {
-  fp::Port* p = dp->get_port(id);
-  assert(p);
-  return id;
+  if (dp) {
+    if (dp->get_port(id))
+      return id;
+    else
+      throw std::string("Invalid port id " + std::to_string(id));
+  }
+  else
+    throw std::string("Null dataplane pointer");
 }
 
 // Returns whether or not the port is up or down
 bool
 fp_port_id_is_up(fp::Dataplane* dp, fp::Port::Id id)
 {
-  assert(dp);
-  fp::Port* p = dp->get_port(id);
-  return p->is_up();
+  if (dp) {
+    if (fp::Port* p = dp->get_port(id))
+      return p->is_up();
+    else
+      throw std::string("Invalid port id " + std::to_string(id));
+  }
+  else
+    throw std::string("Null dataplane pointer");
 }
 
 // Returns whether or not the given id exists.
 bool
 fp_port_id_is_down(fp::Dataplane* dp, fp::Port::Id id)
 {
-  assert(dp);
-  fp::Port* p = dp->get_port(id);
-  return p->is_down();
+  if (dp) {
+    if (fp::Port* p = dp->get_port(id))
+      return p->is_down();
+    else
+      throw std::string("Invalid port id " + std::to_string(id));
+  }
+  else
+    throw std::string("Null dataplane pointer");
 }
 
 
 int
 fp_port_get_id(fp::Port* p)
 {
-  return p->id();
+  if (p)
+    return p->id();
+  else
+    throw std::string("Null port pointer");
 }
 
 
 int
 fp_port_is_up(fp::Port* p)
 {
-  return p->is_up();
+  if (p)
+    return p->is_up();
+  else
+    throw std::string("Null port pointer");
 }
 
 
 int
 fp_port_is_down(fp::Port* p)
 {
-  return p->is_down();
+  if (p)
+    return p->is_down();
+  else
+    throw std::string("Null port pointer");
 }
 
 
@@ -240,6 +269,8 @@ fp_port_is_down(fp::Port* p)
 fp::Key
 fp_gather(fp::Context* cxt, int key_width, int n, va_list args)
 {
+  if (!cxt)
+    throw std::string("Null context pointer");
   // FIXME: We're using a fixed size key of 128 bytes right now
   // apparently. This should probably be dynamic.
   fp::Byte buf[fp::key_size];
@@ -298,16 +329,19 @@ fp_gather(fp::Context* cxt, int key_width, int n, va_list args)
 fp::Table*
 fp_create_table(fp::Dataplane* dp, int id, int key_width, int size, fp::Table::Type type)
 {
+  if (!dp)
+    throw std::string("Null data plane pointer");
   fp::Table* tbl = nullptr;
-  std::cout << "Create table\n";
 
   switch (type)
   {
     case fp::Table::Type::EXACT:
     // Make a new hash table.
     tbl = new fp::Hash_table(id, size, key_width);
-    assert(tbl);
-    dp->tables_.insert({id, tbl});
+    if (tbl)
+      dp->tables_.insert({id, tbl});
+    else
+      throw std::string("Table creation failed");
     break;
     case fp::Table::Type::PREFIX:
     // Make a new prefix match table.
@@ -316,10 +350,9 @@ fp_create_table(fp::Dataplane* dp, int id, int key_width, int size, fp::Table::T
     // Make a new wildcard match table.
     break;
     default:
-    throw std::string("Unknown table type given");
+      throw std::string("Unknown table type given");
   }
 
-  std::cout << "Returning table\n";
   return tbl;
 }
 
@@ -331,6 +364,12 @@ fp_create_table(fp::Dataplane* dp, int id, int key_width, int size, fp::Table::T
 void
 fp_add_init_flow(fp::Table* tbl, void* fn, void* key, unsigned int timeout, unsigned int egress)
 {
+  if (!tbl)
+    throw std::string("Null table pointer");
+  if (!fn)
+    throw std::string("Null function pointer");
+  if (!key)
+    throw std::string("Null key pointer");
   // std::cout << "Adding flow to " << tbl->id() << '\n';
   //
   // get the length of the table's expected key
@@ -352,6 +391,12 @@ fp_add_init_flow(fp::Table* tbl, void* fn, void* key, unsigned int timeout, unsi
 void
 fp_add_new_flow(fp::Table* tbl, void* fn, void* key, unsigned int timeout, unsigned int egress)
 {
+  if (!tbl)
+    throw std::string("Null table pointer");
+  if (!fn)
+    throw std::string("Null function pointer");
+  if (!key)
+    throw std::string("Null key pointer");
   int key_size = tbl->key_size();
   // cast the key to Byte*
   fp::Byte* buf = reinterpret_cast<fp::Byte*>(key);
@@ -368,9 +413,10 @@ fp_add_new_flow(fp::Table* tbl, void* fn, void* key, unsigned int timeout, unsig
 fp::Port::Id
 fp_get_flow_egress(fp::Flow* f)
 {
-  assert(f);
-  assert(f->egress_ > 0);
-  return f->egress_;
+  if (f && f->egress_ > 0)
+    return f->egress_;
+  else
+    throw std::string("Null flow pointer");
 }
 
 
@@ -380,6 +426,10 @@ fp_get_flow_egress(fp::Flow* f)
 void
 fp_add_miss(fp::Table* tbl, void* fn, unsigned int timeout, unsigned int egress)
 {
+  if (!tbl)
+    throw std::string("Null table pointer");
+  if (!fn)
+    throw std::string("Null function pointer");
   // cast the flow into a flow instruction
   fp::Flow_instructions instr = reinterpret_cast<fp::Flow_instructions>(fn);
   fp::Flow flow(0, fp::Flow_counters(), instr, fp::Flow_timeouts(), 0, 0, egress);
@@ -391,6 +441,10 @@ fp_add_miss(fp::Table* tbl, void* fn, unsigned int timeout, unsigned int egress)
 void
 fp_del_flow(fp::Table* tbl, void* key)
 {
+  if (!tbl)
+    throw std::string("Null table pointer");
+  if (!key)
+    throw std::string("Null key pointer");
   // get the length of the table's expected key
   int key_size = tbl->key_size();
   // cast the key to Byte*
@@ -406,7 +460,10 @@ fp_del_flow(fp::Table* tbl, void* key)
 void
 fp_del_miss(fp::Table* tbl)
 {
-  tbl->erase_miss();
+  if (tbl)
+    tbl->erase_miss();
+  else
+    throw std::string("Null table pointer");
 }
 
 
@@ -415,6 +472,10 @@ fp_del_miss(fp::Table* tbl)
 void
 fp_raise_event(fp::Context* cxt, void* handler)
 {
+  if (!cxt)
+    throw std::string("Null context pointer");
+  if (!handler)
+    throw std::string("Null event handler pointer");
   // Cast the handler back to its appropriate function type
   // of void (*)(Context*)
   void (*event)(fp::Context*);

@@ -44,7 +44,7 @@ Port_eth_tcp::recv(Context& cxt)
     int k = sock.recv(ptr, rem);
     if (k <= 0) {
       if (k == 0)
-        break;
+        return false;
       if (k < 0 && errno != EAGAIN) {
         state_.link_down = true;
         return false;

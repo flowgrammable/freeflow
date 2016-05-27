@@ -153,7 +153,7 @@ Binding_list::pop()
 // FIXME: What's the right query mechanism here?
 struct Environment
 {
-  static constexpr int max_fields = 16;
+  static constexpr int max_fields = 32;
 
   Binding_list const& operator[](int n) const { return fields[n]; }
   Binding_list&       operator[](int n)       { return fields[n]; }
