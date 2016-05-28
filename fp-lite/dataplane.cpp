@@ -1,6 +1,7 @@
 #include "dataplane.hpp"
 #include "port.hpp"
 #include "port_drop.hpp"
+#include "port_flood.hpp"
 #include "application.hpp"
 
 #include <cassert>
@@ -14,6 +15,7 @@ namespace fp
 Dataplane::~Dataplane()
 {
   delete drop_;
+  delete flood_;
 }
 
 
@@ -29,10 +31,12 @@ Dataplane::add_port(Port* p)
 
 // Add an explicit drop port to the dataplane.
 void
-Dataplane::add_drop_port()
+Dataplane::add_virtual_ports()
 {
   drop_ = new Port_drop;
+  flood_ = new Port_flood;
   portmap_.emplace(drop_->id(), drop_);
+  portmap_.emplace(flood_->id(), flood_);
 }
 
 
@@ -123,5 +127,10 @@ fp_get_drop_port(Dataplane* dp)
   return dp->get_drop_port();
 }
 
+Port*
+fp_get_flood_port(Dataplane* dp)
+{
+  return dp->get_flood_port();
+}
 
 } // end namespace fp

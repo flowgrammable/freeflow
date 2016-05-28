@@ -38,7 +38,7 @@ public:
   // Adding a port means rebuilding the port tables so that an
   // application never has null ports.
   void add_port(Port*);
-  void add_drop_port();
+  void add_virtual_ports();
   void remove_port(Port*);
 
   // Returns the list of system ports.
@@ -47,6 +47,7 @@ public:
 
   Port* get_port(uint32_t) const;
   Port* get_drop_port() const { return drop_; }
+  Port* get_flood_port() const { return flood_; }
 
   // Application management.
   void load_application(char const*);
@@ -70,6 +71,7 @@ public:
   Port_list ports_;
   Port_map  portmap_;
   Port*     drop_;
+  Port*     flood_;
 
   Table_map tables_;
   Application* app_;
@@ -94,6 +96,7 @@ extern "C"
 {
 
 Port* fp_get_drop_port(Dataplane*);
+Port* fp_get_flood_port(Dataplane*);
 
 } // extern "C"
 
