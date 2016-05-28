@@ -63,14 +63,18 @@ main(int argc, char* argv[])
   // TODO: Handle exceptions.
 
   // Pre-create all standard ports.
-  Port_eth_tcp port1(0);
+  Port_eth_tcp port1(80);
+  Port_eth_tcp port2(443);
+  Port_eth_tcp port3(1);
 
   // Configure the dataplane. Ports must be added before
   // applications are loaded.
   fp::Dataplane dp = "dp1";
   dp.add_port(&port1);
+  dp.add_port(&port2);
+  dp.add_port(&port3);
   dp.add_virtual_ports();
-  dp.load_application(std::string(app_path + "endpoint.app").c_str());
+  dp.load_application(std::string(app_path + "firewall.app").c_str());
   dp.up();
 
   // Set up the initial polling state.
@@ -105,7 +109,7 @@ main(int argc, char* argv[])
 
     // If we already have two endpoints, just return, which will cause 
     // the socket to be closed.
-    if (nports == 1) {
+    if (nports == 3) {
       std::cout << "[flowpath] reject connection " << addr.port() << '\n';
       return;
     }
@@ -121,11 +125,15 @@ main(int argc, char* argv[])
     Port_tcp* port = nullptr;
     if (nports == 0)
       port = &port1;
+    if (nports == 1)
+      port = &port2;
+    if (nports == 2)
+      port = &port3;
     port->attach(std::move(client));
     ++nports;
 
-    // Once we have two connections, start the timer.
-    if (nports == 1)
+    // Once we have 3 connections, start the timer.
+    if (nports == 3)
       start = now();
 
     // Notify the application of the port change.
@@ -157,7 +165,7 @@ main(int argc, char* argv[])
       ss.del_read(client.fd());
       --nports;
 
-      // Once both ports have disconnected, accumulate statistics.
+      // Once all ports have disconnected, accumulate statistics.
       if (nports == 0) {
         stop = now();
         duration += stop - start;
@@ -194,6 +202,10 @@ main(int argc, char* argv[])
   {
     if (fd == port1.fd())
       ingress(port1);
+    if (fd == port2.fd())
+      ingress(port2);
+    if (fd == port3.fd())
+      ingress(port3);
   };
 
   // Main loop.
@@ -215,6 +227,10 @@ main(int argc, char* argv[])
 
     if (port1.fd() > 0 && ss.can_read(port1.fd()))
       input(port1.fd());
+    if (port2.fd() > 0 && ss.can_read(port2.fd()))
+      input(port2.fd());
+    if (port3.fd() > 0 && ss.can_read(port3.fd()))
+      input(port3.fd());
   }
 
   // Take the dataplane down.

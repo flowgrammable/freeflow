@@ -7,5 +7,6 @@ endmacro()
 add_subdirectory(slurp)
 add_subdirectory(wire)
 add_subdirectory(endpoint)
+add_subdirectory(firewall)
 
 # add_subdirectory(hub)
