@@ -211,7 +211,7 @@ main(int argc, char* argv[])
     port_thread[i].assign(i, port_work);
   }
 
-  dp.add_drop_port();
+  dp.add_virtual_ports();
   dp.load_application("apps/wire.app");
   dp.up();
 

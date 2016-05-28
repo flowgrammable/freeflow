@@ -70,7 +70,7 @@ main()
   fp::Dataplane dp = "dp1";
   dp.add_port(&port1);
   dp.add_port(&port2);
-  dp.add_drop_port();
+  dp.add_virtual_ports();
   dp.load_application("apps/wire.app");
   dp.up();
 

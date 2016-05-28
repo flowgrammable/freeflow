@@ -12,7 +12,7 @@
 #include <string>
 #include <iostream>
 #include <signal.h>
-
+//#include <queue>
 
 using namespace ff;
 using namespace fp;
@@ -40,9 +40,13 @@ int
 main(int argc, char* argv[])
 {
   // Parse command line arguments.
-  if (argc == 2) {
+  if (argc >= 2) {
     if (std::string(argv[1]) == "once")
       once = true;
+  }
+  std::string path = "apps/";
+  if (argc == 3) {
+    path = std::string(argv[2]);
   }
 
   // TODO: Use sigaction.
@@ -53,28 +57,30 @@ main(int argc, char* argv[])
   // Build a server socket that will accept network connections.
   Ipv4_socket_address addr(Ipv4_address::any(), 5000);
   Ipv4_stream_socket server(addr);
-
+  set_option(server.fd(), reuse_address(true));
+  //set_option(server.fd(), nonblocking(true));
   // TODO: Handle exceptions.
 
   // Pre-create all standard ports.
-  Port_eth_tcp port1(0);
-  Port_eth_tcp port2(1);
+  Port_eth_tcp port1(80);
+  Port_eth_tcp port2(443);
 
   // Configure the dataplane. Ports must be added before
   // applications are loaded.
   fp::Dataplane dp = "dp1";
   dp.add_port(&port1);
   dp.add_port(&port2);
-  dp.add_drop_port();
-  dp.load_application("apps/wire.app");
+  dp.add_virtual_ports();
+  dp.load_application(std::string(path + "wire.app").c_str());
   dp.up();
 
   // Set up the initial polling state.
   Select_set ss;
   ss.add_read(server.fd());
-
-  int nports = 0; // Current number of devices.
-
+  // Current number of devices.
+  int nports = 0;
+  // Output queues.
+  //std::queue<Context> send_queue[2];
   // Timing information.
   Time start;               // Records when both ends have connected
   Time stop;                // Records when both ends have disconnected
@@ -109,7 +115,7 @@ main(int argc, char* argv[])
 
     // Update the poll set.
     ss.add_read(client.fd());
-
+    //set_option(client.fd(), nonblocking(true));
     // Bind the socket to a port.
     // TODO: Emit a port status change to the application. Does
     // that happen implicitly, or do we have to cause the dataplane
@@ -184,9 +190,20 @@ main(int argc, char* argv[])
 
     // Assuming there's an output send to it.
     if (Port* out = cxt.output_port())
+      //send_queue[out->id()].push(cxt);
       out->send(cxt);
   };
 
+  /*
+  auto egress = [&](Port_tcp& port)
+  {
+    if (!send_queue[port.id()].empty()) {
+      Context cxt = send_queue[port.id()].front();
+      port.send(cxt);
+      send_queue[port.id()].pop();
+    }      
+  };
+  */
   // Select a port to handle input.
   auto input = [&](int fd)
   {
@@ -196,6 +213,16 @@ main(int argc, char* argv[])
       ingress(port2);
   };
 
+  /*
+  // Select a port to handle output.
+  auto output = [&](int fd)
+  {
+    if (fd == port1.fd())
+      egress(port1);
+    else
+      egress(port2);
+  };
+  */
   // Main loop.
   running = true;
   while (running) {
@@ -212,17 +239,28 @@ main(int argc, char* argv[])
     // Is a connection available?
     if (ss.can_read(server.fd()))
       accept(server);
-
+    
+    // Process input.
     if (port1.fd() > 0 && ss.can_read(port1.fd()))
       input(port1.fd());
     if (port2.fd() > 0 && ss.can_read(port2.fd()))
       input(port2.fd());
+    // Process output.
+    /*
+    if (port1.fd() > 0 && ss.can_write(port1.fd()))
+      output(port1.fd());
+    if (port2.fd() > 0 && ss.can_write(port2.fd()))
+      output(port2.fd());
+    */
   }
 
   // Take the dataplane down.
   dp.down();
   dp.unload_application();
-
+  
+  // Close the server socket.
+  server.close();
+  
   // Write out stats.
   double s = duration.count();
   double Mb = double(nbytes * 8) / (1 << 20);
