@@ -194,7 +194,7 @@ forward(int argc, char* argv[])
     b += p.captured_size();
   }
   Time stop = now();
-
+  sock.close();
   // Make some measurements.
   Fp_seconds dur = stop - start;
   double s = dur.count();
