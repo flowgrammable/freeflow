@@ -32,6 +32,11 @@ expect(int argc, char* argv[])
   std::string host = argv[3];
   std::string port = argv[4];
 
+
+  int iterations = 1;
+  if (argc > 5)
+    iterations = std::stoi(argv[5]);
+
   // Convert the host name to an address.
   Ipv4_address addr;
   try {
@@ -83,28 +88,30 @@ expect(int argc, char* argv[])
     // in a packet. We should receive exactly that many.
     char buf[4096];
     assert(p.captured_size() < 4096);
-    int k = client.recv(buf, p.captured_size() + 4);
-    // int k = client.recv(buf, p.captured_size());
-    if (k <= 0) {
-      if (k < 0) {
-        std::cerr << "error: " << std::strerror(errno) << '\n';
-        return 1;
+    for (int i = 0; i < iterations; i++) {
+      int k = client.recv(buf, p.captured_size() + 4);
+      // int k = client.recv(buf, p.captured_size());
+      if (k <= 0) {
+        if (k < 0) {
+          std::cerr << "error: " << std::strerror(errno) << '\n';
+          return 1;
+        }
+        break;
       }
-      break;
+      assert(k == p.captured_size() + 4);
+
+      // Record the start time after receiving the first packet.
+      if (!started) {
+        start = now();
+        started = true;
+      }
+
+      // TODO: Verify that the content captured actually matches the content
+      // sent. That seems like a good idea.
+
+      ++n;
+      b += p.captured_size();
     }
-    assert(k == p.captured_size() + 4);
-
-    // Record the start time after receiving the first packet.
-    if (!started) {
-      start = now();
-      started = true;
-    }
-
-    // TODO: Verify that the content captured actually matches the content
-    // sent. That seems like a good idea.
-
-    ++n;
-    b += p.captured_size();
   }
   Time stop = now();
 

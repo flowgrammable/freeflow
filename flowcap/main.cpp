@@ -132,9 +132,9 @@ forward(int argc, char* argv[])
   std::string host = argv[3];
   std::string port = argv[4];
 
-  // int iterations = 1;
-  // if (argc > 5)
-  //   iterations = std::stoi(argv[5]);
+  int iterations = 1;
+  if (argc > 5)
+    iterations = std::stoi(argv[5]);
 
   // Convert the host name to an address.
   Ipv4_address addr;
@@ -181,17 +181,19 @@ forward(int argc, char* argv[])
     std::uint32_t len = htonl(p.captured_size());
     std::memcpy(&buf[0], &len, 4);
     std::memcpy(&buf[4], p.data(), p.captured_size());
-    int k = sock.send(buf, p.captured_size() + 4);
-    if (k <= 0) {
-      if (k < 0) {
-        std::cerr << "error: " << std::strerror(errno) << '\n';
-        return 1;
+    for (int i = 0; i < iterations; i++) {
+      int k = sock.send(buf, p.captured_size() + 4);
+      if (k <= 0) {
+        if (k < 0) {
+          std::cerr << "error: " << std::strerror(errno) << '\n';
+          return 1;
+        }
+        break;
       }
-      break;
+      // std::cin.get();
+      ++n;
+      b += p.captured_size();
     }
-    // std::cin.get();
-    ++n;
-    b += p.captured_size();
   }
   Time stop = now();
   sock.close();
