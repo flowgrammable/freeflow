@@ -428,7 +428,7 @@ fp_add_miss(fp::Table* tbl, void* fn, unsigned int timeout, unsigned int egress)
 void
 fp_del_flow(fp::Table* tbl, void* key)
 {
-  assert(table);
+  assert(tbl);
   assert(key);
 
   fp::Key k;
@@ -459,7 +459,7 @@ fp_raise_event(fp::Context* cxt, void* handler)
 
   // Cast the handler back to its appropriate function type
   // of void (*)(Context*)
-  void (*event)(fp::Context*) = event = (void (*)(fp::Context*))(handler);
+  void (*event)(fp::Context*) = (void (*)(fp::Context*))(handler);
   
   // Invoke the event.
   // FIXME: This should produce a copy of the context and process it

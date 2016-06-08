@@ -1,6 +1,7 @@
 
 add_executable(flowcap 
   main.cpp 
+  forward.cpp
   replay.cpp
   expect.cpp
   fetch.cpp)

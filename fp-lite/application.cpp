@@ -135,8 +135,15 @@ Application::start(Dataplane& dp)
   int ret = 0;
   if (lib_.start)
     ret = lib_.start(&dp);
+
+  // FIXME: Why aren't we checking the return value from starting
+  // the library? That seems like a good thing to do.
+
   //if (!ret)
-    state_ = RUNNING;
+  (void)ret;
+  
+  state_ = RUNNING;
+
   return 0;
 }
 
@@ -149,8 +156,15 @@ Application::stop(Dataplane& dp)
   int ret = 0;
   if (lib_.stop)
     ret = lib_.stop(&dp);
+
+  // FIXME: Why aren't we checking the return value from starting
+  // the library? That seems like a good thing to do.
+
   //if (!ret)
-    state_ = STOPPED;
+  (void)ret;
+
+  state_ = STOPPED;
+
   return 0;
 }
 

@@ -11,8 +11,9 @@
 
 #include <string>
 #include <iostream>
+
 #include <signal.h>
-//#include <queue>
+
 
 using namespace ff;
 using namespace fp;
@@ -20,8 +21,7 @@ using namespace fp;
 
 // Emulate a 2 port wire running over TCP ports.
 
-// NOTE: Clang will optimize assume that the running loop never terminates 
-// if this is not declared volatile. Go figure.
+// Tracks whether the wire is running.
 static bool running;
 
 // If true, the dataplane will terminate after forwarding packets from
@@ -197,17 +197,10 @@ main(int argc, char* argv[])
       out->send(cxt);
   };
 
-  /*
-  auto egress = [&](Port_tcp& port)
-  {
-    if (!send_queue[port.id()].empty()) {
-      Context cxt = send_queue[port.id()].front();
-      port.send(cxt);
-      send_queue[port.id()].pop();
-    }      
-  };
-  */
   // Select a port to handle input.
+  //
+  // FIXME: This does nothing useful. We should be able to ingress directly 
+  // from the main loop.
   auto input = [&](int fd)
   {
     if (fd == port1.fd())
@@ -216,16 +209,7 @@ main(int argc, char* argv[])
       ingress(port2);
   };
 
-  /*
-  // Select a port to handle output.
-  auto output = [&](int fd)
-  {
-    if (fd == port1.fd())
-      egress(port1);
-    else
-      egress(port2);
-  };
-  */
+
   // Main loop.
   running = true;
   while (running) {
@@ -248,14 +232,8 @@ main(int argc, char* argv[])
       input(port1.fd());
     if (port2.fd() > 0 && ss.can_read(port2.fd()))
       input(port2.fd());
-    // Process output.
-    /*
-    if (port1.fd() > 0 && ss.can_write(port1.fd()))
-      output(port1.fd());
-    if (port2.fd() > 0 && ss.can_write(port2.fd()))
-      output(port2.fd());
-    */
   }
+
 
   // Take the dataplane down.
   dp.down();
