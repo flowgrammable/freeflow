@@ -3,17 +3,19 @@
 namespace fp
 {
 
-// Initialize the first len bytes of the key with those
+// FIXME: Key's can't be user defined types.
+//
+// // Initialize the first len bytes of the key with those
 // in the given buffer, and zero-fill the remainder.
-Key::Key(Byte const* buf, int len)
-{
-  std::fill(std::copy(buf, buf + len, data), data + key_size, 0);
-}
+// Key::Key(Byte const* buf, int len)
+// {
+//   std::fill(std::copy(buf, buf + len, data), data + key_size, 0);
+// }
 
 
 // Returns a reference to a flow. If no flow matches the
 // key, the table-miss flow is returned.
-inline Flow&
+Flow&
 Hash_table::search(Key const& k)
 {
   auto iter = std::unordered_map<Key, Flow, Key_hash>::find(k);
@@ -26,7 +28,7 @@ Hash_table::search(Key const& k)
 
 // Returns a reference to a flow. If no flow matches the
 // key, the table-miss flow is returned.
-inline Flow const&
+Flow const&
 Hash_table::search(Key const& k) const
 {
   auto iter = std::unordered_map<Key, Flow, Key_hash>::find(k);
@@ -39,18 +41,18 @@ Hash_table::search(Key const& k) const
 
 // If an equivalent flow entry exists, no action is taken.
 // Returns a reference to the inserted (or previous) flow.
-inline void
+void
 Hash_table::insert(Key const& k, Flow const& f)
 {
-  std::unordered_map<Key, Flow, Key_hash>::insert({k, f});
+  Map::insert({k, f});
 }
 
 
 // If no such entry exists, no action is taken.
-inline void
+void
 Hash_table::erase(Key const& k)
 {
-  erase(k);
+  Map::erase(k);
 }
 
 } // namespace fp

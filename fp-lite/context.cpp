@@ -55,6 +55,7 @@ apply(Context& cxt, Set_action a)
   Byte* p = cxt.get_field(a.field.offset);
   Byte* val = a.value;
   int len = a.field.length;
+
   // Convert native to network order after copying.
   std::copy(val, val + len, p);
   native_to_network_order(p, len);

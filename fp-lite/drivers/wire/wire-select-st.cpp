@@ -44,10 +44,13 @@ main(int argc, char* argv[])
     if (std::string(argv[1]) == "once")
       once = true;
   }
+
+  // Construct a path to the wire application.
   std::string path = "apps/";
   if (argc == 3) {
     path = std::string(argv[2]);
   }
+  path += "wire.app";
 
   // TODO: Use sigaction.
   signal(SIGINT, on_signal);
@@ -71,7 +74,7 @@ main(int argc, char* argv[])
   dp.add_port(&port1);
   dp.add_port(&port2);
   dp.add_virtual_ports();
-  dp.load_application(std::string(path + "wire.app").c_str());
+  dp.load_application(path.c_str());
   dp.up();
 
   // Set up the initial polling state.

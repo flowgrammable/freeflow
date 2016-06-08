@@ -7,8 +7,8 @@
 namespace fp
 {
 
-struct Dataplane;
-struct Context;
+class Dataplane;
+class Context;
 struct Table;
 struct Flow;
 

@@ -155,12 +155,7 @@ namespace Buffer_pool
 {
 
 
-static Pool& 
-get_pool(Dataplane* dp)
-{
-  static Pool p(1024 * 256 + 1024, dp);
-  return p;
-}
+Pool& get_pool(Dataplane* dp);
 
 }
 

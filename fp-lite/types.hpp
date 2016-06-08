@@ -14,11 +14,6 @@ namespace fp
 using Byte = uint8_t;
 
 
-// FIXME: What are these?
-using begin = Byte* (*)();
-using end = Byte* (*)();
-
-
 // packed 24 bit integer
 // wraps a 32 bit integer
 #pragma pack(push, 1)

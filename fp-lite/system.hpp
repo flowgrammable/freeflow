@@ -5,6 +5,7 @@
 #include "table.hpp"
 #include "action.hpp"
 
+
 extern "C"
 {
 
@@ -50,7 +51,7 @@ void           fp_raise_event(fp::Context*, void*);
 namespace fp
 {
 
-struct Dataplane;
+class Dataplane;
 
 // Port management functions.
 //

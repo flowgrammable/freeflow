@@ -1,13 +1,11 @@
-#include <exception>
-#include <unordered_map>
-#include <cstdarg>
 
 #include "system.hpp"
-// include "port_table.hpp"
 #include "application.hpp"
 #include "endian.hpp"
 #include "context.hpp"
 #include "dataplane.hpp"
+
+#include <cassert>
 
 
 namespace fp
@@ -192,88 +190,77 @@ fp_goto_table(fp::Context* cxt, fp::Table* tbl, int n, ...)
 
 
 // Returns the port matching the given id or error otherwise.
+//
+// FIXME: This currently just verifies that id is in fact a valid
+// port. Is that really what we want to do?
 fp::Port::Id
 fp_get_port_by_id(fp::Dataplane* dp, unsigned int id)
 {
-  if (dp) {
-    if (dp->get_port(id))
-      return id;
-    else
-      throw std::string("Invalid port id " + std::to_string(id));
-  }
+  assert(dp);
+  if (dp->get_port(id))
+    return id;
   else
-    throw std::string("Null dataplane pointer");
+    return 0;
 }
 
 // Returns whether or not the port is up or down
 bool
 fp_port_id_is_up(fp::Dataplane* dp, fp::Port::Id id)
 {
-  if (dp) {
-    if (fp::Port* p = dp->get_port(id))
-      return p->is_up();
-    else
-      throw std::string("Invalid port id " + std::to_string(id));
-  }
-  else
-    throw std::string("Null dataplane pointer");
+  assert(dp);
+  assert(dp->get_port(id));
+  return dp->get_port(id)->is_up();
 }
 
 // Returns whether or not the given id exists.
 bool
 fp_port_id_is_down(fp::Dataplane* dp, fp::Port::Id id)
 {
-  if (dp) {
-    if (fp::Port* p = dp->get_port(id))
-      return p->is_down();
-    else
-      throw std::string("Invalid port id " + std::to_string(id));
-  }
-  else
-    throw std::string("Null dataplane pointer");
+  assert(dp);
+  assert(dp->get_port(id));
+  return dp->get_port(id)->is_down();
 }
 
 
 int
 fp_port_get_id(fp::Port* p)
 {
-  if (p)
-    return p->id();
-  else
-    throw std::string("Null port pointer");
+  assert(p);
+  return p->id();
 }
 
 
 int
 fp_port_is_up(fp::Port* p)
 {
-  if (p)
-    return p->is_up();
-  else
-    throw std::string("Null port pointer");
+  assert(p);
+  return p->is_up();
 }
 
 
 int
 fp_port_is_down(fp::Port* p)
 {
-  if (p)
-    return p->is_down();
-  else
-    throw std::string("Null port pointer");
+  assert(p);
+  return p->is_down();
 }
 
 
 // Copies the values within 'n' fields into a byte buffer
 // and constructs a key from it.
+//
+// TODO: I suspect that this is fundamentally broken. Why doesn't
+// the language assemble the key -- it knows where stuff is stored.
+// we shouldn't rely on the data plane to figure that out.
 fp::Key
 fp_gather(fp::Context* cxt, int key_width, int n, va_list args)
 {
-  if (!cxt)
-    throw std::string("Null context pointer");
+  assert(cxt);
+  
   // FIXME: We're using a fixed size key of 128 bytes right now
   // apparently. This should probably be dynamic.
   fp::Byte buf[fp::key_size];
+  
   // Iterate through the fields given in args and copy their
   // values into a byte buffer.
   int i = 0;
@@ -300,6 +287,7 @@ fp_gather(fp::Context* cxt, int key_width, int n, va_list args)
       case 256:
         in_phy_port = cxt->input_physical_port_id();
         p = reinterpret_cast<fp::Byte*>(&in_phy_port);
+
         // Copy the field into the buffer.
         std::copy(p, p + sizeof(in_phy_port), &buf[j]);
         j += sizeof(in_phy_port);
@@ -310,8 +298,10 @@ fp_gather(fp::Context* cxt, int key_width, int n, va_list args)
         // Lookup the field in the context.
         b = cxt->get_field_binding(f);
         p = cxt->get_field(b.offset);
+        
         // Copy the field into the buffer.
         std::copy(p, p + b.length, &buf[j]);
+        
         // Then reverse the field in place.
         fp::network_to_native_order(&buf[j], b.length);
         j += b.length;
@@ -320,7 +310,12 @@ fp_gather(fp::Context* cxt, int key_width, int n, va_list args)
     ++i;
   }
 
-  return fp::Key(buf, key_width);
+  // Copy the buffer into a key.
+  //
+  // FIXME: This deals only with fixed-size keys.
+  fp::Key k;
+  std::memcpy(&k, buf, sizeof(k));
+  return k;
 }
 
 
@@ -329,26 +324,26 @@ fp_gather(fp::Context* cxt, int key_width, int n, va_list args)
 fp::Table*
 fp_create_table(fp::Dataplane* dp, int id, int key_width, int size, fp::Table::Type type)
 {
-  if (!dp)
-    throw std::string("Null data plane pointer");
+  assert(dp);
+
   fp::Table* tbl = nullptr;
 
   switch (type)
   {
     case fp::Table::Type::EXACT:
-    // Make a new hash table.
-    tbl = new fp::Hash_table(id, size, key_width);
-    if (tbl)
+      // Make a new hash table.
+      tbl = new fp::Hash_table(id, size, key_width);
       dp->tables_.insert({id, tbl});
-    else
-      throw std::string("Table creation failed");
-    break;
+      break;
+    
     case fp::Table::Type::PREFIX:
-    // Make a new prefix match table.
-    break;
+      // Make a new prefix match table.
+      break;
+    
     case fp::Table::Type::WILDCARD:
-    // Make a new wildcard match table.
-    break;
+      // Make a new wildcard match table.
+      break;
+    
     default:
       throw std::string("Unknown table type given");
   }
@@ -364,21 +359,16 @@ fp_create_table(fp::Dataplane* dp, int id, int key_width, int size, fp::Table::T
 void
 fp_add_init_flow(fp::Table* tbl, void* fn, void* key, unsigned int timeout, unsigned int egress)
 {
-  if (!tbl)
-    throw std::string("Null table pointer");
-  if (!fn)
-    throw std::string("Null function pointer");
-  if (!key)
-    throw std::string("Null key pointer");
-  // std::cout << "Adding flow to " << tbl->id() << '\n';
-  //
-  // get the length of the table's expected key
-  int key_size = tbl->key_size();
-  // std::cout << "Key size: " << key_size << '\n';
-  // cast the key to Byte*
-  fp::Byte* buf = reinterpret_cast<fp::Byte*>(key);
-  // construct a key object
-  fp::Key k(buf, key_size);
+  assert(tbl);
+  assert(fn);
+  assert(key);
+
+  // FIXME: This assumes a fixed-length key size. We should probably be
+  // passing the length in -- or better yet, simply do all of this
+  // from within the language.
+  fp::Key k;
+  std::memcpy(&k, key, sizeof(k));
+
   // cast the flow into a flow instruction
   fp::Flow_instructions instr = reinterpret_cast<fp::Flow_instructions>(fn);
   fp::Flow flow(0, fp::Flow_counters(), instr, fp::Flow_timeouts(), 0, 0, egress);
@@ -391,17 +381,17 @@ fp_add_init_flow(fp::Table* tbl, void* fn, void* key, unsigned int timeout, unsi
 void
 fp_add_new_flow(fp::Table* tbl, void* fn, void* key, unsigned int timeout, unsigned int egress)
 {
-  if (!tbl)
-    throw std::string("Null table pointer");
-  if (!fn)
-    throw std::string("Null function pointer");
-  if (!key)
-    throw std::string("Null key pointer");
-  int key_size = tbl->key_size();
-  // cast the key to Byte*
-  fp::Byte* buf = reinterpret_cast<fp::Byte*>(key);
-  // construct a key object
-  fp::Key k(buf, key_size);
+  assert(tbl);
+  assert(fn);
+  assert(key);
+
+
+  // FIXME: This assumes a fixed-length key size. We should probably be
+  // passing the length in -- or better yet, simply do all of this
+  // from within the language.
+  fp::Key k;
+  std::memcpy(&k, key, sizeof(k));
+  
   // cast the flow into a flow instruction
   fp::Flow_instructions instr = reinterpret_cast<fp::Flow_instructions>(fn);
   fp::Flow flow(0, fp::Flow_counters(), instr, fp::Flow_timeouts(), 0, 0, egress);
@@ -413,10 +403,8 @@ fp_add_new_flow(fp::Table* tbl, void* fn, void* key, unsigned int timeout, unsig
 fp::Port::Id
 fp_get_flow_egress(fp::Flow* f)
 {
-  if (f && f->egress_ > 0)
-    return f->egress_;
-  else
-    throw std::string("Null flow pointer");
+  assert(f && f->egress_ > 0);
+  return f->egress_;
 }
 
 
@@ -426,10 +414,9 @@ fp_get_flow_egress(fp::Flow* f)
 void
 fp_add_miss(fp::Table* tbl, void* fn, unsigned int timeout, unsigned int egress)
 {
-  if (!tbl)
-    throw std::string("Null table pointer");
-  if (!fn)
-    throw std::string("Null function pointer");
+  assert(tbl);
+  assert(fn);
+
   // cast the flow into a flow instruction
   fp::Flow_instructions instr = reinterpret_cast<fp::Flow_instructions>(fn);
   fp::Flow flow(0, fp::Flow_counters(), instr, fp::Flow_timeouts(), 0, 0, egress);
@@ -441,16 +428,12 @@ fp_add_miss(fp::Table* tbl, void* fn, unsigned int timeout, unsigned int egress)
 void
 fp_del_flow(fp::Table* tbl, void* key)
 {
-  if (!tbl)
-    throw std::string("Null table pointer");
-  if (!key)
-    throw std::string("Null key pointer");
-  // get the length of the table's expected key
-  int key_size = tbl->key_size();
-  // cast the key to Byte*
-  fp::Byte* buf = reinterpret_cast<fp::Byte*>(key);
-  // construct a key object
-  fp::Key k(buf, key_size);
+  assert(table);
+  assert(key);
+
+  fp::Key k;
+  std::memcpy(&k, key, sizeof(k));
+  
   // delete the key
   tbl->erase(k);
 }
@@ -460,26 +443,24 @@ fp_del_flow(fp::Table* tbl, void* key)
 void
 fp_del_miss(fp::Table* tbl)
 {
-  if (tbl)
-    tbl->erase_miss();
-  else
-    throw std::string("Null table pointer");
+  assert(tbl);
+  tbl->erase_miss();
 }
 
 
 // Raise an event.
-// TODO: Make this asynchronous on another thread.
+//
+// TODO: Make this asynchronous on another thread. 
 void
 fp_raise_event(fp::Context* cxt, void* handler)
 {
-  if (!cxt)
-    throw std::string("Null context pointer");
-  if (!handler)
-    throw std::string("Null event handler pointer");
+  assert(cxt);
+  assert(handler);
+
   // Cast the handler back to its appropriate function type
   // of void (*)(Context*)
-  void (*event)(fp::Context*);
-  event = (void (*)(fp::Context*)) (handler);
+  void (*event)(fp::Context*) = event = (void (*)(fp::Context*))(handler);
+  
   // Invoke the event.
   // FIXME: This should produce a copy of the context and process it
   // seperately.
