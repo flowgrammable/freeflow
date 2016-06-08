@@ -240,7 +240,7 @@ Select_set::max() const
 // -------------------------------------------------------------------------- //
 // Select function
 
-// FIXME: Take a duration for the time out instead of an int.
+// Select for the specified number of microseconds.
 inline int
 select(Select_set& ss, Microseconds timeout)
 {
@@ -256,6 +256,29 @@ select(Select_set& ss, Microseconds timeout)
 
   // Call select on the select sets files.
   int ret = select(ss.max() + 1, &ss.test_[0], &ss.test_[1], &ss.test_[2], &to);
+
+  // On error, reset the test fds, so that we don't get false positives.
+  if (ret < 0) {
+    ss.test_[0].reset();
+    ss.test_[1].reset();
+    ss.test_[2].reset();
+  }
+
+  return ret;
+}
+
+
+// Select until an event is registered.
+inline int
+select(Select_set& ss)
+{
+  // Copy the master list into the test list. 
+  ss.test_[0] = ss.orig_[0];
+  ss.test_[1] = ss.orig_[1];
+  ss.test_[2] = ss.orig_[2];
+
+  // Call select on the select sets files.
+  int ret = select(ss.max() + 1, &ss.test_[0], &ss.test_[1], &ss.test_[2], nullptr);
 
   // On error, reset the test fds, so that we don't get false positives.
   if (ret < 0) {

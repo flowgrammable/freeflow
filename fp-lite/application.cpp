@@ -3,6 +3,7 @@
 
 #include <cassert>
 #include <stdexcept>
+#include <iostream>
 
 #include <dlfcn.h>
 

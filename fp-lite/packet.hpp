@@ -29,82 +29,52 @@ enum Buff_t {
 // larget than its payload.
 struct Packet
 {
-  Packet();
-  Packet(Byte*, int);
-  Packet(Byte*, int, int);
-
-  Packet& operator=(Packet const& other)
-  {
-    buf_ = other.buf_;
-    size_ = other.size_;
-    bytes_ = other.bytes_;
-    timestamp_ = other.timestamp_;
-    id_ = other.id_;
-    return *this;
-  }
+  Packet(Byte* b, int n)
+    : buf_(b), cap_(n), len_(0), ts_(), id_()
+  { }
 
   template<int N>
   Packet(Byte (&buf)[N])
     : Packet(buf, N)
   { }
 
-  ~Packet() { }
-
   // Returns a pointer to the raw buffer.
   Byte const* data() const { return buf_; }
   Byte*       data()       { return buf_; }
-  int         size() const { return size_; }
-  int         id()   const { return id_; }
+  
+  // Returns the total capacity of the buffer containing the packe.
+  int capacity() const { return cap_; }
+  
+  // Returns the number of bytes actually in the packet. Note that length
+  // must always be less than capacity.
+  int length() const   { return len_; }
+  
+  // Returns the id of the packet. 
+  int id()   const { return id_; }
 
-  uint64_t    timestamp() const { return timestamp_; }
-
-  void set_size(int size) { size_ = size; }
+  uint64_t    timestamp() const { return ts_; }
 
   void limit(int n);
 
   // Data members.
   Byte*     buf_;        // Packet buffer.
-  int       size_;       // Total buffer size.
-  int       bytes_;      // Total bytes in the packet.
-  uint64_t  timestamp_;  // Time of packet arrival.
+  int       cap_;        // Total buffer size.
+  int       len_;        // Total bytes in the packet.
+  uint64_t  ts_;  // Time of packet arrival.
   int       id_;         // The packet id.
 };
-
-
-inline
-Packet::Packet()
-  : buf_(nullptr), size_(0), bytes_(0), timestamp_(0), id_(0)
-{ }
-
-
-inline
-Packet::Packet(Byte* data, int id)
-	: buf_(data)
-  , size_(0)
-  , timestamp_(0)
-  , id_(id)
-{ }
-
-
-inline
-Packet::Packet(Byte* data, int id, int size)
-	: buf_(data)
-  , size_(size)
-  , timestamp_(0)
-  , id_(id)
-{ }
 
 
 // Set the number of bytes to a smaller value.
 inline void
 Packet::limit(int n)
 {
-  assert(n <= size_);
-  size_ = n;
+  assert(n <= cap_);
+  len_ = n;
 }
 
 
-Packet*   packet_create(Byte*, int, uint64_t, void*, Buff_t);
+// Packet* packet_create(Byte*, int, uint64_t, void*, Buff_t);
 
 } // namespace fp
 

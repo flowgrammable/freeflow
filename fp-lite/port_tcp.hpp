@@ -64,7 +64,8 @@ inline void
 Port_tcp::attach(Socket&& s)
 {
   sock_ = std::move(s);
-  state_.link_down = false;
+  stats_ = {};              // Reset stats
+  state_.link_down = false; // Put the link in up state.
 }
 
 

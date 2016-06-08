@@ -91,9 +91,6 @@ main(int argc, char* argv[])
   Time stop;                // Records when both ends have disconnected
   Fp_seconds duration(0.0); // Cumulative time spent forwarding
 
-  // System stats.
-  uint64_t npackets = 0;  // Total number of packets processed
-  uint64_t nbytes = 0;    // Total number of bytes processed
 
   // FIXME: Factor the accept/ingress code into something a little more 
   // reusable.
@@ -136,13 +133,13 @@ main(int argc, char* argv[])
 
   // Handle input from the client socket.
   //
-  // TODO: This defines the basic ingress pipeline. How
-  // do we refactor this to make it reasonably composable.
+  // TODO: This defines the basic ingress pipeline. How do we refactor this 
+  // to make it reasonably composable.
   auto ingress = [&](Port_tcp& port)
   {
     // Ingress the packet.
     Byte buf[2048];
-    Context cxt(buf, &dp);
+    Context cxt(&dp, buf);
     bool ok = port.recv(cxt);
 
     // Handle error or closure.
@@ -163,15 +160,26 @@ main(int argc, char* argv[])
         stop = now();
         duration += stop - start;
 
+        // Dump session stats
+        uint64_t npackets = port1.stats().packets_rx;
+        uint64_t nbytes = port1.stats().bytes_rx;
+        double Mb = double(nbytes * 8) / (1 << 20);
+        double s = duration.count();
+        double Mbps = Mb / s;
+        long Pps = npackets / s;
+
+        // FIXME: Make this prettier.
+        std::cout.precision(6);
+        std::cout << "processed " << npackets << " packets in " 
+                  << s << " seconds (" << Pps << " Pps)\n";
+        std::cout << "processed " << nbytes << " bytes in " 
+                  << s << " seconds (" << Mbps << " Mbps)\n";
+
         // If running in one-shot mode, stop now.
         if (once)
           running = false;
       }
       return;
-    }
-    else {
-      ++npackets;
-      nbytes += cxt.packet().size();
     }
 
     // Otherwise, process the application.
@@ -183,11 +191,11 @@ main(int argc, char* argv[])
     app->process(cxt);
 
     // Apply actions after pipeline processing.
-    cxt.apply_actions();
+    // cxt.apply_actions();
 
-    // Assuming there's an output send to it.
-    if (Port* out = cxt.output_port())
-      out->send(cxt);
+    // // Assuming there's an output send to it.
+    // if (Port* out = cxt.output_port())
+    //   out->send(cxt);
   };
 
 
@@ -221,18 +229,5 @@ main(int argc, char* argv[])
   // Close the server socket.
   server.close();
   
-  // Write out stats.
-  double s = duration.count();
-  double Mb = double(nbytes * 8) / (1 << 20);
-  double Mbps = Mb / s;
-  long Pps = npackets / s;
-
-  // FIXME: Make this prettier.
-  std::cout.precision(6);
-  std::cout << "processed " << npackets << " packets in " 
-            << s << " seconds (" << Pps << " Pps)\n";
-  std::cout << "processed " << nbytes << " bytes in " 
-            << s << " seconds (" << Mbps << " Mbps)\n";
-
   return 0;
 }

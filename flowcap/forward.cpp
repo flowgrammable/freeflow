@@ -76,19 +76,18 @@ forward(int argc, char* argv[])
   Time start = now();
   while (cap.get(p)) {
     std::uint8_t buf[4096];
-    std::uint32_t len = htonl(p.captured_size());
-    std::memcpy(&buf[0], &len, 4);
+    std::uint32_t hdr = htonl(p.captured_size());
+    std::memcpy(&buf[0], &hdr, 4);
     std::memcpy(&buf[4], p.data(), p.captured_size());
     for (int i = 0; i < iterations; i++) {
       int k = sock.send(buf, p.captured_size() + 4);
       if (k <= 0) {
         if (k < 0) {
-          std::cerr << "error: " << std::strerror(errno) << '\n';
+          std::cerr << "send error: " << std::strerror(errno) << '\n';
           return 1;
         }
         break;
       }
-      // std::cin.get();
       ++n;
       b += p.captured_size();
     }

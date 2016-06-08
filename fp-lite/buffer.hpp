@@ -24,7 +24,7 @@ struct Buffer
 {
   // Buffer ctor.
   Buffer(int id, Dataplane* dp)
-    : id_(id), data_(new Byte[2048]), cxt_({data_, id, 2048}, dp)
+    : id_(id), data_(new Byte[2048]), cxt_(dp, {data_, 2048})
   { }
 
   // Accessors.
@@ -34,16 +34,12 @@ struct Buffer
   // Returns a reference to the context associated with this packet buffer.
   Context& context() { return cxt_; }
 
-  // Data members.
-  //
-  // The buffer id, refers to the index in the object pool store
-  // in which it resides.
-  int     id_;
-  // The packet data.
-  Byte*   data_;
-  // The context for the packet data.
-  Context cxt_;
+  
+  int id_;       // Object pool index
+  Byte*   data_; // The packet data.
+  Context cxt_;  // The context for the packet data.
 };
+
 
 // The flowpath object pool. Uses a priority_queue to manage a
 // min-heap, that gives next available buffer index.

@@ -47,7 +47,7 @@ Port_eth_tcp::recv(Context& cxt)
       return false;
     }
   }
-  p.set_size(hdr);
+  p.limit(hdr);
  
   // // Receive until recv_size bytes have been read.
   // Byte* ptr = p.data();
@@ -94,7 +94,7 @@ Port_eth_tcp::send(Context& cxt)
   Packet const& p = cxt.packet();
 
   // Send the header size.
-  std::uint32_t hdr = ntohl(p.size());
+  std::uint32_t hdr = ntohl(p.length());
   int k1 = sock.send((Byte*)&hdr, 4);
   if (k1 <= 0) {
     state_.link_down = true;
@@ -102,7 +102,7 @@ Port_eth_tcp::send(Context& cxt)
   }
 
   // Send the remainder of the packet.
-  int k2 = sock.send(p.data(), p.size());
+  int k2 = sock.send(p.data(), p.length());
   if (k2 <= 0) {
     state_.link_down = true;
     return false;

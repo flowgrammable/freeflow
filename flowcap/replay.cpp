@@ -82,7 +82,12 @@ replay(int argc, char* argv[])
     usleep(wait.count());
     prev = cur;
 
-    int k = sock.send(p.data(), p.captured_size());
+    // Send the packet, padded with its size.
+    std::uint8_t buf[4096];
+    std::uint32_t hdr = htonl(p.captured_size());
+    std::memcpy(&buf[0], &hdr, 4);
+    std::memcpy(&buf[4], p.data(), p.captured_size());
+    int k = sock.send(buf, p.captured_size() + 4);
     if (k <= 0) {
       if (k < 0) {
         std::cerr << "error: " << std::strerror(errno) << '\n';

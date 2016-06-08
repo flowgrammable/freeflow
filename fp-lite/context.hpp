@@ -106,39 +106,12 @@ struct Header_stack
 class Context
 {
 public:
-  
-  Context()
-    : input_(), ctrl_(), decode_(), packet_()
-  { }
-
-  // Initalize the context with a packet.
-  Context(Packet const& p, Dataplane* dp)
+  Context(Dataplane* dp, Packet const& p)
     : input_(), ctrl_(), decode_(), packet_(p), dp_(dp)
   { }
 
   Context(Packet const&, Dataplane*, unsigned int, unsigned int, int);
   Context(Packet const&, Dataplane*, Port*, Port*, int);
-
-  // Copy constructor.
-  Context(Context const& other)
-  {
-    *this = other;
-  }
-
-
-  Context& operator=(Context const& other)
-  {
-    input_ = other.input_;
-    ctrl_ = other.ctrl_;
-    decode_ = other.decode_;
-    packet_ = other.packet_;
-    metadata_ = other.metadata_;
-    actions_ = other.actions_;
-    return *this;
-  }
-
-  // Context dtor.
-  ~Context() { }
 
   // Returns the packet owned by the context.
   Packet const& packet() const { return packet_; }
