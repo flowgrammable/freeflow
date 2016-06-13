@@ -57,27 +57,6 @@ Port_eth_tcp::recv(Context& cxt)
   }
   p.limit(hdr);
  
-  // // Receive until recv_size bytes have been read.
-  // Byte* ptr = p.data();
-  // int32_t rem = hdr;
-  // while (rem != 0) {
-  //   int k = sock.recv(ptr, rem);
-  //   if (k <= 0) {
-  //     if (k == 0)
-  //       return false;
-  //     if (k < 0 && errno != EAGAIN) {
-  //       state_.link_down = true;
-  //       return false;
-  //     }
-  //     else
-  //       continue;
-  //   }
-  //   rem -= k;
-  //   ptr += k;
-  // }
-  // p.set_size(hdr);
-
-
   // Set up the input context.
   //
   // TODO: The physical port may not be this port.
