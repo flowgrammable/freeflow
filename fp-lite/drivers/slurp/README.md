@@ -16,12 +16,17 @@ available.
 
 ## Notes
 
-Under full load (i.e., filling the input pipe), performance can be affected
-by non-obvious factors. 
+Our full-load testing may not paint an accurate portrait of efficiency. When
+we test this way, the input queue almost always has data available.
+When we're testing with an asynchronous model (select, epoll, kqueue), we're
+issuing system calls to determine if more data is available: add a context
+switch. Then we call recv() to get the data: add another context switch.
 
-For example, the failure of the compiler to inline a
-member function that is called repeatedly can lead to suprisingly large
-overheads. In particular, in the Select_set the contains() and can_read()
-calls can also potentially impact cache locality: indirection through
-the this pointer may suppress obvious optimizations.
+Furthermore, this kind of testing exacerbates performance concerns. In 
+particular, we can use callgrind to find instances where a failure to inline
+code results in a 4% performance penalty. This kind of optimization is nearly
+impossible to hand-tune at the source code level.
 
+Note that some performance penalties may also be assessed by failures to
+optimize around the `this` pointer. Certain optimizations may be avoided
+because of aliasing problems.
