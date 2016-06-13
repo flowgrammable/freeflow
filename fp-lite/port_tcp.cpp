@@ -27,15 +27,22 @@ Port_eth_tcp::recv(Context& cxt)
   // If we don't receive the 4-byte header, or if we encounter an error
   // then just give up. It's not worth trying to capture more.
   std::uint32_t hdr;
-  int k1 = sock.recv((Byte*)&hdr, 4);  
+  int k1 = ::recv(sock.fd(), (Byte*)&hdr, 4, MSG_PEEK);  
   if (k1 <= 0 || k1 != 4)
     return false;
   hdr = ntohl(hdr);
+  
+  // Verify that we won't exceed the capacity of the packet.
+  //
+  // TODO: Rather than simply failing (hard), we should be able to request
+  // a larger buffer for the packet. But now we're getting into serious
+  // memory management strategies.
+  assert(hdr < (std::size_t)p.capacity());
 
   // Read the rest of the message.
   //
   // TODO: Verify that the packet has capacity for the header.
-  int k2 = sock.recv(p.data(), hdr);
+  int k2 = sock.recv(p.data(), hdr + 4);
   if (k2 <= 0) {
     if (k2 == 0)
       return false;

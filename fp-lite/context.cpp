@@ -38,7 +38,7 @@ Context::write_metadata(uint64_t meta)
 Metadata const&
 Context::read_metadata()
 {
-  return this->metadata_;
+  return metadata_;
 }
 
 

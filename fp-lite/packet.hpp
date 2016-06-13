@@ -42,32 +42,33 @@ struct Packet
   Byte const* data() const { return buf_; }
   Byte*       data()       { return buf_; }
   
-  // Returns the total capacity of the buffer containing the packe.
-  int capacity() const { return cap_; }
+  // Returns the total capacity of the buffer containing the packet.
+  std::size_t capacity() const { return cap_; }
   
   // Returns the number of bytes actually in the packet. Note that length
   // must always be less than capacity.
-  int length() const   { return len_; }
+  std::size_t length() const   { return len_; }
   
   // Returns the id of the packet. 
   int id()   const { return id_; }
 
+  // Returns the time at which the packet was received or created.
   uint64_t    timestamp() const { return ts_; }
 
-  void limit(int n);
+  void limit(std::size_t n);
 
   // Data members.
-  Byte*     buf_;        // Packet buffer.
-  int       cap_;        // Total buffer size.
-  int       len_;        // Total bytes in the packet.
-  uint64_t  ts_;  // Time of packet arrival.
-  int       id_;         // The packet id.
+  Byte*       buf_;  // Packet buffer.
+  std::size_t cap_;  // Total buffer size.
+  std::size_t len_;  // Total bytes in the packet.
+  uint64_t  ts_;     // Time of packet arrival.
+  int       id_;     // The packet id.
 };
 
 
 // Set the number of bytes to a smaller value.
 inline void
-Packet::limit(int n)
+Packet::limit(std::size_t n)
 {
   assert(n <= cap_);
   len_ = n;

@@ -40,6 +40,25 @@ on_signal(int sig)
 }
 
 
+// Print cumulative stats for the the given port.
+void 
+print_stats(Port& p, Fp_seconds sec)
+{
+  uint64_t npackets = p.stats().packets_rx;
+  uint64_t nbytes = p.stats().bytes_rx;
+  double Mb = double(nbytes * 8) / (1 << 20);
+  double s = sec.count();
+  double Mbps = Mb / s;
+  long Pps = npackets / s;
+
+  std::cout.precision(6);
+  std::cout << "processed " << npackets << " packets in " 
+            << s << " seconds (" << Pps << " Pps)\n";
+  std::cout << "processed " << nbytes << " bytes in " 
+            << s << " seconds (" << Mbps << " Mbps)\n";
+}
+
+
 int
 main(int argc, char* argv[])
 {
@@ -79,38 +98,29 @@ main(int argc, char* argv[])
   dp.load_application(path.c_str());
   dp.up();
 
-  // Set up the initial polling state.
+  // Set up the event structure. Note that this is captured and modified
+  // by the accept and ingress handlers.
   Select_set ss;
   ss.add_read(server.fd());
   
-  // Current number of devices.
-  int nports = 0;
-  
-  // Timing information.
-  Time start;               // Records when both ends have connected
-  Time stop;                // Records when both ends have disconnected
-  Fp_seconds duration(0.0); // Cumulative time spent forwarding
-
 
   // FIXME: Factor the accept/ingress code into something a little more 
   // reusable.
 
-  // Accept connections from the server socket.
-  auto accept = [&](Ipv4_stream_socket& server)
+  // Accept connections from the server socket. Returns true if we
+  // accepted a connection.
+  auto accept = [&](Ipv4_stream_socket& server) -> bool
   {
     // Accept the connection.
     Ipv4_socket_address addr;
     Ipv4_stream_socket client = server.accept(addr);
     if (!client)
-      return; // TODO: Log the error.
+      return false; // TODO: Log the error.
 
     // If we already have two endpoints, just return, which will cause 
     // the socket to be closed.
-    if (nports == 1) {
-      std::cout << "[flowpath] reject connection " << addr.port() << '\n';
-      return;
-    }
-    std::cout << "[flowpath] accept connection " << addr.port() << '\n';
+    if (port1.fd() > 0)
+      return false;
 
     // Update the poll set.
     ss.add_read(client.fd());
@@ -120,25 +130,21 @@ main(int argc, char* argv[])
     // that happen implicitly, or do we have to cause the dataplane
     // to do it.
     port1.attach(std::move(client));
-    ++nports;
-
-    // Once we have two connections, start the timer.
-    if (nports == 1)
-      start = now();
 
     // Notify the application of the port change.
     Application* app = dp.get_application();
     app->port_changed(port1);
+
+    return true;
   };
 
-  // Handle input from the client socket.
-  //
-  // TODO: This defines the basic ingress pipeline. How do we refactor this 
-  // to make it reasonably composable.
-  auto ingress = [&](Port_tcp& port)
+  // Handle input from the client socket. Returns true if ingress and 
+  // processing succeeded and false if ingress failed (indicating a 
+  // port error).
+  auto ingress = [&](Port_tcp& port) -> bool
   {
     // Ingress the packet.
-    Byte buf[2048];
+    Byte buf[4096];
     Context cxt(&dp, buf);
     bool ok = port.recv(cxt);
 
@@ -148,38 +154,13 @@ main(int argc, char* argv[])
       Ipv4_stream_socket client = port.detach();
 
       // Notify the application of the port change.
-      Application* app = dp.get_application();
-      app->port_changed(port);
+      // Application* app = dp.get_application();
+      // app->port_changed(port);
 
       // Update the poll set.
       ss.del_read(client.fd());
-      --nports;
 
-      // Once both ports have disconnected, accumulate statistics.
-      if (nports == 0) {
-        stop = now();
-        duration += stop - start;
-
-        // Dump session stats
-        uint64_t npackets = port1.stats().packets_rx;
-        uint64_t nbytes = port1.stats().bytes_rx;
-        double Mb = double(nbytes * 8) / (1 << 20);
-        double s = duration.count();
-        double Mbps = Mb / s;
-        long Pps = npackets / s;
-
-        // FIXME: Make this prettier.
-        std::cout.precision(6);
-        std::cout << "processed " << npackets << " packets in " 
-                  << s << " seconds (" << Pps << " Pps)\n";
-        std::cout << "processed " << nbytes << " bytes in " 
-                  << s << " seconds (" << Mbps << " Mbps)\n";
-
-        // If running in one-shot mode, stop now.
-        if (once)
-          running = false;
-      }
-      return;
+      return false;
     }
 
     // Otherwise, process the application.
@@ -191,34 +172,107 @@ main(int argc, char* argv[])
     app->process(cxt);
 
     // Apply actions after pipeline processing.
-    // cxt.apply_actions();
+    cxt.apply_actions();
 
-    // // Assuming there's an output send to it.
-    // if (Port* out = cxt.output_port())
-    //   out->send(cxt);
+    // Assuming there's an output send to it.
+    if (Port* out = cxt.output_port())
+      out->send(cxt);
+
+    return true;
   };
 
+
+  // Current number of connected ports.
+  int nports = 0;
+
+  // Timing information.
+  Time start;               // Records when both ends have connected
+  Time stop;                // Records when both ends have disconnected
 
   // Main loop.
   running = true;
   while (running) {
-    // Wait for 100 milliseconds. Note that this can fail with
-    // EINTR, which really isn't an error.
+
+    // #if 0
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(server.fd(), &fds);
+    if (nports > 0)
+      FD_SET(port1.fd(), &fds);
+    int maxfd = std::max(server.fd(), port1.fd()) + 1;
+
+    int n = ::select(maxfd, &fds, nullptr, nullptr, nullptr);
+    if (n < 0) {
+      std::cerr << "select error: " << std::strerror(errno) << '\n';
+      return -1;
+    }
+
+    if (FD_ISSET(server.fd(), &fds))
+      if (accept(server)) {
+        ++nports;
+        start = now();
+      }
+    
+    if (nports > 0 && FD_ISSET(port1.fd(), &fds)) {
+      std::uint32_t hdr;
+      int k1 = ::recv(port1.fd(), (Byte*)&hdr, 4, MSG_PEEK);  
+      if (k1 <= 0 || k1 != 4) {
+        // Detach the socket so that it closes.
+        Ipv4_stream_socket sock = port1.detach();
+
+        // Update ports and print stats.
+        --nports;
+        stop = now();
+        print_stats(port1, stop - start);
+
+        if (once)
+          return 0;
+        else
+          continue;
+      }
+      hdr = ntohl(hdr);
+
+      // Read the rest of the message.
+      char buf[4096];
+      int k2 = recv(port1.fd(), buf, hdr + 4);
+      if (k2 <= 0) {
+        std::cerr << "receive error: " << std::strerror(errno) << '\n';
+        throw std::runtime_error("fuck");
+      } 
+      else {
+        port1.stats_.packets_rx++;
+        port1.stats_.bytes_rx += k2;
+      }
+    }
+    // #endif
+
+    #if 0
+    // Wait until we've received an event.
     //
-    // NOTE: It seems the common practice is to re-poll when EINTR
-    // occurs since like you said, it's not really an error. Most
-    // impls just stick it in a do-while(errno != EINTR);
-    int n = select(ss, 10ms);
+    // TODO: Handle eintr gracefully?
+    int n = select(ss);
     if (n <= 0)
       continue;
 
     // Is a connection available?
     if (ss.can_read(server.fd()))
-      accept(server);
-    
+      if (accept(server)) {
+        ++nports;
+        start = now();
+      }
+
     // Process input.
     if (port1.fd() > 0 && ss.can_read(port1.fd()))
-      ingress(port1);
+      if (!ingress(port1)) {
+        --nports;
+        stop = now();
+        print_stats(port1, stop - start);
+
+        // If running once, stop now.
+        if (once)
+          return 0;
+      }
+    #endif
   }
 
 

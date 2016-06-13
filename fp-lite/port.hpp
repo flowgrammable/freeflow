@@ -85,9 +85,10 @@ public:
   // Accessors.
   Id          id() const    { return id_; }
   Label       name() const  { return name_; }
-  Statistics  stats() const { return stats_; }
+  
+  // Returns the ports current stats.
+  Statistics const& stats() const { return stats_; }
 
-protected:
   Id              id_;        // The internal port ID.
   Address         addr_;      // The hardware address for the port.
   Label           name_;      // The name of the port.

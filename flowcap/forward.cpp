@@ -76,25 +76,23 @@ forward(int argc, char* argv[])
   Time start = now();
   while (cap.get(p)) {
     std::uint8_t buf[4096];
-    std::uint32_t hdr = htonl(p.captured_size());
+    std::size_t len = p.captured_size();
+    std::uint32_t hdr = htonl(len);
     std::memcpy(&buf[0], &hdr, 4);
-    std::memcpy(&buf[4], p.data(), p.captured_size());
-    for (int i = 0; i < iterations; i++) {
-      int k = sock.send(buf, p.captured_size() + 4);
-      if (k <= 0) {
-        if (k < 0) {
-          std::cerr << "send error: " << std::strerror(errno) << '\n';
-          return 1;
-        }
-        break;
+    std::memcpy(&buf[4], p.data(), len);
+
+    int k = sock.send(buf, len + 4);
+    if (k <= 0) {
+      if (k < 0) {
+        std::cerr << "send error: " << std::strerror(errno) << '\n';
+        return 1;
       }
-      ++n;
-      b += p.captured_size();
+      break;
     }
+    ++n;
+    b += len;
   }
   Time stop = now();
-  
-  sock.close();
   
   // Make some measurements.
   Fp_seconds dur = stop - start;
