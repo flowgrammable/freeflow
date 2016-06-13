@@ -25,6 +25,7 @@ public:
   using Socket = ff::Ipv4_stream_socket;
 
   Port_tcp(int);
+  ~Port_tcp();
 
   // TODO: I'm not sure that we're using these any more.
   bool open() { return true; }
@@ -55,6 +56,16 @@ Port_tcp::Port_tcp(int id)
   : Port(id), sock_(ff::uninitialized)
 {
   state_.link_down = true;
+}
+
+
+// If the port is going down, but the socket is still attached,
+// close the connection.
+inline
+Port_tcp::~Port_tcp()
+{
+  if (sock_.fd() != -1)
+    sock_.close();
 }
 
 

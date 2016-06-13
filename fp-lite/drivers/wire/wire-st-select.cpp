@@ -19,11 +19,7 @@ using namespace ff;
 using namespace fp;
 
 
-// Implements a general purpose discard server on port 5000.
-//
-// TODO: This actually seems like a useful service. After all, there's an
-// RFC for a discard protocol.
-
+// Emulate a 2 port wire running over TCP ports.
 
 // Tracks whether the wire is running.
 static bool running;
@@ -68,8 +64,8 @@ main(int argc, char* argv[])
       once = true;
   }
 
-  // Hard-code the app to load.
-  std::string path = "nop.app";
+  // Hardcode the app for testing.
+  std::string path = "wire.app";
 
   // Install signal handlers for common signals. Note that this will
   // ensure that system calls fail with EINTR when one of these
@@ -86,20 +82,20 @@ main(int argc, char* argv[])
   Ipv4_stream_socket server(addr);
   set_option(server.fd(), reuse_address(true));
 
-
   // Pre-create all standard ports.
-  Port_eth_tcp port1(1);
+  Port_eth_tcp port1(80);
+  Port_eth_tcp port2(443);
 
   // Configure the dataplane. Ports must be added before
   // applications are loaded.
   fp::Dataplane dp = "dp1";
   dp.add_port(&port1);
+  dp.add_port(&port2);
   dp.add_virtual_ports();
   dp.load_application(path.c_str());
   dp.up();
 
-  // Set up the event structure. Note that this is captured and modified
-  // by the accept and ingress handlers.
+  // Set up the initial polling state.
   Select_set ss;
   ss.add_read(server.fd());
   
@@ -107,45 +103,51 @@ main(int argc, char* argv[])
   // FIXME: Factor the accept/ingress code into something a little more 
   // reusable.
 
-  // Accept connections from the server socket. Returns true if we
-  // accepted a connection.
+
+  // Accept connections from the server socket. Returns true if a
+  // connection was accepted and false otherwise.
   auto accept = [&](Ipv4_stream_socket& server) -> bool
   {
     // Accept the connection.
     Ipv4_socket_address addr;
     Ipv4_stream_socket client = server.accept(addr);
-    if (!client)
-      return false; // TODO: Log the error.
-
-    // If we already have two endpoints, just return, which will cause 
-    // the socket to be closed.
-    if (port1.fd() > 0)
+    if (!client) {
+      std::cerr << "accept error: " << std::strerror(errno) << '\n';
       return false;
+    }
+
+    // Figure out which port we're attaching the connection to (if any),
+    // and save the total number of conneted ports for later.
+    Port_tcp* port;
+    if (port1.fd() == -1)
+      port = &port1;
+    else if (port2.fd() == -1)
+      port = &port2;
+    else {
+      std::cerr << "accept error: device is fully connected\n";
+      return false;
+    }
 
     // Update the poll set.
     ss.add_read(client.fd());
-    
-    // Bind the socket to a port.
-    // TODO: Emit a port status change to the application. Does
-    // that happen implicitly, or do we have to cause the dataplane
-    // to do it.
-    port1.attach(std::move(client));
+
+    // And atach the socket to the port.
+    port->attach(std::move(client));
 
     // Notify the application of the port change.
     Application* app = dp.get_application();
-    app->port_changed(port1);
+    app->port_changed(*port);
 
     return true;
   };
 
 
-  // Handle input from the client socket. Returns true if ingress and 
-  // processing succeeded and false if ingress failed (indicating a 
-  // port error).
+  // Handle input from the client socket. Returns false if the port
+  // was disconnected and true if the packet was processed.
   auto ingress = [&](Port_tcp& port) -> bool
   {
     // Ingress the packet.
-    Byte buf[4096];
+    Byte buf[2048];
     Context cxt(&dp, buf);
     bool ok = port.recv(cxt);
 
@@ -160,7 +162,6 @@ main(int argc, char* argv[])
 
       // Update the poll set.
       ss.del_read(client.fd());
-
       return false;
     }
 
@@ -178,17 +179,14 @@ main(int argc, char* argv[])
     // Assuming there's an output send to it.
     if (Port* out = cxt.output_port())
       out->send(cxt);
-
     return true;
   };
 
 
-  // Current number of connected ports.
-  int nports = 0;
-
-  // Timing information.
-  Time start;               // Records when both ends have connected
-  Time stop;                // Records when both ends have disconnected
+  
+  int nports = 0; // Current number of devices.
+  Time start;     // Records when both ends have connected
+  Time stop;      // Records when both ends have disconnected
 
   // Main loop.
   running = true;
@@ -200,18 +198,48 @@ main(int argc, char* argv[])
     }
 
     // Is a connection available?
-    if (ss.can_read(server.fd()))
+    if (ss.can_read(server.fd())) {
       if (accept(server)) {
         ++nports;
-        start = now();
+        std::cout << "ACC: " << nports << '\n';
+        if (nports == 2)
+          start = now();
+      }
+      else {
+        // FIXME: What do we really want to do if the server drops?
+        // Probably continue.
+        std::cout << "FAILED ACC?\n";
+        break;
+      }
+    }
+
+    if (nports > 0) {
+      // Process events on port1.
+      if (port1.fd() > 0 && ss.can_read(port1.fd())) {
+        if (!ingress(port1)) {
+          --nports;
+        }
       }
 
-    // Process input.
-    if (port1.fd() > 0 && ss.can_read(port1.fd())) {
-      if (!ingress(port1)) {
-        --nports;
+      // Process events on port2.
+      if (port2.fd() > 0 && ss.can_read(port2.fd())) {
+        if (!ingress(port2)) {
+          --nports;
+        }
+      }
+  
+      // If, after processing events, we have no ports, dump the stats
+      // and start listening for connections again.
+      //
+      // NOTE: If the 2nd endpoint does not disconnect, then we probably
+      // never see stats. It might be more appropriate to report the
+      // precisely when each port is disconnected, although that might
+      // make reporting a little difficult.
+      if (nports == 0) {
         stop = now();
-        print_stats(port1, stop - start);
+        Fp_seconds secs = stop - start;
+        print_stats(port1, secs);
+        print_stats(port2, secs);
 
         // If running once, stop now.
         if (once)
