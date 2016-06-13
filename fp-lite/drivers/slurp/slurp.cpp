@@ -68,12 +68,8 @@ main(int argc, char* argv[])
       once = true;
   }
 
-  // Construct a path to the wire application.
-  std::string path = "apps/";
-  if (argc == 3) {
-    path = std::string(argv[2]);
-  }
-  path += "nop.app";
+  // Hard-code the app to load.
+  std::string path = "nop.app";
 
   // TODO: Use sigaction.
   signal(SIGINT, on_signal);
@@ -85,7 +81,7 @@ main(int argc, char* argv[])
   Ipv4_stream_socket server(addr);
   set_option(server.fd(), reuse_address(true));
   //set_option(server.fd(), nonblocking(true));
-  // TODO: Handle exceptions.
+
 
   // Pre-create all standard ports.
   Port_eth_tcp port1(1);

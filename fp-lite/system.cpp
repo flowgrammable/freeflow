@@ -6,6 +6,7 @@
 #include "dataplane.hpp"
 
 #include <cassert>
+#include <cstdarg>
 
 
 namespace fp

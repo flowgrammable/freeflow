@@ -7,7 +7,7 @@
 
 // Includes Boost configuration macros for testing endiannes, so
 // we don't have to rely on 
-#include <boost/endian/conversion.hpp>
+#include <boost/detail/endian.hpp>
 
 
 namespace fp
