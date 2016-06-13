@@ -29,7 +29,7 @@ struct Dataplane* dp_;
 int
 load(struct Dataplane* dp)
 {
-  puts("[wire] load");
+  // puts("[wire] load");
   port1 = 0;
   port2 = 0;
   drop = 0;
@@ -43,7 +43,7 @@ load(struct Dataplane* dp)
 int
 unload(struct Dataplane* dp)
 {
-  puts("[wire] unload");
+  // puts("[wire] unload");
   return 0;
 }
 
@@ -52,7 +52,7 @@ unload(struct Dataplane* dp)
 int
 start(struct Dataplane* dp)
 {
-  puts("[wire] start");
+  // puts("[wire] start");
   return 0;
 }
 
@@ -61,7 +61,7 @@ start(struct Dataplane* dp)
 int
 stop(struct Dataplane* dp)
 {
-  puts("[wire] stop");
+  // puts("[wire] stop");
   return 0;
 }
 
@@ -70,14 +70,14 @@ int
 port_changed(Port port_id)
 {
   if (fp_port_id_is_up(dp_, port_id)) {
-    printf("[wire] port up: %d\n", port_id);
+    // printf("[wire] port up: %d\n", port_id);
     if (port1 == 0)
       port1 = port_id;
     else if (port2 == 0)
       port2 = port_id;
   }
   else if (fp_port_id_is_down(dp_, port_id)) {
-    printf("[wire] port down: %d\n", port_id);
+    // printf("[wire] port down: %d\n", port_id);
     if (port_id == port1)
       port1 = 0;
     else if (port_id == port2)
@@ -109,7 +109,7 @@ process(struct Context* cxt)
 void
 config()
 {
-  puts("[wire] called config");
+  // puts("[wire] called config");
   // p1 = fp_get_port("p1");
 }
 
@@ -118,6 +118,6 @@ config()
 void
 ports(void* ret)
 {
-  puts("[wire] called ports");
+  // puts("[wire] called ports");
   // *((int*)ret) = 2;
 }

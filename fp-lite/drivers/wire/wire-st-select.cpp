@@ -201,14 +201,12 @@ main(int argc, char* argv[])
     if (ss.can_read(server.fd())) {
       if (accept(server)) {
         ++nports;
-        std::cout << "ACC: " << nports << '\n';
         if (nports == 2)
           start = now();
       }
       else {
         // FIXME: What do we really want to do if the server drops?
         // Probably continue.
-        std::cout << "FAILED ACC?\n";
         break;
       }
     }
@@ -238,7 +236,7 @@ main(int argc, char* argv[])
       if (nports == 0) {
         stop = now();
         Fp_seconds secs = stop - start;
-        print_stats(port1, secs);
+        // print_stats(port1, secs); // The sender isn't interesting.
         print_stats(port2, secs);
 
         // If running once, stop now.
