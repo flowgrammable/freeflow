@@ -29,6 +29,7 @@ struct Select_file : fd_set
 
 
 // File set constructor. Initialize all file descriptors to 0.
+inline
 Select_file::Select_file()
 {
   FD_ZERO(this);

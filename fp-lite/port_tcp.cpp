@@ -37,7 +37,8 @@ Port_eth_tcp::recv(Context& cxt)
   // TODO: Rather than simply failing (hard), we should be able to request
   // a larger buffer for the packet. But now we're getting into serious
   // memory management strategies.
-  assert(hdr < (std::size_t)p.capacity());
+  if (hdr >= (std::size_t)p.capacity())
+    return -1;
 
   // Read the rest of the message.
   //

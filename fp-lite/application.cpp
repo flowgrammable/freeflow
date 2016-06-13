@@ -26,7 +26,7 @@ namespace fp
 static inline void*
 lib_open(char const* path)
 {
-  if (void* lib = ::dlopen(path, RTLD_LOCAL | RTLD_LAZY))
+  if (void* lib = ::dlopen(path, RTLD_LOCAL | RTLD_NOW))
     return lib;
   throw std::runtime_error(dlerror());
 }

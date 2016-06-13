@@ -14,6 +14,12 @@ namespace fp
 
 Dataplane::~Dataplane()
 {
+  // TODO: This should be unloading the application, but the internal
+  // state of the dataplane is currently broken. Just delete the app
+  // to prevent the leak.
+  if (app_)
+    delete app_;
+
   delete drop_;
   delete flood_;
 }
@@ -59,15 +65,16 @@ Dataplane::load_application(char const* path)
 {
   assert(!app_);
   app_ = new Application(path);
+  
   // FIXME: Bandaid for compiled steve app -> fp usage.
   app_->load(*this);
-  /*
-  if (app_->load(*this)) {
-    delete app_;
-    throw std::runtime_error("loading application");
-  }
-  */
+
+  // if (app_->load(*this)) {
+  //   delete app_;
+  //   throw std::runtime_error("loading application");
+  // }
   // Notify the application of all system ports.
+
   for (Port* p : ports_)
     app_->port_added(*p);
 }
@@ -81,12 +88,13 @@ void
 Dataplane::unload_application()
 {
   assert(app_);
+  
   // FIXME: Bandaid for compiled steve app -> fp usage.
   app_->unload(*this);
-  /*
-  if (app_->unload(*this))
-    throw std::runtime_error("unloading application");
-  */
+  
+  // if (app_->unload(*this))
+  //   throw std::runtime_error("unloading application");
+
   delete app_;
   app_ = nullptr;
 }

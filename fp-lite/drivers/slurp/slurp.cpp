@@ -189,7 +189,7 @@ main(int argc, char* argv[])
   running = true;
   while (running) {
 
-    // #if 0
+    #if 0
     fd_set fds;
     FD_ZERO(&fds);
     FD_SET(server.fd(), &fds);
@@ -240,15 +240,14 @@ main(int argc, char* argv[])
         port1.stats_.bytes_rx += k2;
       }
     }
-    // #endif
+    #endif
 
-    #if 0
+    // #if 0
     // Wait until we've received an event.
-    //
-    // TODO: Handle eintr gracefully?
     int n = select(ss);
-    if (n <= 0)
+    if (n <= 0) {
       continue;
+    }
 
     // Is a connection available?
     if (ss.can_read(server.fd()))
@@ -258,7 +257,7 @@ main(int argc, char* argv[])
       }
 
     // Process input.
-    if (port1.fd() > 0 && ss.can_read(port1.fd()))
+    if (port1.fd() > 0 && ss.can_read(port1.fd())) {
       if (!ingress(port1)) {
         --nports;
         stop = now();
@@ -268,7 +267,7 @@ main(int argc, char* argv[])
         if (once)
           return 0;
       }
-    #endif
+    }
   }
 
 
