@@ -6,6 +6,7 @@ endmacro()
 
 
 add_driver(fp-wire-st-select wire-st-select.cpp)
+add_driver(fp-wire-mt-seq    wire-mt-seq.cpp)
 
 
 # add_driver(fp-wire-select-st wire-select-st.cpp)
