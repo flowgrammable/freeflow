@@ -180,16 +180,18 @@ main(int argc, char* argv[])
   // NOTE: GCC is apparently adjusting away the reference type on a port
   // argument, so wasn't being called in a natural way -- although that might
   // be a warning that passing references into a thread is a bad idea. Maybe.
-  auto proc1 = [&]() -> void {
-    while (true)
-      if (!ingress(port1)) 
-        return;
+  auto proc1 = [ingress, &port1]() -> int {
+    while (ingress(port1)) {
+      assert(port1.fd() != -1);
+    }
+    return 1;
   };
 
-  auto proc2 = [&]() -> void {
-    while (true)
-      if (!ingress(port2)) 
-        return;
+  auto proc2 = [ingress, &port2]() -> int {
+    while (ingress(port2)) {
+      assert(port2.fd() != -1);
+    }
+    return 2;
   };
 
   
@@ -202,8 +204,9 @@ main(int argc, char* argv[])
   while (running) {
     // Accept a receiver and a sender. Just quit if we got an error.
     while (nports < 2) {
-      if (accept(server))
+      if (accept(server)) {
         ++nports;
+      }
       else
         break;
     }
@@ -217,19 +220,32 @@ main(int argc, char* argv[])
     // Now that we've connected, start timing.
     start = now();
 
-    // TODO: C++11 does not have the ability to wait on multiple futures.
-    // Howver, C++14 has when_all(...), which should take the place of this
-    // crappy loop.
-    while (nports != 0) {
-      if (!done1 && f1.wait_for(1ms) == std::future_status::ready) {
-        --nports;
-        done1 = true;
-      }
-      if (!done2 && f2.wait_for(1ms) == std::future_status::ready) {
-        --nports;
-        done2 = true;
-      }
-    }
+    f2.get();
+    f1.get();
+
+    // // TODO: C++11 does not have the ability to wait on multiple futures.
+    // // Howver, C++14 has when_all(...), which should take the place of this
+    // // crappy loop.
+    // while (nports != 0) {
+    //   std::cout << "waiting... " << nports << '\n';
+    //   if (!done1 && f1.wait_for(10ms) == std::future_status::ready) {
+    //     std::cout << "done 1\n";
+    //     --nports;
+    //     done1 = true;
+    //   }
+    //   if (!done2 && f2.wait_for(10ms) == std::future_status::ready) {
+    //     std::cout << "done 2\n";
+    //     --nports;
+    //     done2 = true;
+    //   }
+    // }
+
+    // Time the experiment. Note that port1 statsare uniniteresting.  
+    stop = now();
+    print_stats(port2, stop - start);
+
+    // Uh... this is broke as fuck. Just stop.
+    break;
   }
 
 
