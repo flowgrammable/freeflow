@@ -152,11 +152,11 @@ main(int argc, const char* argv[])
 
     // Create the dataplane with the loaded application library.
     fp::Dataplane* dp = fp::create_dataplane("dp1", appPath);
-    std::cerr << "Created data plane '" << dp->name() << std::endl;
+    std::cerr << "Created data plane " << dp->name() << std::endl;
 
     // Configure the data plane based on the applications needs.
     dp->configure();
-    std::cerr << "Data plane configured" << std::endl;
+    std::cerr << "Data plane configured." << std::endl;
 
     // Add all ports
     dp->add_port(p1);

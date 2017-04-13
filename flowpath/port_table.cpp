@@ -70,7 +70,7 @@ Port_table::Port_table()
 
 // Port table constructor with initial size.
 Port_table::Port_table(int size)
-  : data_(size, nullptr), handles_(), thread_(0, port_table_work)
+  : data_(size, nullptr), handles_()//, thread_(0, port_table_work)
 {
   flood_port_ = new Port_flood("127.0.0.1:8675;flood");
   //flood_port_->thread_->assign(flood_port_->id_, flood);
@@ -83,7 +83,7 @@ Port_table::Port_table(int size)
 // Port table destructor.
 Port_table::~Port_table()
 {
-  thread_.halt();
+  //thread_.halt();
   data_.clear();
   handles_.clear();
 }

@@ -71,7 +71,7 @@ public:
 private:
   store_type    data_;
   handler_type  handles_;
-  Thread        thread_;
+  //Thread        thread_;
 
   // Reserved ports.
   value_type flood_port_;
