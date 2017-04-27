@@ -117,7 +117,8 @@ Port_tcp::recv()
   // at link time when we are giving definitions to other unknowns.
   int max_headers = 0;
   int max_fields = 0;
-  thread_pool.app()->lib().pipeline(new Context(pkt, id_, id_, 0, max_headers, max_fields));
+//  thread_pool.app()->lib().pipeline(new Context(pkt, id_, id_, 0, max_headers, max_fields));
+  assert(false);
 
   return bytes;
 }

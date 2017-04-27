@@ -191,7 +191,8 @@ Port_udp::recv()
     
     // Create the context associated with the packet and send it through
     // the pipeline.
-    thread_pool.app()->lib().pipeline(cxt);
+//    thread_pool.app()->lib().pipeline(cxt);
+    assert(false);
   }
 
   // Update port stats.

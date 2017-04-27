@@ -2,10 +2,6 @@
 #define FP_PORT_TABLE_HPP
 
 #include "port.hpp"
-#include "port_udp.hpp"
-#include "port_tcp.hpp"
-#include "port_odp.hpp"
-#include "thread.hpp"
 
 #include <string>
 #include <vector>
@@ -15,21 +11,21 @@
 namespace fp
 {
 
-// This is a special port used to flood a packet to all ports
-// except for the one that received it.
-class Port_flood : public Port_udp
-{
-public:
-  using Port_udp::Port_udp;
-  // Constructor/Destructor.
-  Port_flood(std::string const& addr)
-    : Port_udp(0xffff, addr)
-  { }
+//// This is a special port used to flood a packet to all ports
+//// except for the one that received it.
+//class Port_flood : public Port_udp
+//{
+//public:
+//  using Port_udp::Port_udp;
+//  // Constructor/Destructor.
+//  Port_flood(std::string const& addr)
+//    : Port_udp(0xffff, addr)
+//  { }
 
-  ~Port_flood() { }
+//  ~Port_flood() { }
 
-  int   send();
-};
+//  int   send();
+//};
 
 // Global port table type.
 class Port_table
@@ -80,7 +76,6 @@ private:
 };
 
 extern Port_table port_table;
-extern void* port_table_work(void*);
 
 } // end namespace fp
 

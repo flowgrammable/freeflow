@@ -1,179 +1,207 @@
-#include <dlfcn.h>
-#include <algorithm>
-#include <iostream>
+
 #include "application.hpp"
+
+#include <cassert>
+#include <stdexcept>
+#include <iostream>
+
+#include <dlfcn.h>
+
 
 namespace fp
 {
 
+// -------------------------------------------------------------------------- //
+// Library objects
 
-// Creates a new application with the given name (path).
-Application::Application(std::string const& name)
-  : name_(name), state_(NEW), lib_(get_app_handle(name)), num_ports_(0)
+// Returns a handle to the application at the given path, if
+// it exists. Throws an exception otherwise.
+//
+// Note that dlopen will search LD_LIBRARY_PATH (on GNU systems)
+// or DYLD_LIBRARY_PATH (on Mac OS X) for a library that matches
+// the given path.
+//
+// Multiple calls to this function will simply increase the
+// reference count. We can let the system manage that.
+static inline void*
+lib_open(char const* path)
 {
-  // Get the number of ports required for the application.
-  lib_.ports(&num_ports_);
+  if (void* lib = ::dlopen(path, RTLD_LOCAL | RTLD_LAZY))
+    return lib;
+  throw std::runtime_error(dlerror());
 }
 
 
-// Dtor. Close the application handle.
-Application::~Application()
+// Close the given library. This just decrements the reference count.
+// Code is unloaded when the reference count reaches 0.
+static inline void
+lib_close(void* lib)
 {
-  dlclose(lib_.app_);
+  ::dlclose(lib);
+}
+
+
+// Returns a handle to the given symbol from the given application
+// handle. The result can be nullptr.
+static inline void*
+lib_resolve(void* lib, char const* name)
+{
+  void* sym = ::dlsym(lib, name);
+  if (!sym)
+    dlerror();
+  return sym;
+}
+
+
+// Returns a handle to the given symbol from the given application
+// handle. Throws an exception if there is no such symbol.
+static inline void*
+lib_require(void* lib, char const* name)
+{
+  if (void* sym = ::dlsym(lib, name))
+    return sym;
+  throw std::runtime_error(dlerror());
+}
+
+
+Library::Library(char const* p)
+  : path(p), handle(lib_open(p))
+{
+  load = (Init_fn)lib_resolve(handle, "load");
+  unload = (Init_fn)lib_resolve(handle, "unload");
+  start = (Init_fn)lib_resolve(handle, "start");
+  stop = (Init_fn)lib_resolve(handle, "stop");
+
+  port_added = (Port_fn)lib_resolve(handle, "port_added");
+  port_removed = (Port_fn)lib_resolve(handle, "port_removed");
+  port_changed = (Port_fn)lib_resolve(handle, "port_changed");
+
+  proc = (Proc_fn)lib_require(handle, "process");
+}
+
+
+Library::~Library()
+{
+  lib_close(handle);
+}
+
+// -------------------------------------------------------------------------- //
+// Application objects objects
+
+
+// Load the application. If the application has a load function
+// then that is executed to provide one-time initialization for
+// the application.
+//
+// An application can only be loaded when it is in its initial
+// state. Once initialized, the application is in the ready state.
+int
+Application::load(Dataplane& dp)
+{
+  assert(state_ == INIT);
+  int ret = 0;
+  if (lib_.load)
+    ret = lib_.load(&dp);
+  //if (!ret)
+    state_ = READY;
+  return ret;
+}
+
+
+// Unload the application. If the application has an unload
+// function then that is executed to provide one-time finalization
+// for the application.
+//
+// An application can only be unloaded when it is ready or stopped.
+// The application returns to its initial state after being
+// unloaded.
+int
+Application::unload(Dataplane& dp)
+{
+  assert(state_ == READY || state_ == STOPPED);
+  int ret = 0;
+  if (lib_.unload)
+    ret = lib_.unload(&dp);
+  //if (!ret)
+    state_ = INIT;
+  return ret;
 }
 
 
 // Opens the applications ports and sets the state to 'running'.
-void
-Application::start()
+int
+Application::start(Dataplane& dp)
 {
-  for (auto port : ports_)
-    if (port->open() == -1)
-      throw std::string("Error: open port " + std::to_string(port->id()));
+  assert(state_ == READY);
+  int ret = 0;
+  if (lib_.start)
+    ret = lib_.start(&dp);
+
+  // FIXME: Why aren't we checking the return value from starting
+  // the library? That seems like a good thing to do.
+
+  //if (!ret)
+  (void)ret;
+
   state_ = RUNNING;
+
+  return 0;
 }
 
 
 // Closes the applications ports and sets the state to 'stopped'.
-void
-Application::stop()
-{
-  for (auto port : ports_)
-    port->close();
-  state_ = STOPPED;
-}
-
-
-// Adds a port to the application.
-void
-Application::add_port(Port* p)
-{
-  // Check if all allocated.
-  //if (ports_.size() == num_ports_)
-  //  throw std::string("Failed to add port, all ports have already been added");
-  if (std::find(ports_.begin(), ports_.end(), p) == ports_.end()) {
-    ports_.push_back(p);
-  }
-  else
-    throw std::string("Port already exists");
-}
-
-
-// Removes a port from the application. This does not (should not) 
-// delete the port from the system.
-void
-Application::remove_port(Port* p)
-{
-  auto idx = std::find(ports_.begin(), ports_.end(), p);
-  if (idx != ports_.end())
-    ports_.erase(idx);
-  else
-    throw std::string("Port not found");
-}
-
-
-// Returns the name (path) of the application.
-std::string
-Application::name() const
-{
-	return name_;
-}
-
-
-// Returns the state of the application.
-Application::State
-Application::state() const
-{
-	return state_;
-}
-
-
-// Returns a copy of the applications ports vector.
-std::vector<Port*>
-Application::ports() const
-{
-  return ports_;
-}
-
-
-// Returns the number of ports required by the application.
 int
-Application::num_ports() const
+Application::stop(Dataplane& dp)
 {
-	return num_ports_;
+  assert(state_ == RUNNING);
+  int ret = 0;
+  if (lib_.stop)
+    ret = lib_.stop(&dp);
+
+  // FIXME: Why aren't we checking the return value from starting
+  // the library? That seems like a good thing to do.
+
+  //if (!ret)
+  (void)ret;
+
+  state_ = STOPPED;
+
+  return 0;
 }
 
 
-// Returns a copy of the applications library.
-Library
-Application::lib() const
+int
+Application::port_added(Port& p)
 {
-  return lib_;
+  if (Library::Port_fn f = lib_.port_added)
+    return f(p.id());
+  return 0;
 }
 
 
-// Library ctor. Links the definitions for library functions.
-Library::Library(App_handle app)
+int
+Application::port_removed(Port& p)
 {
-  app_ = app;
-  pipeline_ = (void (*)(Context*))get_sym_handle(app, "pipeline");
-  config_   = (void (*)(void))    get_sym_handle(app, "config");
-  ports_    = (void (*)(void*))   get_sym_handle(app, "ports");
+  if (Library::Port_fn f = lib_.port_removed)
+    return f(p.id());
+  return 0;
 }
 
 
-//
-Library::~Library()
-{ }
-
-
-/*
-// Calls the library's pipeline function.
-inline void 
-Library::pipeline(Context* cxt) 
-{ 
-  pipeline_(cxt); 
-}
-
-
-// Calls the library's config function.
-inline void 
-Library::config() { 
-  config_(); 
-}
-
-
-// Calls the library's ports function.
-inline void 
-Library::ports(void* arg) 
-{ 
-  ports_(arg); 
-}
-*/
-
-// Returns a handle to the given symbol from the given application handle.
-void*
-get_sym_handle(void* app_hndl, std::string const& sym)
+int
+Application::port_changed(Port& p)
 {
-  dlerror();
-  void* sym_hndl = dlsym(app_hndl, sym.c_str());
-  const char* err = dlerror();
-  if (err)
-    throw std::runtime_error(err);
-  else
-    return sym_hndl;
+  if (Library::Port_fn f = lib_.port_changed)
+    return f(p.id());
+  return 0;
 }
 
 
-// Returns a handle to the application at the given path, if it exists.
-void*
-get_app_handle(std::string const& path)
+int
+Application::process(Context& cxt)
 {
-  void* hndl = dlopen(path.c_str(), RTLD_LOCAL | RTLD_LAZY);
-  if (hndl)
-    return hndl;
-  else
-    throw std::runtime_error(dlerror());
+  assert(state_ == RUNNING);
+  return lib_.proc(&cxt);
 }
 
 

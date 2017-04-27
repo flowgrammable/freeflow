@@ -100,18 +100,18 @@ Port_odp::close()
 // Read packets from the socket.
 // Returns number of sucessfully received packets.
 int
-Port_odp::recv()
+Port_odp::recv(Context* cxt)
 {
+//  constexpr int MAX = MAX_PKT_BURST;
+  constexpr int MAX = 1;
+
   // Check if port is usable.
   if (config_.down)
     throw std::string("unable to recv, port down");
 
   // Recieve batch of packets.
-  odp_packet_t pkt_tbl[MAX_PKT_BURST];
-  odp_pktio_t temp = odp_pktio_lookup(dev_name_.c_str());
-  if (temp == ODP_PKTIO_INVALID)
-    throw std::string("Error: lookup of pktio failed\n" + dev_name_);
-  int pkts = odp_pktio_recv(temp, pkt_tbl, MAX_PKT_BURST);
+  odp_packet_t pkt_tbl[MAX];
+  int pkts = odp_pktio_recv(pktio_, pkt_tbl, MAX);
   if (pkts < 0)
     throw std::string("Error: unable to recv on pktio dev");
 
@@ -133,7 +133,9 @@ Port_odp::recv()
 
     // Create a new packet and context associated with the packet.
     Packet* pkt = new Packet(seg_buf, seg_len, arrival_ns, odp_pkt, fp::Buffer::BUF_TYPE::FP_BUF_ODP);
-    Context* cxt = new Context(pkt, id_, id_, 0, 0, 0);
+//    Context* cxt = new Context(pkt, id_, id_, 0, 0, 0);
+    cxt->packet_ = pkt;
+    cxt->in_port = cxt->in_phy_port = id_;
 
     // Find reserved location in packet buffer.
     ///Context* cxt = reinterpret_cast<Context*>(odp_packet_user_area(odp_pkt));
@@ -145,9 +147,6 @@ Port_odp::recv()
 
     // Sum up stats for all recieved packets.
     bytes += seg_len;
-
-    // Send context to pipeline.
-    thread_pool.app()->lib().pipeline(cxt);
   }
 
   // Update port stats.
@@ -162,7 +161,7 @@ Port_odp::recv()
 // Send the packet to its destination.
 // Returns number of sucessfully sent packets.
 int
-Port_odp::send()
+Port_odp::send(Context* ctx)
 {
   // Check that this port is usable.
   if (config_.down)

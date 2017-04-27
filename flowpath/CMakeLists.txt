@@ -39,13 +39,13 @@ endif()
 include_directories(.)
 
 # Applications.
-add_subdirectory(apps)
+#add_subdirectory(apps)
 
 # Drivers.
 add_subdirectory(drivers)
 
 # Tests.
-add_subdirectory(tests)
+#add_subdirectory(tests)
 
 # The flowpath runtime library.
 add_library(flowpath-rt SHARED

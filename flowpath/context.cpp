@@ -4,13 +4,12 @@ namespace fp
 {
 
 Context::Context(Packet* p, Port::Id in, Port::Id in_phys, int tunn_id,
-								 int max_headers, int max_fields)
+                 int max_headers, int max_fields)
 	: packet_(p)
   , metadata_()
   , current_()
   , in_port(in)
   , in_phy_port(in_phys)
-  , tunnel_id(tunn_id)
   , hdr_()
   , fld_()
 { }

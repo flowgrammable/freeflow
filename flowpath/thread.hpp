@@ -11,8 +11,8 @@
 namespace fp
 {
 
-struct Application;
-struct Context;
+class Application;
+class Context;
 
 #if __APPLE__
 using Barrier_type = void*;
@@ -25,27 +25,27 @@ using Barrier_type = pthread_barrier_t;
 class Thread
 {
 public:
-	using Routine = void* (*)(void*);
+  using Routine = void* (*)(void*);
   using Barrier = Barrier_type;
   using Attribute = pthread_attr_t;
 
-	Thread();
-	Thread(int, Routine, Attribute* = nullptr);
-	Thread(int, Routine, Barrier*, Attribute* = nullptr);
+  Thread();
+  Thread(int, Routine, Attribute* = nullptr);
+  Thread(int, Routine, Barrier*, Attribute* = nullptr);
 
-	void run();
-	void sync();
-	int  halt();
-	void assign(int, Routine, Attribute* = nullptr);
-	void assign(int, Routine, Barrier*, Attribute* = nullptr);
+  void run();
+  void sync();
+  int  halt();
+  void assign(int, Routine, Attribute* = nullptr);
+  void assign(int, Routine, Barrier*, Attribute* = nullptr);
 
-	int 		 id_;
-	Routine  work_;
-	Barrier* barrier_;
+  int 		 id_;
+  Routine  work_;
+  Barrier* barrier_;
 
 private:
-	pthread_t  thread_;
-	Attribute* attr_;
+  pthread_t  thread_;
+  Attribute* attr_;
 };
 
 
@@ -57,14 +57,14 @@ namespace Thread_barrier
 inline int
 init(Thread::Barrier* barr, int num)
 {
-	return 0;
+  return 0;
 }
 
 
 inline int
 destroy(Thread::Barrier* barr)
 {
-	return 0;
+  return 0;
 }
 
 inline int
@@ -76,20 +76,20 @@ wait(Thread::Barrier*)
 inline int
 init(Thread::Barrier* barr, int num)
 {
-	return pthread_barrier_init(barr, nullptr, num);
+  return pthread_barrier_init(barr, nullptr, num);
 }
 
 
 inline int
 destroy(Thread::Barrier* barr)
 {
-	return pthread_barrier_destroy(barr);
+  return pthread_barrier_destroy(barr);
 }
 
 inline int
 wait(Thread::Barrier* b)
 {
-	return pthread_barrier_wait(b);
+  return pthread_barrier_wait(b);
 }
 #endif
 } // end namespace Thread_barrier
@@ -102,37 +102,39 @@ namespace Thread_attribute
 inline int
 init(Thread::Attribute* attr)
 {
-	return pthread_attr_init(attr);
+  return pthread_attr_init(attr);
 }
 
 inline int
 destroy(Thread::Attribute* attr)
 {
-	return pthread_attr_destroy(attr);
+  return pthread_attr_destroy(attr);
 }
 
 } // end namespace Thread_attribute
 
+// Disabling thread pool for now.
+#if 0
 
 // A thread pool instruction entry. Contains a function to be
 // called, the arguments needed.
 struct Task
 {
-	enum Target { CONFIG, PIPELINE, PORTS };
-	using Arg = void*;
+  enum Target { CONFIG, PIPELINE, PORTS };
+  using Arg = void*;
 
-	Task(Target func, Arg arg)
-		: func_(func), arg_(arg)
-	{ }
+  Task(Target func, Arg arg)
+    : func_(func), arg_(arg)
+  { }
 
-	~Task()
-	{ }
+  ~Task()
+  { }
 
-	Target func() const { return func_; }
-	Arg 	 arg()  const { return arg_; }
+  Target func() const { return func_; }
+  Arg 	 arg()  const { return arg_; }
 
-	Target func_;
-	Arg 	 arg_;
+  Target func_;
+  Arg 	 arg_;
 };
 
 
@@ -144,39 +146,39 @@ void* Thread_pool_routine(void*);
 // thread pool work queue.
 class Thread_pool
 {
-	using Input_queue = Locking_queue<Task*>;
+  using Input_queue = Locking_queue<Task*>;
 public:
-	Thread_pool(int, bool);
-	~Thread_pool();
+  Thread_pool(int, bool);
+  ~Thread_pool();
 
-	void 	assign(Task*);
-	Task*	request();
+  void 	assign(Task*);
+  Task*	request();
 
-	void 	install(Application*);
-	void	uninstall();
+  void 	install(Application*);
+  void	uninstall();
 
-	bool 	has_work();
-	void 	resize(int);
+  bool 	has_work();
+  void 	resize(int);
 
-	void 	start();
-	void 	stop();
+  void 	start();
+  void 	stop();
 
-	bool running();
-	Application* app();
+  bool running();
+  Application* app();
 
 private:
-	// Size of the thread pool.
-	int size_;
-	// Flag indicating the use of synchronization.
-	bool sync_;
-	// Flag indicating state of the thread pool.
-	bool running_;
-	// Number of processing cores available.
-	int num_proc_;
-	// The application currently installed.
-	Application* app_;
+  // Size of the thread pool.
+  int size_;
+  // Flag indicating the use of synchronization.
+  bool sync_;
+  // Flag indicating state of the thread pool.
+  bool running_;
+  // Number of processing cores available.
+  int num_proc_;
+  // The application currently installed.
+  Application* app_;
 
-	Thread::Routine pool_work_ = Thread_pool_routine;
+  Thread::Routine pool_work_ = Thread_pool_routine;
 
   // Thread attribute variable.
   Thread::Attribute attr_;
@@ -189,18 +191,20 @@ private:
 #endif
 
   // The thread pool.
-	std::vector<Thread*> pool_;
-	// The thread pool barrier.
-	Thread::Barrier barr_;
+  std::vector<Thread*> pool_;
+  // The thread pool barrier.
+  Thread::Barrier barr_;
 
-	// The thread pool work queue.
-	Input_queue 	input_;
+  // The thread pool work queue.
+  Input_queue 	input_;
 
-	// Allocates the pool based on size.
-	void 	alloc_pool();
+  // Allocates the pool based on size.
+  void 	alloc_pool();
 };
 
 extern Thread_pool thread_pool;
+
+#endif // end thread pool
 
 } // end namespace fp
 

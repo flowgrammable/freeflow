@@ -72,6 +72,7 @@ struct Header_stack
 // due to aliasing issues.
 struct Context
 {
+  Context() { }
   Context(Packet*, uint32_t, uint32_t, int, int, int);
   ~Context() { }
 
@@ -113,7 +114,7 @@ struct Context
   // Input context.
   uint32_t in_port;
   uint32_t in_phy_port;
-  int      tunnel_id;
+//  int      tunnel_id;
   uint32_t out_port;
 
   // Actions

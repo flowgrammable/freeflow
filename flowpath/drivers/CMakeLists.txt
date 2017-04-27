@@ -17,5 +17,5 @@ macro(add_unit_test tgt file)
   add_test(test_${tgt} ${tgt})
 endmacro()
 
-add_subdirectory(hub)
+#add_subdirectory(hub)
 add_subdirectory(wire)

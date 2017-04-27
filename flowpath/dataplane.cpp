@@ -1,118 +1,136 @@
-#include <algorithm>
-
 #include "dataplane.hpp"
+#include "port.hpp"
+#include "port_drop.hpp"
+#include "port_flood.hpp"
+#include "application.hpp"
 
-namespace fp {
+#include <cassert>
+#include <algorithm>
+#include <iostream>
 
-extern Module_table module_table;
-extern Thread_pool thread_pool;
 
-// Data plane ctor.
-Dataplane::Dataplane(std::string const& name, std::string const& app_name)
-  : name_(name)
+namespace fp
 {
-  auto app = module_table.find(app_name);
-  if (app != module_table.end())
-    app_ = app->second;
-  else
-    throw std::string("Unknown application name '" + app_name + "'");
-}
 
 Dataplane::~Dataplane()
 {
-  delete app_;
+  delete drop_;
+  delete flood_;
 }
 
 
-// Adds the port to the local list.
+// Add a logical or phyisical port to the dataplane. This must
+// not be used for reserved ports.
 void
 Dataplane::add_port(Port* p)
 {
-	app_->add_port(p);
+  ports_.push_back(p);
+  portmap_.emplace(p->id(), p);
 }
 
 
-// Removes the port from the local list if it exists.
+// Add an explicit drop port to the dataplane.
+void
+Dataplane::add_virtual_ports()
+{
+  drop_ = new Port_drop;
+  flood_ = new Port_flood;
+  portmap_.emplace(drop_->id(), drop_);
+  portmap_.emplace(flood_->id(), flood_);
+}
+
+
+// Remove a port from the data plane.
+//
+// FIXME: Implement me.
 void
 Dataplane::remove_port(Port* p)
 {
-	app_->remove_port(p);
+  auto iter = std::find(ports_.begin(), ports_.end(), p);
+  portmap_.erase(p->id());
+  ports_.erase(iter);
+  delete p;
 }
 
 
-// Starts the data plane packet processors. If the application has configured
-// the data plane, it will install the application in the thread pool and start
-// it. Otherwise it reports errors.
+// Load an application from the given path.
+void
+Dataplane::load_application(char const* path)
+{
+  assert(!app_);
+  app_ = new Application(path);
+  // FIXME: Bandaid for compiled steve app -> fp usage.
+  app_->load(*this);
+  /*
+  if (app_->load(*this)) {
+    delete app_;
+    throw std::runtime_error("loading application");
+  }
+  */
+  // Notify the application of all system ports.
+  for (Port* p : ports_)
+    app_->port_added(*p);
+}
+
+
+// Unload the application.
+//
+// FIXME: It should probably be the case that the data plane
+// is down when the application is removed.
+void
+Dataplane::unload_application()
+{
+  assert(app_);
+  // FIXME: Bandaid for compiled steve app -> fp usage.
+  app_->unload(*this);
+  /*
+  if (app_->unload(*this))
+    throw std::runtime_error("unloading application");
+  */
+  delete app_;
+  app_ = nullptr;
+}
+
+
+// Starts executing an application on a dataplane.
+//
+// FIXME: Dataplanes also have state. We don't want to re-up
+// if we've already upped.
 void
 Dataplane::up()
 {
-  if (!app_)
-    throw std::string("No applicaiton is installed.");
-  else if (app_->state() == Application::State::READY) {
-    thread_pool.install(app());
-    thread_pool.start();
-  }
-  else if (app_->state() == Application::State::NEW)
-    throw std::string("Data plane has not been configured, unable to start");
+  // Start the application.
+  if (app_)
+    app_->start(*this);
 }
 
 
 // Stops the data plane packet processors, if they are running.
+//
+// TODO: We shouldn't close ports until we know that all
+// in-flight packets have been processed.
 void
 Dataplane::down()
 {
-  if (app_->state() == Application::State::RUNNING) {
-    thread_pool.stop();
-    thread_pool.uninstall();
-  }
-  else
-    throw std::string("Data plane is not running.");
+  // Then stop the application.
+  if (app_)
+    app_->stop(*this);
 }
 
 
-// Configures the data plane based on the application.
-void
-Dataplane::configure()
+// -------------------------------------------------------------------------- //
+// Application interface
+
+Port*
+fp_get_drop_port(Dataplane* dp)
 {
-  if (app_->state() == Application::State::NEW) {
-    app_->lib().config();
-    app_->state_ = Application::State::READY;
-  }
-  else
-    throw std::string("Data plane has already been configured.");
+  return dp->get_drop_port();
 }
 
-
-// Gets the data plane name.
-std::string
-Dataplane::name() const
+Port*
+fp_get_flood_port(Dataplane* dp)
 {
-  return name_;
+  return dp->get_flood_port();
 }
-
-
-// Gets the data planes application.
-Application*
-Dataplane::app() const
-{
-  return app_;
-}
-
-
-// Gets the data planes tables.
-std::vector<Table*>
-Dataplane::tables() const
-{
-  return tables_;
-}
-
-
-// Gets the table at the given index.
-Table*
-Dataplane::table(int idx)
-{
-  return tables_.at(idx);
-}
-
 
 } // end namespace fp

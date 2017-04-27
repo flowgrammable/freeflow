@@ -10,6 +10,8 @@
 #include <string>
 #include <new>
 
+class Context;
+
 namespace fp
 {
 
@@ -32,8 +34,8 @@ public:
   ~Port_odp();
 
   // Packet related funtions.
-  int recv();
-  int send();
+  int recv(Context*);
+  int send(Context*);
 
   // Port state functions.
   int open();

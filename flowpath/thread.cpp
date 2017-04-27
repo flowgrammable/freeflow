@@ -15,21 +15,21 @@ namespace fp
 // Constructs a new thread object with no ID, work function, or barrier.
 // This thread must be initialized with `assign` before it can be used.
 Thread::Thread()
-	: Thread(-1, nullptr)
+  : Thread(-1, nullptr)
 { }
 
 
 // Constructs a new thread object with the given ID and work function.
 // This thread does not use a barrier to synchronize.
 Thread::Thread(int id, Routine work, Attribute* attr)
-	: id_(id), work_(work), barrier_(nullptr), attr_(attr)
+  : id_(id), work_(work), barrier_(nullptr), attr_(attr)
 { }
 
 
 // Constructs a new thread object with the given ID, work function, and
 // synchronization barrier.
 Thread::Thread(int id, Routine work, Barrier* barrier, Attribute* attr)
-	: id_(id), work_(work), barrier_(barrier), attr_(attr)
+  : id_(id), work_(work), barrier_(barrier), attr_(attr)
 { }
 
 
@@ -37,15 +37,15 @@ Thread::Thread(int id, Routine work, Barrier* barrier, Attribute* attr)
 void
 Thread::run()
 {
-	assert(work_);
-	// TODO: create the underlying pthread. Use the local
-	// Routine member as the func ptr and the local ID as
-	// the argument.
-	int res;
-	if ((res = pthread_create(&thread_, (const Thread::Attribute*)attr_, work_, &id_)) != 0){
-		errno = res;
-		perror(std::string("failed to create thread " + std::to_string(id_)).c_str());
-	}
+  assert(work_);
+  // TODO: create the underlying pthread. Use the local
+  // Routine member as the func ptr and the local ID as
+  // the argument.
+  int res;
+  if ((res = pthread_create(&thread_, (const Thread::Attribute*)attr_, work_, &id_)) != 0){
+    errno = res;
+    perror(std::string("failed to create thread " + std::to_string(id_)).c_str());
+  }
 }
 
 
@@ -53,8 +53,8 @@ Thread::run()
 void
 Thread::sync()
 {
-	assert(barrier_);
-	Thread_barrier::wait(barrier_);
+  assert(barrier_);
+  Thread_barrier::wait(barrier_);
 }
 
 
@@ -63,10 +63,10 @@ Thread::sync()
 int
 Thread::halt()
 {
-	int* ret = new int();
-	if (pthread_join(thread_, (void**)&ret) != 0)
-		throw(std::string("failed to join thread"));
-	return 0;
+  int* ret = new int();
+  if (pthread_join(thread_, (void**)&ret) != 0)
+    throw(std::string("failed to join thread"));
+  return 0;
 }
 
 
@@ -75,7 +75,7 @@ Thread::halt()
 void
 Thread::assign(int id, Routine work, Attribute* attr)
 {
-	assign(id, work, nullptr, attr);
+  assign(id, work, nullptr, attr);
 }
 
 
@@ -84,29 +84,31 @@ Thread::assign(int id, Routine work, Attribute* attr)
 void
 Thread::assign(int id, Routine work, Barrier* barr, Attribute* attr)
 {
-	id_ = id;
-	work_ = work;
-	barrier_ = barr;
-	attr_ = attr;
+  id_ = id;
+  work_ = work;
+  barrier_ = barr;
+  attr_ = attr;
 }
 
+// Disabling thread pool for now.
+#if 0
 
 // The default flowpath thread pool ctor.
 Thread_pool::Thread_pool(int size, bool sync)
-	: size_(size), sync_(sync), running_(false)
+  : size_(size), sync_(sync), running_(false)
 {
-	num_proc_ = sysconf(_SC_NPROCESSORS_ONLN);
-	alloc_pool();
+  num_proc_ = sysconf(_SC_NPROCESSORS_ONLN);
+  alloc_pool();
 }
 
 
 // The flowpath thread pool dtor.
 Thread_pool::~Thread_pool()
-{ 
-	while (!pool_.empty()) {
-		delete pool_.back();
-		pool_.pop_back();
-	}
+{
+  while (!pool_.empty()) {
+    delete pool_.back();
+    pool_.pop_back();
+  }
 }
 
 
@@ -114,7 +116,7 @@ Thread_pool::~Thread_pool()
 void
 Thread_pool::assign(Task* item)
 {
-	input_.enqueue(item);
+  input_.enqueue(item);
 }
 
 
@@ -122,7 +124,7 @@ Thread_pool::assign(Task* item)
 Task*
 Thread_pool::request()
 {
-	return input_.dequeue();
+  return input_.dequeue();
 }
 
 
@@ -130,10 +132,10 @@ Thread_pool::request()
 void
 Thread_pool::install(Application* app)
 {
-	if (!app_)
-		app_ = app;
-	else
-		throw std::string("Application '" + app_->name() + "' already installed in thread pool");
+  if (!app_)
+    app_ = app;
+  else
+    throw std::string("Application '" + app_->name() + "' already installed in thread pool");
 }
 
 
@@ -141,28 +143,28 @@ Thread_pool::install(Application* app)
 void
 Thread_pool::uninstall()
 {
-	if (app_) {
-		switch (app_->state()) {
-			case Application::RUNNING:
-			case Application::WAITING:
-				throw std::string("Application '" + app_->name() + "' is running");
-			break;
-			case Application::READY:
-			case Application::NEW:
-			case Application::STOPPED:
-				app_ = nullptr;
-			break;
-		}
-	}
-	else
-		throw std::string("No application currently installed in thread pool");
+  if (app_) {
+    switch (app_->state()) {
+      case Application::RUNNING:
+      case Application::WAITING:
+        throw std::string("Application '" + app_->name() + "' is running");
+      break;
+      case Application::READY:
+      case Application::NEW:
+      case Application::STOPPED:
+        app_ = nullptr;
+      break;
+    }
+  }
+  else
+    throw std::string("No application currently installed in thread pool");
 }
 
 
 bool
 Thread_pool::has_work()
 {
-	return !input_.empty();
+  return !input_.empty();
 }
 
 
@@ -170,20 +172,20 @@ Thread_pool::has_work()
 void
 Thread_pool::resize(int s)
 {
-	// Stop processing.
-	stop();
-	// Set new size.
-	size_ = s;
-	// Empty the thread pool.
-	pool_.clear();
-	// Destroy barrier, if synced, and attribute.
-	if (sync_)
-		Thread_barrier::destroy(&barr_);
-	Thread_attribute::destroy(&attr_);
-	// Reallocate the pool with new size.
-	alloc_pool();
-	// Start the pool again.
-	start();
+  // Stop processing.
+  stop();
+  // Set new size.
+  size_ = s;
+  // Empty the thread pool.
+  pool_.clear();
+  // Destroy barrier, if synced, and attribute.
+  if (sync_)
+    Thread_barrier::destroy(&barr_);
+  Thread_attribute::destroy(&attr_);
+  // Reallocate the pool with new size.
+  alloc_pool();
+  // Start the pool again.
+  start();
 }
 
 
@@ -191,45 +193,45 @@ Thread_pool::resize(int s)
 void
 Thread_pool::alloc_pool()
 {
-	// Create thread attribute.
-	Thread_attribute::init(&attr_);
-	if (sync_) {
-		Thread_barrier::init(&barr_, size_);
-		for (int i = 0; i < size_; i++) {
+  // Create thread attribute.
+  Thread_attribute::init(&attr_);
+  if (sync_) {
+    Thread_barrier::init(&barr_, size_);
+    for (int i = 0; i < size_; i++) {
       #if !__APPLE__
-	    // Clear the CPU core mask.
-	    CPU_ZERO(&cpu_set_);
-	    // Set the CPU core mask.
-	    CPU_SET((i + num_proc_) % num_proc_, &cpu_set_);
+      // Clear the CPU core mask.
+      CPU_ZERO(&cpu_set_);
+      // Set the CPU core mask.
+      CPU_SET((i + num_proc_) % num_proc_, &cpu_set_);
 
-	    // Set the core you want the thread to run on using a thread
-	    // attribute variable. We do this to ensure the thread starts
-	    // on the core we want it to be on.
-	    pthread_attr_setaffinity_np(&attr_, sizeof(cpu_set_t), &cpu_set_);
+      // Set the core you want the thread to run on using a thread
+      // attribute variable. We do this to ensure the thread starts
+      // on the core we want it to be on.
+      pthread_attr_setaffinity_np(&attr_, sizeof(cpu_set_t), &cpu_set_);
       #endif
 
-			// Create the thread.
-			pool_.push_back(new Thread(i, pool_work_, &barr_, &attr_));
-		}
-	}
-	else {
-		for (int i = 0; i < size_; i++) {
+      // Create the thread.
+      pool_.push_back(new Thread(i, pool_work_, &barr_, &attr_));
+    }
+  }
+  else {
+    for (int i = 0; i < size_; i++) {
       #if !__APPLE__
-	    // Clear the CPU core mask.
-	    CPU_ZERO(&cpu_set_);
-	    // Set the CPU core mask.
-	    CPU_SET((i + num_proc_) % num_proc_, &cpu_set_);
+      // Clear the CPU core mask.
+      CPU_ZERO(&cpu_set_);
+      // Set the CPU core mask.
+      CPU_SET((i + num_proc_) % num_proc_, &cpu_set_);
 
-	    // Set the core you want the thread to run on using a thread
-	    // attribute variable. We do this to ensure the thread starts
-	    // on the core we want it to be on.
-	    pthread_attr_setaffinity_np(&attr_, sizeof(cpu_set_t), &cpu_set_);
+      // Set the core you want the thread to run on using a thread
+      // attribute variable. We do this to ensure the thread starts
+      // on the core we want it to be on.
+      pthread_attr_setaffinity_np(&attr_, sizeof(cpu_set_t), &cpu_set_);
       #endif
 
-			// Create the thread.
-			pool_.push_back(new Thread(i, pool_work_, &attr_));
-		}
-	}
+      // Create the thread.
+      pool_.push_back(new Thread(i, pool_work_, &attr_));
+    }
+  }
 }
 
 
@@ -237,9 +239,9 @@ Thread_pool::alloc_pool()
 void
 Thread_pool::start()
 {
-	app_->start();
-	for (Thread* thread : pool_)
-		thread->run();
+  app_->start();
+  for (Thread* thread : pool_)
+    thread->run();
 }
 
 
@@ -247,9 +249,9 @@ Thread_pool::start()
 void
 Thread_pool::stop()
 {
-	app_->stop();
-	for (Thread* thread : pool_)
-		thread->halt();
+  app_->stop();
+  for (Thread* thread : pool_)
+    thread->halt();
 }
 
 
@@ -257,7 +259,7 @@ Thread_pool::stop()
 bool
 Thread_pool::running()
 {
-	return app_->state() == Application::RUNNING;
+  return app_->state() == Application::RUNNING;
 }
 
 
@@ -265,7 +267,7 @@ Thread_pool::running()
 Application*
 Thread_pool::app()
 {
-	return app_;
+  return app_;
 }
 
 
@@ -276,34 +278,35 @@ Thread_pool::app()
 void*
 Thread_pool_routine(void* args)
 {
-	// Figure out who I am.
-	//int id = *((int*)args);
-	fp::Task* tsk = nullptr;
+  // Figure out who I am.
+  //int id = *((int*)args);
+  fp::Task* tsk = nullptr;
 
-	while (thread_pool.running()) {
-		// Get the next task to be executed.
-		if (thread_pool.has_work()) {
-			tsk = thread_pool.request();
-			// Execute the installed application function with arg.
-			switch (tsk->func()) {
-				case Task::Target::CONFIG:
-					thread_pool.app()->lib().config();
-					break;
-				case Task::Target::PIPELINE:
-					thread_pool.app()->lib().pipeline((Context*)tsk->arg());
-					break;
-				case Task::Target::PORTS:
-					thread_pool.app()->lib().ports(tsk->arg());
-					break;
-				default:
-					throw std::string("Unknown task target given");
-					break;
-			}
-			delete tsk;
-		}
-	}
-	return 0;
+  while (thread_pool.running()) {
+    // Get the next task to be executed.
+    if (thread_pool.has_work()) {
+      tsk = thread_pool.request();
+      // Execute the installed application function with arg.
+      switch (tsk->func()) {
+        case Task::Target::CONFIG:
+          thread_pool.app()->lib().config();
+          break;
+        case Task::Target::PIPELINE:
+          thread_pool.app()->lib().pipeline((Context*)tsk->arg());
+          break;
+        case Task::Target::PORTS:
+          thread_pool.app()->lib().ports(tsk->arg());
+          break;
+        default:
+          throw std::string("Unknown task target given");
+          break;
+      }
+      delete tsk;
+    }
+  }
+  return 0;
 }
 
+#endif // end thread pool
 
 } // end namespace fp

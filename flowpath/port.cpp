@@ -85,7 +85,7 @@ Port::down()
 
 
 // Enqueues context in the ports transmit queue.
-void
+int
 Port::send(Context* cxt)
 {
   tx_queue_.push(cxt);

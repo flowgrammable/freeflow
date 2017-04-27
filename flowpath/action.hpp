@@ -12,7 +12,7 @@
 namespace fp
 {
 
-struct Context;
+class Context;
 
 
 // Defined address spaces for fields.
@@ -48,9 +48,31 @@ struct Field
 // of memory designated by field.address.
 struct Set_action
 {
+  Set_action()
+    : field {0, 0, 0}, value(nullptr)
+  { }
+
+  Set_action(std::uint8_t addr, std::uint16_t off, std::uint16_t len, Byte* v)
+    : field{addr, off, len}, value(new Byte[len])
+  {
+    std::copy(v, v + len, value);
+  }
+
+  Set_action(Set_action const& s)
+    : field(s.field), value(new Byte[s.field.length])
+  {
+    std::copy(s.value, s.value + s.field.length, value);
+  }
+
+  ~Set_action() {
+    if (value)
+      delete [] value;
+  }
+
   Field       field;
-  Byte const* value;
+  Byte*       value;
 };
+
 
 
 // Copies a field from a source address space to
@@ -98,16 +120,75 @@ struct Action
   {
     SET, COPY, OUTPUT, QUEUE, GROUP, ACTION
   };
-  union Value
+
+  Action() { }
+  Action(Set_action const& s) : value(s), type(SET) { }
+  Action(Copy_action const& c) : value(c), type(COPY) { }
+  Action(Output_action const& o) : value(o), type(OUTPUT) { }
+  Action(Queue_action const& q) : value(q), type(QUEUE) { }
+  Action(Group_action const& g) : value(g), type(GROUP) { }
+  Action(Action const&);
+
+  ~Action()
   {
+    clear();
+  }
+
+  void clear();
+
+  union Action_data
+  {
+    Action_data() { }
+    Action_data(Set_action const& s) : set(s) { }
+    Action_data(Copy_action const& c) : copy(c) { }
+    Action_data(Output_action const& o) : output(o) { }
+    Action_data(Queue_action const& q) : queue(q) { }
+    Action_data(Group_action const& g) : group(g) { }
+
+    ~Action_data() { }
+
     Set_action    set;
     Copy_action   copy;
     Output_action output;
     Queue_action  queue;
     Group_action  group;
-  } value;
+  };
+
+  Action_data value;
   std::uint8_t type;
 };
+
+
+inline void
+Action::clear()
+{
+  if (type == SET)
+    value.set.~Set_action();
+}
+
+inline
+Action::Action(Action const& a)
+{
+  type = a.type;
+  switch (a.type)
+  {
+    case SET:
+      value = Action_data(a.value.set);
+      break;
+    case COPY:
+      value = Action_data(a.value.copy);
+      break;
+    case OUTPUT:
+      value = Action_data(a.value.output);
+      break;
+    case QUEUE:
+      value = Action_data(a.value.queue);
+      break;
+    case GROUP:
+      value = Action_data(a.value.group);
+      break;
+  }
+}
 
 
 // A list of actions.

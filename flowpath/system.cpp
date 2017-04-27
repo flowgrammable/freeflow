@@ -5,95 +5,97 @@
 #include "system.hpp"
 #include "port_table.hpp"
 #include "application.hpp"
+#include "context.hpp"
+#include "dataplane.hpp"
 
 
 namespace fp
 {
 
 
-Module_table     module_table;          // Flowpath module table.
-Dataplane_table  dataplane_table;       // Flowpath data plane table.
+//Module_table     module_table;          // Flowpath module table.
+//Dataplane_table  dataplane_table;       // Flowpath data plane table.
 Port_table       port_table;            // Flowpath port table.
-Thread_pool      thread_pool(0, true);  // Flowpath thread pool.
+//Thread_pool      thread_pool(0, true);  // Flowpath thread pool.
 
 
-// Creates a new port, adds it to the master port table, and
-// returns a pointer to the new port.
-Port*
-create_port(Port::Type port_type, std::string const& args)
-{
-  // Create the port of given type with args in the master port table.
-  Port* p = port_table.alloc(port_type, args);
+//// Creates a new port, adds it to the master port table, and
+//// returns a pointer to the new port.
+//Port*
+//create_port(Port::Type port_type, std::string const& args)
+//{
+//  // Create the port of given type with args in the master port table.
+//  Port* p = port_table.alloc(port_type, args);
 
-  // Return a pointer to it.
-  return p;
-}
-
-
-// Deletes the given port from the system port table.
-void
-delete_port(Port::Id id)
-{
-  if (port_table.find(id))
-    port_table.dealloc(id);
-}
+//  // Return a pointer to it.
+//  return p;
+//}
 
 
-// Creates a new data plane and returns a pointer to it. If the
-// name already exists it throws an exception.
-Dataplane*
-create_dataplane(std::string const& name, std::string const& app)
-{
-  // Check if a dataplane with this name already exists.
-  if (dataplane_table.find(name) != dataplane_table.end())
-    throw std::string("Data plane name already exists");
-
-  // Allocate the new data plane in the master data plane table.
-  dataplane_table.insert({name, new Dataplane(name, app)});
-
-  return dataplane_table.at(name);
-}
+//// Deletes the given port from the system port table.
+//void
+//delete_port(Port::Id id)
+//{
+//  if (port_table.find(id))
+//    port_table.dealloc(id);
+//}
 
 
-// Deletes the given data plane from the system data plane table.
-void
-delete_dataplane(std::string const& name)
-{
-  auto dp = dataplane_table.find(name);
-  if (dp != dataplane_table.end())
-    dataplane_table.erase(dp);
-  else
-    throw std::string("Data plane name not in use");
-}
+//// Creates a new data plane and returns a pointer to it. If the
+//// name already exists it throws an exception.
+//Dataplane*
+//create_dataplane(std::string const& name, std::string const& app)
+//{
+//  // Check if a dataplane with this name already exists.
+//  if (dataplane_table.find(name) != dataplane_table.end())
+//    throw std::string("Data plane name already exists");
+
+//  // Allocate the new data plane in the master data plane table.
+//  dataplane_table.insert({name, new Dataplane(name, app)});
+
+//  return dataplane_table.at(name);
+//}
 
 
-// Loads the application at the given path. If it exists, throws a message.
-// If the application does not exist, it creates the module and adds it to
-// the module table.
-void
-load_application(std::string const& path)
-{
-  // Check if library from this path has already been loaded.
-  if (module_table.find(path) != module_table.end())
-    throw std::string("Application at '" + path + "' has already been loaded");
-
-  // Register the path with the Application_library object.
-  module_table.insert({path, new Application(path)});
-}
+//// Deletes the given data plane from the system data plane table.
+//void
+//delete_dataplane(std::string const& name)
+//{
+//  auto dp = dataplane_table.find(name);
+//  if (dp != dataplane_table.end())
+//    dataplane_table.erase(dp);
+//  else
+//    throw std::string("Data plane name not in use");
+//}
 
 
-// Unloads the given application. If it does not exist, throws a message.
-void
-unload_application(std::string const& path)
-{
-  auto app = module_table.find(path);
-  // Check if library from this path has already been loaded.
-  if (app != module_table.end())
-    throw std::string("Application at '" + path + "' is not loaded.");
+//// Loads the application at the given path. If it exists, throws a message.
+//// If the application does not exist, it creates the module and adds it to
+//// the module table.
+//void
+//load_application(std::string const& path)
+//{
+//  // Check if library from this path has already been loaded.
+//  if (module_table.find(path) != module_table.end())
+//    throw std::string("Application at '" + path + "' has already been loaded");
 
-  // Remove the application from the module table.
-  module_table.erase(app);
-}
+//  // Register the path with the Application_library object.
+//  module_table.insert({path, new Application(path)});
+//}
+
+
+//// Unloads the given application. If it does not exist, throws a message.
+//void
+//unload_application(std::string const& path)
+//{
+//  auto app = module_table.find(path);
+//  // Check if library from this path has already been loaded.
+//  if (app != module_table.end())
+//    throw std::string("Application at '" + path + "' is not loaded.");
+
+//  // Remove the application from the module table.
+//  module_table.erase(app);
+//}
 
 
 } // end namespace fp
@@ -119,18 +121,23 @@ extern "C"
 void
 fp_drop(fp::Context* cxt)
 {
-  // Cache the drop port so the lookup doesn't happen every time.
-  static fp::Port* drop = fp::port_table.drop_port();
-  drop->send(cxt);
+//  if (!cxt)
+//    throw std::string("Null context pointer");
+//  if (fp::Port* drop = cxt->dataplane()->get_drop_port())
+//    cxt->set_output_port(drop->id());
+//  else
+//    throw std::string("No drop port allocated");
+  assert(false);
 }
 
 
 void
 fp_flood(fp::Context* cxt)
 {
-  // Cache the drop port so the lookup doesn't happen every time.
-  static fp::Port* flood = fp::port_table.flood_port();
-  flood->send(cxt);
+  // Output to all ports other than in_port
+  // fp::Port* flood = fp::port_table.flood_port();
+  // flood->send(cxt);
+  assert(false);
 }
 
 
@@ -182,7 +189,8 @@ fp_goto_table(fp::Context* cxt, fp::Table* tbl, int n, ...)
 fp::Port*
 fp_get_port(char const* name)
 {
-  return fp::port_table.find(name);
+//  return fp::port_table.find(name);
+  assert(false);
 }
 
 // Returns the portId for a given port.
@@ -238,25 +246,32 @@ fp_gather(fp::Context* cxt, int key_width, int n, va_list args)
 // Creates a new table in the given data plane with the given size,
 // key width, and table type.
 fp::Table*
-fp_create_table(fp::Dataplane* dp, int id, int size, int key_width, fp::Table::Type type)
+fp_create_table(fp::Dataplane* dp, int id, int key_width, int size, fp::Table::Type type)
 {
+  assert(dp);
+
   fp::Table* tbl = nullptr;
+
   switch (type)
   {
     case fp::Table::Type::EXACT:
       // Make a new hash table.
       tbl = new fp::Hash_table(id, size, key_width);
-      dp->tables().push_back(tbl);
+      dp->tables_.insert({id, tbl});
       break;
+
     case fp::Table::Type::PREFIX:
       // Make a new prefix match table.
       break;
+
     case fp::Table::Type::WILDCARD:
       // Make a new wildcard match table.
       break;
+
     default:
-    throw std::string("Unknown table type given");
+      throw std::string("Unknown table type given");
   }
+
   return tbl;
 }
 

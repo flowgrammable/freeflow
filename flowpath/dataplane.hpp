@@ -1,60 +1,105 @@
 #ifndef FP_DATAPLANE_HPP
 #define FP_DATAPLANE_HPP
 
-#include <list>
 #include <string>
-#include <vector>
+#include <list>
 #include <unordered_map>
-
-#include "port.hpp"
-#include "application.hpp"
 
 namespace fp
 {
 
-extern Module_table module_table;
-extern Thread_pool thread_pool;
-
 struct Table;
+class Application;
+class Port;
 
 
 // The flowpath data plane module. Contains an application, a name,
 // and the tables the application will use during decode/lookup.
-struct Dataplane
+//
+// TODO: Rethink how the port table works. Who assigns ids?
+//
+// TODO: Support multuiple applications.
+class Dataplane
 {
+public:
+  using Port_list = std::list<Port*>;
+  using Port_map  = std::unordered_map<uint32_t, Port*>;
+  using Table_map = std::unordered_map<uint32_t, Table*>;
 
-  // Ctor/dtor.
-  Dataplane(std::string const&, std::string const&);
+  Dataplane(char const* n)
+    : name_(n), drop_(nullptr), app_(nullptr)
+  { }
+
   ~Dataplane();
 
-  // Wrappers to the application's add/remove port functions.
+  // Port management.
+  //
+  // FIXME: Ports cannot be added while the dataplane is running.
+  // Adding a port means rebuilding the port tables so that an
+  // application never has null ports.
   void add_port(Port*);
+  void add_virtual_ports();
   void remove_port(Port*);
 
-  // Mutators.
+  // Returns the list of system ports.
+  Port_list const& ports() const { return ports_; }
+  Port_list&       ports()       { return ports_; }
+
+  Port* get_port(uint32_t) const;
+  Port* get_drop_port() const { return drop_; }
+  Port* get_flood_port() const { return flood_; }
+
+  // Application management.
+  void load_application(char const*);
+  void unload_application();
+
+  Application* get_application() const { return app_; }
+
+  // Table management.
+
+  // State management.
   void up();
   void down();
-  void configure();
 
-  // Accessors.
-  Application*        app() const;
-  std::string         name() const;
-  std::vector<Table*> tables() const;
-  Table*              table(int);
+  // Returns the name of the data plane.
+  std::string const& name() const { return name_; }
 
-  // Data members.
-  //
-  // Data plane name.
   std::string name_;
 
-  // The set of tables applications can use.
-  std::vector<Table*> tables_;
+  // TODO: Factor the reserved ports into a struct?
+  // TODO: Support more reseverved ports.
+  Port_list ports_;
+  Port_map  portmap_;
+  Port*     drop_;
+  Port*     flood_;
 
-  // Application.
+  Table_map tables_;
   Application* app_;
 };
 
-using Dataplane_table = std::unordered_map<std::string, Dataplane*>;
+
+// Returns the port with the given identifier.
+inline Port*
+Dataplane::get_port(uint32_t id) const
+{
+  auto iter = portmap_.find(id);
+  if (iter != portmap_.end())
+    return iter->second;
+  return nullptr;
+}
+
+
+// -------------------------------------------------------------------------- //
+// Application interface
+
+extern "C"
+{
+
+Port* fp_get_drop_port(Dataplane*);
+Port* fp_get_flood_port(Dataplane*);
+
+} // extern "C"
+
 
 } // namespace
 
