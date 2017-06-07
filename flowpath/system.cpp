@@ -206,7 +206,7 @@ fp_get_portId(fp::Port* p)
 unsigned int
 fp_get_inputPortId(fp::Context* cxt)
 {
-  return cxt->in_port;
+  return cxt->in_port();
 }
 
 // Outputs the contexts packet on the port.

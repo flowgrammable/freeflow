@@ -7,6 +7,6 @@
 if (ENABLE_ODP)
   add_definitions(-DFP_ENABLE_ODP)
   add_executable(wire-driver-odp wire-odp.cpp)
-  target_link_libraries(wire-driver-odp flowpath-rt ${CMAKE_DL_LIBS})
+  target_link_libraries(wire-driver-odp flowpath-rt flowpath-applib ${CMAKE_DL_LIBS})
 endif()
 

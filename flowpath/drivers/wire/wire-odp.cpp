@@ -201,7 +201,7 @@ main(int argc, const char* argv[])
         if (pkts > 0) {
           app->process(cxt);
 
-          if (fp::Port* out = dp.get_port(cxt.out_port)) {
+          if (fp::Port* out = dp.get_port(cxt.output_port())) {
             out->send(&cxt);
           }
         }

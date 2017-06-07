@@ -1,18 +1,31 @@
 #include "context.hpp"
+#include "app-lib/endian.hpp"  // TODO: factor this out?
+//#include "system.hpp"
 
 namespace fp
 {
 
-Context::Context(Packet* p, Port::Id in, Port::Id in_phys, int tunn_id,
-                 int max_headers, int max_fields)
-	: packet_(p)
-  , metadata_()
-  , current_()
-  , in_port(in)
-  , in_phy_port(in_phys)
-  , hdr_()
-  , fld_()
-{ }
+//Context::Context(Packet const& p, Dataplane* dp, unsigned int in, unsigned int in_phy, int tunnelid)
+//  : input_{in, in_phy, tunnelid}, ctrl_(), decode_(), packet_(p),
+//    dp_(dp)
+//{ }
+
+//Context::Context(Packet const& p, Dataplane* dp, Port* in, Port* in_phy, int tunnelid)
+//  : input_{in->id(), in_phy->id(), tunnelid}, ctrl_(), decode_(),
+//    packet_(p), dp_(dp)
+//{ }
+
+
+// Sets the input port, physical input port, and tunnel id.
+//void
+//Context::set_input(Port* in, Port* in_phys, int tunnel)
+//{
+//  input_ = {
+//    in->id(),
+//    in_phys->id(),
+//    tunnel
+//  };
+//}
 
 
 void
@@ -31,27 +44,31 @@ Context::read_metadata()
 
 // -------------------------------------------------------------------------- //
 // Evaluation of actions
-
-namespace
-{
-
 inline void
 apply(Context& cxt, Set_action a)
 {
-  
+  // Copy the new data into the packet at the appropriate location.
+  Byte* p = cxt.get_field(a.field.offset);
+  Byte* val = a.value;
+  int len = a.field.length;
+
+  // Convert native to network order after copying.
+  std::copy(val, val + len, p);
+  native_to_network_order(p, len);
 }
 
 
 inline void
 apply(Context& cxt, Copy_action a)
 {
+  // TODO: Implement me.
 }
 
 
 inline void
 apply(Context& cxt, Output_action a)
 {
-  cxt.out_port = a.port;
+  cxt.set_output_port(a.port);
 }
 
 
@@ -69,9 +86,6 @@ apply(Context& cxt, Group_action a)
 }
 
 
-} // namespace
-
-
 void
 Context::apply_action(Action a)
 {
@@ -84,5 +98,27 @@ Context::apply_action(Action a)
   }
 }
 
-
 } // namespace fp
+
+
+// -------------------------------------------------------------------------- //
+// Application interface
+
+extern "C"
+{
+
+unsigned int
+fp_context_get_input_port(fp::Context* cxt)
+{
+  return cxt->in_port();
+}
+
+
+void
+fp_context_set_output_port(fp::Context* cxt, unsigned int p)
+{
+  cxt->set_output_port(p);
+}
+
+
+} // extern "C"

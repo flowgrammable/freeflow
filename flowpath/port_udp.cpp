@@ -141,6 +141,7 @@ Port_udp::close()
 int
 Port_udp::recv()
 {
+#if FALSE
   // Check if port is usable.
   if (config_.down)
     throw std::string("Port down");
@@ -191,8 +192,7 @@ Port_udp::recv()
     
     // Create the context associated with the packet and send it through
     // the pipeline.
-//    thread_pool.app()->lib().pipeline(cxt);
-    assert(false);
+    thread_pool.app()->lib().pipeline(cxt);
   }
 
   // Update port stats.
@@ -200,6 +200,8 @@ Port_udp::recv()
   stats_.byt_rx += bytes;
 
   return bytes;
+#endif
+  assert(false);
 }
 
 
@@ -207,6 +209,7 @@ Port_udp::recv()
 int
 Port_udp::send()
 {
+  #if FALSE // TODO: fix sendto
   // Check that this port is usable.
   if (config_.down)
     throw std::string("port down");
@@ -243,6 +246,8 @@ Port_udp::send()
 
   // Return number of bytes sent.
   return bytes;
+#endif
+  assert(false);
 }
 
 

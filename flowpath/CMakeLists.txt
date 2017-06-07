@@ -40,6 +40,7 @@ include_directories(.)
 
 # Applications.
 #add_subdirectory(apps)
+add_subdirectory(app-lib)
 
 # Drivers.
 add_subdirectory(drivers)
@@ -51,8 +52,6 @@ add_subdirectory(drivers)
 add_library(flowpath-rt SHARED
     application.cpp
     buffer.cpp
-    action.cpp
-    binding.cpp
     context.cpp
     dataplane.cpp
     flow.cpp

@@ -8,7 +8,7 @@
 namespace fp
 {
 
-struct Table;
+class Table;
 class Application;
 class Port;
 

@@ -128,6 +128,7 @@ Port_tcp::recv()
 int
 Port_tcp::send()
 {
+#if FALSE
   // Check that this port is usable.
   if (config_.down)
     throw("port down");
@@ -157,6 +158,8 @@ Port_tcp::send()
   }
   // Return number of bytes sent.
   return bytes;
+#endif
+  assert(false);
 }
 
 

@@ -135,7 +135,7 @@ Port_odp::recv(Context* cxt)
     Packet* pkt = new Packet(seg_buf, seg_len, arrival_ns, odp_pkt, fp::Buffer::BUF_TYPE::FP_BUF_ODP);
 //    Context* cxt = new Context(pkt, id_, id_, 0, 0, 0);
     cxt->packet_ = pkt;
-    cxt->in_port = cxt->in_phy_port = id_;
+    cxt->input_.in_port  = cxt->input_.in_phy_port = id_;
 
     // Find reserved location in packet buffer.
     ///Context* cxt = reinterpret_cast<Context*>(odp_packet_user_area(odp_pkt));
@@ -180,17 +180,17 @@ Port_odp::send(Context* ctx)
     Context* cxt = tx_queue_.front();
     tx_queue_.pop();
 
-    // Check if packet is and ODP buffer.
-    if (cxt->packet()->type() != fp::Buffer::BUF_TYPE::FP_BUF_ODP) {
+    // Check if packet is an ODP buffer.
+    if (cxt->packet().type() != fp::Buffer::BUF_TYPE::FP_BUF_ODP) {
       std::cerr << "Not an ODP buffer, can't send out ODP port (unimplemented)" << std::endl;
-      delete cxt->packet();
+//      delete cxt->packet();
       delete cxt;
     }
 
     // Include packet in send batch.
-    pkt_tbl[pkts_to_send] = (odp_packet_t)cxt->packet()->buf_handle();
+    pkt_tbl[pkts_to_send] = (odp_packet_t)cxt->packet().buf_handle();
     // Destruct Packet and Context prior to send (handing ownership to ODP)
-    delete cxt->packet();
+//    delete cxt->packet();
     delete cxt;
     pkts_to_send++;
   }
