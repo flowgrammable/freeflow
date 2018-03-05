@@ -6,7 +6,7 @@
 #include "port.hpp"
 
 // Open Data Plane:
-#include <odp.h>  // extern "C" protection provided
+#include <odp.h>
 #include <string>
 #include <new>
 

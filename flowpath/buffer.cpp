@@ -1,10 +1,9 @@
 #include "buffer.hpp"
 
-#include <string.h>
+#include <cstring>
 
 namespace fp
 {
-
 
 namespace Buffer
 {
@@ -17,14 +16,13 @@ Base::Base() {
 
 // Dtor for base packet buffer.
 Base::~Base() {
-  bytes_ = 0;
-  data_ = nullptr;
 }
 
 
 // Ctor for simple 'allocated' packet buffer.
-Simple::Simple(uint8_t* data, int bytes) : Base() {
+Simple::Simple(const uint8_t* data, int bytes) {
   data_ = new uint8_t[bytes];
+  bytes_ = bytes;
   memcpy(data_, data, bytes);
 }
 
@@ -35,13 +33,20 @@ Simple::~Simple() {
 }
 
 
-Odp::Odp(uint8_t* buf, int bytes) : Base() {
+Odp::Odp(uint8_t* buf, int bytes) {
   data_ = buf;
   bytes_ = bytes;
 }
 
 Odp::~Odp() {
+}
 
+
+Pcap::Pcap(uint8_t* buf, int bytes) :
+  Simple(buf, bytes), wire_bytes_(bytes) {
+}
+
+Pcap::~Pcap() {
 }
 
 } // end namespace buffer

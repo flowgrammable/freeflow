@@ -1,7 +1,7 @@
 #include "port_table.hpp"
 #include "port.hpp"
-#include "port_udp.hpp"
-#include "port_tcp.hpp"
+//#include "port_udp.hpp"
+//#include "port_tcp.hpp"
 #include "port_odp.hpp"
 
 #include <string>
@@ -11,9 +11,9 @@
 #include <iostream>
 
 // FIXME: OSX uses kqueue rather than epoll.
-#if ! __APPLE__
-  #include <sys/epoll.h>
-#endif
+//#if ! __APPLE__
+//  #include <sys/epoll.h>
+//#endif
 
 #include <fcntl.h>
 

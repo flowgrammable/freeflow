@@ -16,14 +16,15 @@ enum BUF_TYPE {
   FP_BUF_DPDK,
   FP_BUF_NETMAP,
   FP_BUF_NADK,
-  FP_BUF_ODP
+  FP_BUF_ODP,
+  FP_BUF_PCAP
 };
 
 
 struct Base
 {
   Base();
-  ~Base();
+  virtual ~Base();
 
   virtual inline const BUF_TYPE type() const { return FP_BUF_NULL; }
 
@@ -40,10 +41,10 @@ struct Simple : public Base
 {
   using Base::Base;
 
-  Simple(uint8_t*, int);
-  ~Simple();
+  Simple(const uint8_t*, int);
+  virtual ~Simple();
 
-  inline const BUF_TYPE type() const { return FP_BUF_SIMPLE; }
+  virtual inline const BUF_TYPE type() const { return FP_BUF_SIMPLE; }
 
   // TODO: follow up to ensure bytes_ is being used properly...
 };
@@ -53,7 +54,6 @@ struct Simple : public Base
 struct Nadk : public Simple
 {
   using Simple::Simple;
-
   // TODO: Implement me.
 };
 
@@ -86,8 +86,22 @@ struct Odp : public Base
 };
 
 
-} // end namespace buffer
+// The pcap buffer type.
+struct Pcap : public Simple
+{
+  using Simple::Simple;
 
+  Pcap(uint8_t*, int);
+  ~Pcap();
+
+  inline const BUF_TYPE type() const { return FP_BUF_PCAP; }
+
+  int wire_bytes_;  // original bytes observed on wire...
+  // NOTE: this is initialized to captured size and overwritten later as needed
+};
+
+
+} // end namespace buffer
 } // end namespace fp
 
 #endif

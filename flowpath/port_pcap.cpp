@@ -1,6 +1,4 @@
-#include "port_odp.hpp"
-
-#ifdef FP_ENABLE_ODP
+#include "port_pcap.hpp"
 
 #include "packet.hpp"
 #include "context.hpp"
@@ -17,16 +15,32 @@
 
 #include <exception>
 
-// The ODP port module.
-
 namespace fp
 {
 
+
+// dirA pcap -> Port 1
+// dirB pcap -> Port 2
+// time sync / offset?
+//
+
+
 // ODP Port constructor. Parses the device name from
 // the input string given, allocates a new internal ID.
-Port_odp::Port_odp(Port::Id id, std::string const& args)
-  : Port(id, "")
+Port_pcap::Port_pcap(Port::Id id, std::string const& args)
+  : Port(id, ""),
+    handle_(args.c_str())
 {
+//  auto name_off = args.find(' ');
+//  std::string dirA = args.substr(0, name_off);
+//  handles_.emplace_back(dirA);
+
+//  if (name_off != std::string::npos) {
+//    std::string dirB = args.substr(name_off+1, std::string::npos);
+//    handles_.emplace_back(dirB);
+//  }
+
+  /*
   auto name_off = args.find(';');
 
   std::string dev_name = args.substr(0, name_off);
@@ -45,8 +59,8 @@ Port_odp::Port_odp(Port::Id id, std::string const& args)
   dev_name_ = dev_name;
 
   // Initialize ODP pktio device.
-  odp_pktio_param_t pktio_param;
-  odp_pktio_param_init(&pktio_param);
+//  odp_pktio_param_t pktio_param;
+//  odp_pktio_param_init(&pktio_param);
 
   // Define pktio mode.
   // - ODP_PKTIN_MODE_RECV: burst recv() mode
@@ -65,44 +79,77 @@ Port_odp::Port_odp(Port::Id id, std::string const& args)
   pktio_ = odp_pktio_open(dev_name.c_str(), pktpool_, &pktio_param);
   if (pktio_ == ODP_PKTIO_INVALID)
     throw std::string("Error: pktio create failed for dev: " + dev_name);
+*/
 }
-
-
-// UDP Port destructor. Releases the allocated ID.
-Port_odp::~Port_odp()
-{ }
 
 
 // Start recieving and transmitting.
 int
-Port_odp::open()
+Port_pcap::open()
 {
-  int ret = odp_pktio_start(pktio_);
-  // TODO: how should port open error be reported?
-  if (ret != 0)
-    throw std::string("Error: unable to start pktio dev");
-  return ret;
+  throw std::string("open not defined");
+//  int ret = odp_pktio_start(pktio_);
+//  // TODO: how should port open error be reported?
+//  if (ret != 0)
+//    throw std::string("Error: unable to start pktio dev");
+//  return ret;
 }
 
 
 // Stop recieving and transmitting.
 int
-Port_odp::close()
+Port_pcap::close()
 {
-  int ret = odp_pktio_stop(pktio_);
-  // TODO: how should port close error be reported?
-  if (ret != 0)
-    throw std::string("Error: unable to stop pktio dev");
-  return ret;
+    throw std::string("close not defined");
+//  int ret = odp_pktio_stop(pktio_);
+//  // TODO: how should port close error be reported?
+//  if (ret != 0)
+//    throw std::string("Error: unable to stop pktio dev");
+//  return ret;
+}
+
+// Returns / deallocates buffers related to Context / Packet
+int
+Port_pcap::rebound(Context* cxt) {
+  delete cxt->packet_;
+  cxt->packet_ = nullptr;
+  return 0;
 }
 
 
 // Read packets from the socket.
 // Returns number of sucessfully received packets.
 int
-Port_odp::recv(Context* cxt)
+Port_pcap::recv(Context* cxt)
 {
-//  constexpr int MAX = MAX_PKT_BURST;
+  int status = handle_.next();
+  if (status != 1)
+    return 0;
+
+  timespec arrival_ts = handle_.get_ts();
+//  uint64_t arrival_ns = arrival_ts.tv_sec * 1000000000 +
+//                        arrival_ts.tv_nsec;
+  const uint8_t* seg_buf = handle_.peek_buf();
+  int seg_len = handle_.peek_meta()->caplen;
+  int orig_len = handle_.peek_meta()->len;
+
+  // Create a new packet and context associated with the packet.
+  Packet* pkt = new Packet(seg_buf, seg_len, arrival_ts, &handle_, fp::Buffer::BUF_TYPE::FP_BUF_PCAP);
+  // Hack to set wire bytes in buffer without reworking specalization...
+  static_cast<fp::Buffer::Pcap&>(
+   const_cast<fp::Buffer::Base&>(pkt->buf_object()) ).wire_bytes_ = orig_len;
+  cxt->packet_ = pkt;
+  cxt->input_.in_port = cxt->input_.in_phy_port = id_;
+
+  // Update port stats.
+  // TODO: these should be interlocked variables!
+  stats_.pkt_rx += 1;
+  stats_.byt_rx += orig_len;
+
+  return 1; // 1 recieved packet
+
+/*
+  //  constexpr int MAX = MAX_PKT_BURST;
   constexpr int MAX = 1;
 
   // Check if port is usable.
@@ -132,8 +179,7 @@ Port_odp::recv(Context* cxt)
     uint64_t arrival_ns = odp_time_to_ns(arrival);
 
     // Create a new packet and context associated with the packet.
-    Packet* pkt = new Packet(seg_buf, seg_len, timespec{arrival.tv_sec, arrival.tv_nsec},
-                             odp_pkt, fp::Buffer::BUF_TYPE::FP_BUF_ODP);
+    Packet* pkt = new Packet(seg_buf, seg_len, arrival_ns, odp_pkt, fp::Buffer::BUF_TYPE::FP_BUF_ODP);
 //    Context* cxt = new Context(pkt, id_, id_, 0, 0, 0);
     cxt->packet_ = pkt;
     cxt->input_.in_port  = cxt->input_.in_phy_port = id_;
@@ -156,14 +202,17 @@ Port_odp::recv(Context* cxt)
   stats_.byt_rx += bytes;
 
   return pkts;
+  */
 }
 
 
 // Send the packet to its destination.
 // Returns number of sucessfully sent packets.
 int
-Port_odp::send(Context* ctx)
+Port_pcap::send(Context* ctx)
 {
+    throw std::string("send not defined");
+  /*
   // Check that this port is usable.
   if (config_.down)
     throw std::string("unable to send, port down");
@@ -217,8 +266,7 @@ Port_odp::send(Context* ctx)
   stats_.byt_tx += bytes; // TODO: not keeping track of this...
 
   return sent;
+  */
 }
 
 } // end namespace fp
-
-#endif // FP_ENABLE_ODP

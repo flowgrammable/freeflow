@@ -1,0 +1,79 @@
+// Notes:
+// No Proto Updates
+// No Copies in Loop
+// No Parking Lot
+
+// Packet and Metadata
+struct PktCtx {
+	// Init:
+	Packet* pkt;		// Raw packet address
+	size_t pkt_size;	// Size of raw packet
+	PortID port_in;		// Ingress port of packet
+	
+	// Data Plane Metadata:
+	TableID table_id;	// Indicates next table to search
+	Key key;			// Key containing union of fields for all Tables
+	InstSet policy;		// Pointer to Policy Instruction Set (basic block)
+	ActSet action;		// Working Action Set accumulated over life in dataplane
+	
+	// Other Metadata:
+};
+
+// Table and Metadata
+struct Table {
+	TableInterface table_;	// Raw table data structure
+	TableID id_;			// Table ID defined by data plane
+	Policy default_;		// Default policy
+	Keyring keyring_table;	// matching field for table
+	
+	// Update Interface
+	
+};
+
+// Key : [(addr,value),...]
+// addr. point to fields in packet
+// value: value of that field (max bits = ?)
+
+// Keyring : [(FieldID?),...]
+// Notion of defining a set of FieldID's table is constructed to match on
+// - These FieldIDs are implicitly mapped to the fields extracted by FE Kernel
+
+// Dataplane Management:
+vector<Kernel> kernels;		// Kernel: pipeline function (i.e. Field Extraction)
+vector<Table> tables;
+Keyring keyring_union;		// Fields of interest for all tables
+
+// Packet Processing Loop (Packet Arrival):
+RunStatus run(address, length, port_id) {
+	// Initialize Packet:
+	PktCtx pktCtx = {address, length, port_id};
+	
+	// Key Extract:
+	pktCtx = decode(keyring_union, pktCtx);		// update key within pktCtx
+	// some fields in keyring_union may be protocol exclusive
+
+	// Instruction Processing Loop:
+	pktCtx.table_id = FIRST_TABLE;
+	while (PktCtx.tableID <= LAST_TABLE) {
+		// Table Select:
+		Table table = tables[pktCtx.table_id];
+		// Create Table Specific Key:
+		Key& table_key = gather(table.keyring_table, pktCtx.key);	
+		// ...this key should not be modified, only original pktCtx.key
+
+		// Flow Select:
+		Flow& flow = table.lookup(table_key);		// Perform Table Lookup
+		// Point pktCtx.policy to flow's instruction set
+		pktCtx.policy = flow ? flow : table.default_;
+		
+		// Instruction Execution
+		eval(pktCtx.policy, pktCtx);
+		// tableID updated?
+	}
+	
+	// Final Action Execution
+	eval(pktCtx.action, pktCtx);
+}
+
+// Egress Processing:
+// here

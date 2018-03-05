@@ -5,8 +5,8 @@ namespace fp
 
 
 // Packet constructor.
-Packet::Packet(uint8_t* data, int size, uint64_t time, void* buf_handle, Buffer::BUF_TYPE buf_type)
-  : timestamp_(time), buf_handle_(buf_handle)
+Packet::Packet(uint8_t* data, int size, timespec time, void* buf_handle, Buffer::BUF_TYPE buf_type)
+  : ts_(time), buf_handle_(buf_handle)
 {
   switch (buf_type) {
   case Buffer::BUF_TYPE::FP_BUF_ODP:
@@ -16,6 +16,27 @@ Packet::Packet(uint8_t* data, int size, uint64_t time, void* buf_handle, Buffer:
   case Buffer::BUF_TYPE::FP_BUF_SIMPLE:
     // placement new
     new (&buf_) Buffer::Simple(data, size);
+    break;
+  case Buffer::BUF_TYPE::FP_BUF_PCAP:
+    // placement new
+    new (&buf_) Buffer::Pcap(data, size);
+    break;
+  default:
+    throw "Unknown buffer type, can't construct Packet";
+  }
+}
+
+Packet::Packet(const uint8_t* data, int size, timespec time, void* buf_handle, Buffer::BUF_TYPE buf_type)
+  : ts_(time), buf_handle_(buf_handle)
+{
+  switch (buf_type) {
+  case Buffer::BUF_TYPE::FP_BUF_SIMPLE:
+    // placement new
+    new (&buf_) Buffer::Simple(data, size);
+    break;
+  case Buffer::BUF_TYPE::FP_BUF_PCAP:
+    // placement new
+    new (&buf_) Buffer::Pcap(data, size);
     break;
   default:
     throw "Unknown buffer type, can't construct Packet";
@@ -39,6 +60,10 @@ Packet::~Packet()
     // placement new
     dynamic_cast<Buffer::Simple*>(b)->~Simple();
     break;
+  case Buffer::BUF_TYPE::FP_BUF_PCAP:
+    // placement new
+    dynamic_cast<Buffer::Pcap*>(b)->~Pcap();
+    break;
   }
 }
 
@@ -50,7 +75,7 @@ Packet::~Packet()
 // We don't necessarily want to always allocate new memory for new
 // packets, there should be a way to re-use that space.
 Packet*
-packet_create(unsigned char* buf, int size, uint64_t time, void* buf_handle)
+packet_create(unsigned char* buf, int size, timespec time, void* buf_handle)
 {
   Packet* p = new Packet(buf, size, time, buf_handle, Buffer::BUF_TYPE::FP_BUF_SIMPLE);
 	return p;

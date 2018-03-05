@@ -1,9 +1,10 @@
 #ifndef FP_PORT_UDP_HPP
 #define FP_PORT_UDP_HPP
 
-#include "port.hpp"
-
 #include <string>
+#include <sys/socket.h>
+
+#include "port.hpp"
 
 namespace fp
 {

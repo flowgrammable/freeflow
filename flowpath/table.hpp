@@ -66,8 +66,9 @@ struct Key_hash
 
 
 // The abstract table interface.
-struct Table
+class Table
 {
+public:
   enum Type { EXACT, PREFIX, WILDCARD };
 
   Table(Type t, int id, int k)
@@ -80,6 +81,7 @@ struct Table
   virtual Flow const& find(Key const&) const = 0;
   virtual void insert(Key const&, Flow const&) = 0;
   virtual void erase(Key const&) = 0;
+
   void insert_miss(Flow const& f) { miss_ = f; }
 
   Type type()     const { return type_; }
@@ -87,6 +89,7 @@ struct Table
   Flow miss()     const { return miss_; }
   int  id()       const { return id_; }
 
+//private:
   Type type_;
   int id_;
   int key_size_;
@@ -107,8 +110,9 @@ struct Table
 // requires those matches to be translated into OXM's but
 // we want to be protocol agnostic. How do we solve this
 // problem?
-struct Hash_table : Table, private std::unordered_map<Key, Flow, Key_hash>
+class Hash_table : public Table, private std::unordered_map<Key, Flow, Key_hash>
 {
+public:
   using Map = std::unordered_map<Key, Flow, Key_hash>;
 
   Hash_table(int id, int size, int k)
@@ -117,7 +121,6 @@ struct Hash_table : Table, private std::unordered_map<Key, Flow, Key_hash>
 
   Flow&       find(Key const&);
   Flow const& find(Key const&) const;
-
   void insert(Key const&, Flow const&);
   void erase(Key const&);
 };

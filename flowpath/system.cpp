@@ -2,6 +2,8 @@
 #include <unordered_map>
 #include <cstdarg>
 
+#include "port.hpp"
+#include "table.hpp"
 #include "system.hpp"
 #include "port_table.hpp"
 #include "application.hpp"

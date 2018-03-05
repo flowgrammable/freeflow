@@ -31,6 +31,13 @@ if (ENABLE_PERF)
 endif()
 
 
+# CMAKE find package modules.
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
+
+# PCAP C Library.
+find_package(PCAP REQUIRED)
+include_directories(${PCAP_INCLUDE_DIR})
+
 # Require Boost C++ Libraries.
 find_package(Boost 1.55.0 REQUIRED)
 include_directories(${Boost_INCLUDE_DIRS})

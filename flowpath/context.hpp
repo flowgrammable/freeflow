@@ -111,7 +111,7 @@ struct Metadata
 struct Context
 {
 public:
-  Context() { }
+  Context() = default;
 //  Context(Packet*, uint32_t, uint32_t, int, int, int);
 
   // Iniitalize the context with a packet.
@@ -122,7 +122,15 @@ public:
     : input_{in, in_phy, tunnelid}, ctrl_(), decode_(), packet_(p), dp_(dp)
   { }
 
-//  ~Context() { }
+  ~Context() = default;
+
+  // Disable copy construction and copy assignment:
+  Context(const Context&) = delete;
+  Context& operator=(const Context&) = delete;
+
+  // Default move constructiona and move assignment:
+  Context(Context&&) = default;
+  Context& operator=(Context&&) = default;
 
   // Returns the packet owned by the context.
   Packet const& packet() const { return *packet_; }

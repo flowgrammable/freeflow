@@ -58,9 +58,10 @@ add_library(flowpath-rt SHARED
     packet.cpp
     port.cpp
     port_table.cpp
-    port_tcp.cpp
-    port_udp.cpp
+#    port_tcp.cpp
+#    port_udp.cpp
     port_odp.cpp
+    port_pcap.cpp
     queue.cpp
     system.cpp
     table.cpp
@@ -81,7 +82,7 @@ if (ENABLE_ODP AND NOT BUILD_ODP)
     crypto
     rt
   )
-elseif(ENABLE_ODP AND BUILD_ODP AND NOT BUILD_ODP_DPDK)
+elseif (ENABLE_ODP AND BUILD_ODP AND NOT BUILD_ODP_DPDK)
   # Include ODP compiled locally.
   add_dependencies(flowpath-rt odp-linux)
   target_link_libraries(flowpath-rt 
@@ -91,7 +92,7 @@ elseif(ENABLE_ODP AND BUILD_ODP AND NOT BUILD_ODP_DPDK)
     crypto
     rt
   )
-elseif(ENABLE_ODP AND BUILD_ODP AND BUILD_ODP_DPDK)
+elseif (ENABLE_ODP AND BUILD_ODP AND BUILD_ODP_DPDK)
   # Include ODP-DPDK compiled locally.
   add_dependencies(odp-dpdk dpdk)
   add_dependencies(flowpath-rt odp-dpdk)
@@ -104,5 +105,11 @@ elseif(ENABLE_ODP AND BUILD_ODP AND BUILD_ODP_DPDK)
     crypto
     rt
   )
+else ()
+  target_link_libraries(flowpath-rt
+    pcap
+		crypto
+#    rt
+	)
 endif()
 
