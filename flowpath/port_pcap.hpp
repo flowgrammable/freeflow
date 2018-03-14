@@ -19,6 +19,29 @@ extern "C" {
 class Context;
 
 namespace entangle {
+
+FILE *gzip_open(const char *path, const char *mode);
+
+extern "C" {
+// ZLIB (GZIP) Custom Stream Hook Functions:
+// https://www.gnu.org/software/libc/manual/html_node/Hook-Functions.html
+ssize_t gzip_read(void *cookie, char *buffer, size_t size);
+ssize_t gzip_write(void *cookie, const char *buffer, size_t size);
+int gzip_seek(void *cookie, off64_t *position, int whence);
+int gzip_close(void *cookie);
+
+// gzip_cookie is gzFile's file pointer itself
+
+//struct gzip_cookie {
+//  char *buf;        // dynamically allocated buf
+//  size_t allocated; // size of buf
+//  size_t endpos;    // number of bytes in buf
+//  size_t offset;    // current file offset in buf
+//};
+} // END extern "C" (ZLIB Custom Stream)
+
+
+
 template <char const* str>
 class Msg {
    public:
@@ -68,14 +91,14 @@ class PcapFile {
       enum Datalink { None, Unknown, Ethernet, Wifi, PPP, IPv4, IPv6, Raw };
 
    public:
-      PcapFile( const char* capfile, const char* timefile = "" ) :
+      PcapFile(const char* capfile, const char* timefile = "") :
                   capfile_(capfile), timefile_(timefile),
-                  cap_handle_( pcap_open_offline( capfile, errbuf ) ),
-                  time_handle_( timefile_ ),
+                  cap_handle_( pcap_fopen_offline(gzip_open(capfile, "r"), errbuf) ),
+                  time_handle_(timefile_),
                   pcap_header_(nullptr), pcap_buffer_(nullptr),
                   reads_(0), eof_(false)
       {
-         if ( cap_handle_ == nullptr ) throw FileNotFound( errbuf );
+         if (cap_handle_ == nullptr) throw FileNotFound(errbuf);
       }
 
       // Disable copy construction and copy assignment:

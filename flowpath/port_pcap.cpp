@@ -3,7 +3,7 @@
 #include "packet.hpp"
 #include "context.hpp"
 
-#include <stdio.h>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <algorithm>
@@ -15,10 +15,63 @@
 
 #include <exception>
 
+extern "C" {
+#include <zlib.h>
+}
+
+namespace entangle {
+
+FILE *gzip_open(const char *path, const char *mode) {
+  FILE *fp = NULL;
+  gzFile z = gzopen(path, mode);
+  if (z == NULL) {
+    perror("gzopen");
+    return NULL;
+  }
+
+  static const cookie_io_functions_t gzip_io_func = {
+    .read = gzip_read,
+    .write = gzip_write,
+    .seek = gzip_seek,
+    .close = gzip_close
+  };
+
+  fp = fopencookie(z, mode, gzip_io_func);
+  if (fp == NULL) {
+    perror("fopencookie");
+    gzclose(z);
+    return NULL;
+  }
+
+  return fp;
+}
+
+extern "C" {
+// ZLIB (GZIP) Custom Stream Hook Functions:
+// https://www.gnu.org/software/libc/manual/html_node/Hook-Functions.html
+ssize_t gzip_read(void *cookie, char *buffer, size_t size) {
+  return gzread(static_cast<gzFile>(cookie), buffer, size);
+}
+
+ssize_t gzip_write(void *cookie, const char *buffer, size_t size) {
+  return gzwrite(static_cast<gzFile>(cookie), buffer, size);
+}
+
+int gzip_seek(void *cookie, off64_t *position, int whence) {
+  return gzseek(static_cast<gzFile>(cookie), *position, whence);
+}
+
+int gzip_close(void *cookie) {
+  return gzclose(static_cast<gzFile>(cookie));
+}
+
+} // END extern "C" (ZLIB Custom Stream)
+}
+
+
+
 namespace fp
 {
-
-
 // dirA pcap -> Port 1
 // dirB pcap -> Port 2
 // time sync / offset?
