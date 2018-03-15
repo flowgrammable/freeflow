@@ -64,9 +64,8 @@ int gzip_seek(void *cookie, off64_t *position, int whence) {
 int gzip_close(void *cookie) {
   return gzclose(static_cast<gzFile>(cookie));
 }
-
 } // END extern "C" (ZLIB Custom Stream)
-}
+} // END entangle namespace
 
 
 
@@ -183,8 +182,9 @@ Port_pcap::recv(Context* cxt)
 //  uint64_t arrival_ns = arrival_ts.tv_sec * 1000000000 +
 //                        arrival_ts.tv_nsec;
   const uint8_t* seg_buf = handle_.peek_buf();
-  int seg_len = handle_.peek_meta()->caplen;
-  int orig_len = handle_.peek_meta()->len;
+  auto meta = handle_.peek_meta();
+  int seg_len = meta->caplen;
+  int orig_len = meta->len;
 
   // Create a new packet and context associated with the packet.
   Packet* pkt = new Packet(seg_buf, seg_len, arrival_ts, &handle_, fp::Buffer::BUF_TYPE::FP_BUF_PCAP);

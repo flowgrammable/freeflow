@@ -29,15 +29,7 @@ ssize_t gzip_read(void *cookie, char *buffer, size_t size);
 ssize_t gzip_write(void *cookie, const char *buffer, size_t size);
 int gzip_seek(void *cookie, off64_t *position, int whence);
 int gzip_close(void *cookie);
-
 // gzip_cookie is gzFile's file pointer itself
-
-//struct gzip_cookie {
-//  char *buf;        // dynamically allocated buf
-//  size_t allocated; // size of buf
-//  size_t endpos;    // number of bytes in buf
-//  size_t offset;    // current file offset in buf
-//};
 } // END extern "C" (ZLIB Custom Stream)
 
 
