@@ -1,80 +1,52 @@
-#include "system.hpp"
-#include "dataplane.hpp"
-#include "application.hpp"
-#include "port_table.hpp"
-#include "port.hpp"
-#include "port_pcap.hpp"
-#include "context.hpp"
-///#include "packet.hpp" // temporary for sizeof packet
-///#include "context.hpp" // temporary for sizeof context
+#include "caida-pcap.h"
 
-#include <string>
-#include <iostream>
-#include <stdexcept>
-#include <iomanip>
-#include <signal.h>
-#include <type_traits>
-#include <bitset>
-#include <map>
-#include <tuple>
-#include <functional>
-#include <algorithm>
-#include <numeric>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
-#include <queue>
+//#include "system.hpp"
+//#include "dataplane.hpp"
+//#include "application.hpp"
+//#include "port_table.hpp"
+//#include "port.hpp"
+//#include "port_pcap.hpp"
+//#include "context.hpp"
+/////#include "packet.hpp" // temporary for sizeof packet
+/////#include "context.hpp" // temporary for sizeof context
 
-#include <net/ethernet.h>
-#include <netinet/ip.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-#include <arpa/inet.h>
+//#include <string>
+//#include <iostream>
+//#include <stdexcept>
+//#include <iomanip>
+//#include <signal.h>
+//#include <type_traits>
+//#include <bitset>
+//#include <map>
+//#include <tuple>
+//#include <functional>
+//#include <algorithm>
+//#include <numeric>
+//#include <unordered_map>
+//#include <unordered_set>
+//#include <vector>
+//#include <queue>
 
-#include <typeinfo>
+//#include <net/ethernet.h>
+//#include <netinet/ip.h>
+//#include <netinet/in.h>
+//#include <netinet/tcp.h>
+//#include <arpa/inet.h>
+//#include <endian.h>
+
+//#include <typeinfo>
 
 #define DEBUG 1
 
 using namespace std;
 
 static bool running;
-
 void
 sig_handle(int sig)
 {
   running = false;
 }
 
-// Common types with guaranteed widths and signed-ness
-using u8 = uint8_t;
-using u16 = uint16_t;
-using u32 = uint32_t;
-using u64 = uint64_t;
-using s8 = int8_t;
-using s16 = int16_t;
-using s32 = int32_t;
-using s64 = int64_t;
-union u128_struct {
-  u64 word[2];
-  struct {
-    u64 upper;
-    u64 lower;
-  };
-};
-using u128 = u128_struct;
-
-// Ethernet EthertVLANVfsfype Constants:
-constexpr u16 ETHTYPE_VLAN = 0x8100;
-constexpr u16 ETHTYPE_IPV4 = 0x0800;
-constexpr u16 ETHTYPE_IPV6 = 0x86DD;
-// IPV4 Protocol Constants:
-constexpr u8 IP_PROTO_ICMP = 0x01; // 1
-constexpr u8 IP_PROTO_ICMPv6 = 0x3a; // 58
-constexpr u8 IP_PROTO_TCP = 0x06; // 6
-constexpr u8 IP_PROTO_UDP = 0x11; // 17
-constexpr u8 IP_PROTO_IPSEC_ESP = 0x32; // 50
-constexpr u8 IP_PROTO_IPSEC_AH = 0x33; // 51
-constexpr u8 IP_PROTO_ENCAP_IPV6 = 0x29; //41
 
 // Network byte-order translations
 // - messy run-time translations...  need to fix with LLVM intrinsic
@@ -84,29 +56,35 @@ inline void endianTest() {
   u8 end = *((volatile u8*)(&endianTest));
   littleEndian = (end == 0xCD);
 }
-u16 betoh16(u16 n) {
-  if (littleEndian)
-    return (n & 0x00FFU)<<8 | (n & 0xFF00U)>>8;
-  else
-    return n;
+static inline u16 betoh16(u16 n) {
+  return be16toh(n);
+//  if (littleEndian)
+//    return (n & 0x00FFU)<<8 | (n & 0xFF00U)>>8;
+//  else
+//    return n;
 }
-u32 betoh32(u32 n) {
-  if (littleEndian)
-    return (n & 0x000000FFUl)<<24 | (n & 0xFF000000Ul)>>24 |
-           (n & 0x0000FF00Ul)<<8  | (n & 0x00FF0000Ul)>>8;
-  else
-    return n;
+static inline u32 betoh32(u32 n) {
+  return be32toh(n);
+//  if (littleEndian)
+//    return (n & 0x000000FFUl)<<24 | (n & 0xFF000000Ul)>>24 |
+//           (n & 0x0000FF00Ul)<<8  | (n & 0x00FF0000Ul)>>8;
+//  else
+//    return n;
 }
-u64 betoh64(u64 n) {
-  if (littleEndian)
-    return (n&0x00000000000000FFUll)<<56 | (n&0x000000000000FF00Ull)<<40 |
-           (n&0x0000000000FF0000Ull)<<24 | (n&0x00000000FF000000Ull)<<8  |
-           (n&0x000000FF00000000Ull)>>8  | (n&0x0000FF0000000000Ull)>>24 |
-           (n&0x00FF000000000000Ull)>>40 | (n&0xFF00000000000000Ull)>>56;
-  else
-    return n;
+static inline u64 betoh64(u64 n) {
+  return be64toh(n);
+//  if (littleEndian)
+//    return (n&0x00000000000000FFUll)<<56 | (n&0x000000000000FF00Ull)<<40 |
+//           (n&0x0000000000FF0000Ull)<<24 | (n&0x00000000FF000000Ull)<<8  |
+//           (n&0x000000FF00000000Ull)>>8  | (n&0x0000FF0000000000Ull)>>24 |
+//           (n&0x00FF000000000000Ull)>>40 | (n&0xFF00000000000000Ull)>>56;
+//  else
+//    return n;
 }
 
+
+
+// TODO: replace this with chrono duration...
 timespec
 operator-(const timespec& lhs, const timespec& rhs) {
   constexpr auto NS_IN_SEC = 1000000000LL;
@@ -138,292 +116,37 @@ operator-(const timespec& lhs, const timespec& rhs) {
   return result;
 }
 
-struct Fields {
- u64 ethSrc;
- u64 ethDst;
- u16 ethType;
- u16 vlanID;
- u32 ipv4Src;
- u32 ipv4Dst;
- u8  ipProto;
- u16 ipFlags;
- u16 srcPort;
- u16 dstPort;
-};
-struct FlowKey {
-  u32 ipv4Src;
-  u32 ipv4Dst;
-  u16 srcPort;
-  u16 dstPort;
-  u8  ipProto;
-};
 
-using IpTuple = std::tuple<u32, u32>;
-using PortTuple = std::tuple<u16, u16>;
-using FlowKeyTuple = std::tuple<IpTuple, PortTuple, u8>;
 
-class FlowRecord {
-public:
-  FlowRecord(u64 flowID, const u16 bytes, const timespec& ts) :
-    flowID_(flowID), start_(ts),
-    arrival_ns_({0}), bytes_({bytes}),
-    saw_open_(false), saw_close_(false) { }
-
-  u64 update(const u16 bytes, const timespec& ts) {
-    bytes_.push_back(bytes);
-
-    timespec diff = ts - start_; // NEED TO VERIFY
-    u64 diff_ns = diff.tv_sec * 1000000000 + diff.tv_nsec;
-    arrival_ns_.push_back(diff_ns);
-
-    return flowID_;
-  }
-
-  u64 getFlowID() const { return flowID_; }
-  size_t packets() const { return arrival_ns_.size(); }
-  u64 bytes() const { return std::accumulate(bytes_.begin(), bytes_.end(), u64(0)); }
-
-  const vector<u64>& getArrivalV() const { return arrival_ns_; }
-  const vector<u16>& getByteV() const { return bytes_; }
-
-private:
-  u64 flowID_;
-  timespec start_;
-  vector<u64> arrival_ns_;
-  vector<u16> bytes_;
-  bool saw_open_;  // change to direction open/close?
-  bool saw_close_;
-};
-
-template <typename R>
-static constexpr typename enable_if< is_integral<R>::value, R >::type
-bitmask(const size_t bitCount)
-{
-//  return (onecount != 0)
-//      ? (static_cast<R>(-1) >> ((sizeof(R) * CHAR_BIT) - onecount))
-//      : 0;
-    return static_cast<R>(-(bitCount != 0))
-        & (static_cast<R>(-1) >> ((sizeof(R) * CHAR_BIT) - bitCount));
+u64 FlowRecord::update(const EvalContext& e) {
+  // TODO: record flowstate...
+  return FlowRecord::update(e.origBytes, e.packet().timestamp());
 }
-template <typename R>
-static constexpr typename enable_if< is_integral<R>::value, R >::type
-bytemask(const size_t byteCount)
-{
-    return static_cast<R>(-(byteCount != 0))
-        & (static_cast<R>(-1) >> (sizeof(R) - byteCount));
+
+u64 FlowRecord::update(const u16 bytes, const timespec& ts) {
+  bytes_.push_back(bytes);
+
+  timespec diff = ts - start_; // NEED TO VERIFY
+  u64 diff_ns = diff.tv_sec * 1000000000 + diff.tv_nsec;
+  arrival_ns_.push_back(diff_ns);
+
+  return flowID_;
 }
 
 
-// Keeps track of safe range of access within packet.
-class View {
-public:
-  View(uint8_t* ptr, size_t bytes) :
-    begin_(ptr), end_(ptr+bytes),
-    beginCP_(begin_), endCP_(end_),
-    beginAbs_(begin_), endAbs_(end_) {
-  }
-  View(uint8_t* ptr, size_t bytes, size_t orig) :
-    begin_(ptr), end_(ptr+bytes),
-    beginCP_(begin_), endCP_(end_),
-    beginAbs_(begin_), endAbs_(ptr+orig) {
-  }
 
-  bool sufficient(size_t bytes) {
-    u8* end = static_cast<u8*>(begin_) + bytes;
-    return end <= end_;
-  }
-  template<typename R, size_t bytes = sizeof(R)>
-  bool sufficient() {
-    return sufficient(bytes);
-  }
-
-  void discard(size_t bytes) {
-    if (!sufficient(bytes))
-      throw std::out_of_range("Insufficient bytes to discard");
-
-    constrain(bytes);
-  }
-
-  void discardEnd(size_t bytes) {
-    if (!sufficient(bytes))
-      throw std::out_of_range("Insufficient bytes to discard");
-
-    constrainEnd(bytes);
-  }
-
-  template<typename R, size_t bytes = sizeof(R)>
-  R peek() {
-    if (!sufficient(bytes))
-      throw std::out_of_range("Insufficient bytes to read");
-
-    R val = read<R,bytes>();
-    return val;
-  }
-
-  template<typename R, size_t bytes = sizeof(R)>
-  R peekEnd() {
-    if (!sufficient(bytes))
-      throw std::out_of_range("Insufficient bytes to read");
-
-    R val = readEnd<R,bytes>();
-    return val;
-  }
-
-  template<typename R, size_t bytes = sizeof(R)>
-  R get() {
-    if (!sufficient(bytes))
-      throw std::out_of_range("Insufficient bytes to read");
-
-    R val = read<R,bytes>();
-    constrain(bytes);
-    return val;
-  }
-
-  template<typename R, size_t bytes = sizeof(R)>
-  R getEnd() {
-    if (!sufficient(bytes))
-      throw std::out_of_range("Insufficient bytes to read");
-
-    R val = readEnd<R,bytes>();
-    constrain(bytes);
-    return val;
-  }
-
-  // Remaining bytes in View
-  template<typename R>
-  typename enable_if< is_integral<R>::value, R >::type
-  bytes() {
-    R bytes = static_cast<u8*>(end_) - static_cast<u8*>(begin_);
-    return bytes;
-  }
-
-  // Remaining bytes in committed view (checkpoint)
-  template<typename R>
-  typename enable_if< is_integral<R>::value, R >::type
-  committedBytes() {
-    R bytes = static_cast<u8*>(endCP_) - static_cast<u8*>(beginCP_);
-    return bytes;
-  }
-
-  // Total bytes in original view
-  template<typename R>
-  typename enable_if< is_integral<R>::value, R >::type
-  absoluteBytes() {
-    R bytes = static_cast<const u8*>(endAbs_) - static_cast<const u8*>(beginAbs_);
-    return bytes;
-  }
-
-  // Bytes moved in current view since last commit.
-  template<typename R>
-  typename enable_if< is_integral<R>::value, R >::type
-  pendingBytes() {
-    R bytes = this->committedBytes<R>() - this->bytes<R>();
-    return bytes;
-  }
-
-  void commit() {
-    beginCP_ = begin_;
-    endCP_ = end_;
-  }
-
-  void rollback() {
-    begin_ = beginCP_;
-    end_ = endCP_;
-  }
-
-  void revert() {
-    begin_ = beginAbs_;
-    end_ = endAbs_;
-  }
-
-private:
-  void constrain(size_t bytes) {
-    u8* pos = static_cast<u8*>(begin_) + bytes;
-    begin_ = pos;
-  }
-
-  void constrainEnd(size_t bytes) {
-    u8* pos = static_cast<u8*>(end_) - bytes;
-    end_ = pos;
-  }
-
-  template<typename R, size_t bytes = sizeof(R)>
-  typename enable_if< is_integral<R>::value, R >::type
-  read() {
-    R* ptr = static_cast<R*>(begin_);
-    R val = *ptr & bytemask<R>(bytes);
-    return val;
-  }
-
-  template<typename R, size_t bytes = sizeof(R)>
-  typename enable_if< is_compound<R>::value, R >::type
-  read() {
-    R* ptr = static_cast<R*>(begin_);
-    R val = *ptr;
-    return val;
-  }
-
-  template<typename R, size_t bytes = sizeof(R)>
-  typename enable_if< is_integral<R>::value, R >::type
-  readEnd() {
-    R* ptr = static_cast<R*>(end_) - 1; // read one element (R) back from end...
-    R val = *ptr & bytemask<R>(bytes);
-    return val;
-  }
-
-  template<typename R, size_t bytes = sizeof(R)>
-  typename enable_if< is_compound<R>::value, R >::type
-  readEnd() {
-    R* ptr = static_cast<R*>(end_) - 1; // read one element (R) back from end...
-    R val = *ptr;
-    return val;
-  }
-
-private:
-  // Current View:
-  void* begin_;
-  void* end_; // one past end
-  // Checkpoint View:
-  void* beginCP_;
-  void* endCP_; // one past end
-  // Absolute View:
-  void *const beginAbs_;
-  void *const endAbs_;  // one past end
-};
-
-
-class EvalContext {
-public:
-  View v;
-  u16 origBytes;
-  Fields k;
-  stringstream extractLog;
-
-  EvalContext(fp::Packet* p) :
-    v(p->data(), p->size()), k{}, extractLog()
-  {
-    // Replace View with observed bytes
-    if (p->type() == fp::Buffer::FP_BUF_PCAP) {
-      const auto& buf = static_cast<const fp::Buffer::Pcap&>( p->buf_object() );
+EvalContext::EvalContext(fp::Packet* const p) :
+  v(p->data(), p->size()), k{}, extractLog(), pkt_(*p)
+{
+  // Replace View with observed bytes
+  if (p->type() == fp::Buffer::FP_BUF_PCAP) {
+    const auto& buf = static_cast<const fp::Buffer::Pcap&>( p->buf_object() );
 //      v = View(p->data(), p->size(), buf->wire_bytes_);
-      origBytes = buf.wire_bytes_;
-    }
+    origBytes = buf.wire_bytes_;
   }
-};
+}
 
-enum HeaderType {UNKNOWN = 0, ETHERNET, IP, IPV4, IPV6, TCP, UDP};
 
-int extract(EvalContext&, HeaderType);
-int extract_ethernet(EvalContext&);
-int extract_ip(EvalContext&);
-int extract_ipv4(EvalContext&);
-int extract_ipv6(EvalContext&);
-int extract_tcp(EvalContext&);
-int extract_udp(EvalContext&);
-int extract_icmpv4(EvalContext&);
-int extract_icmpv6(EvalContext&);
-int extract_ipsec_esp(EvalContext&);
-int extract_ipsec_ah(EvalContext&);
 
 // function to extract packet into global key
 // Arguments:
@@ -540,11 +263,12 @@ L4:
     status = extract_ipsec_esp(cxt);
     break;
   case IP_PROTO_ENCAP_IPV6:
-    status = extract_ipv6(cxt);
-    if (status > 0) {
-      ipProto = gKey.ipProto;
-      goto L4;
-    }
+    // Diabled IPv6...
+//    status = extract_ipv6(cxt);
+//    if (status > 0) {
+//      ipProto = gKey.ipProto;
+//      goto L4;
+//    }
     break;
   default:
     log << __func__ << ": Unknown ipProto=" << ipProto << '\n';
@@ -1002,7 +726,7 @@ extract_icmpv6(EvalContext& cxt) {
   return extracted;
 }
 
-std::ostream& printEval(std::ostream &out, EvalContext& evalCxt) {
+static std::ostream& print_eval(std::ostream &out, const EvalContext& evalCxt) {
   int committedBytes = evalCxt.v.absoluteBytes<int>() - evalCxt.v.committedBytes<int>();
   int pendingBytes = evalCxt.v.committedBytes<int>();
   string committed("|"), pending("|");
@@ -1018,140 +742,117 @@ std::ostream& printEval(std::ostream &out, EvalContext& evalCxt) {
   return out;
 }
 
-bool timespec_less(const timespec& lhs, const timespec& rhs) {
-  return (lhs.tv_sec < rhs.tv_sec) &&
-         (lhs.tv_nsec < rhs.tv_nsec);
+
+int caidaHandler::advance(int id) {
+  fp::Context cxt;
+  if (pcap_.at(id).recv(&cxt) > 0) {
+    next_cxt_.push( std::move(cxt) );
+    return 1; // 1 packet read
+  }
+  else {
+    if (pcap_files_.at(id).size() > 0) {
+      // Queue next pcap file and prepare for first read:
+      auto& list = pcap_files_.at(id);
+      string file = list.front();
+      list.pop();
+
+      cerr << "Opening PCAP file: " << file << endl;
+      pcap_.erase(id);
+      pcap_.emplace(std::piecewise_construct,
+                    std::forward_as_tuple(id),
+                    std::forward_as_tuple(id, file.c_str()) );
+
+      return advance(id); // recursive call to handle 1st read
+    }
+  }
+  cerr << "No packets to read from Port: " << id << endl;
+  return 0; // no packets to read
 }
 
-bool timespec_greater(const timespec& lhs, const timespec& rhs) {
-  return (lhs.tv_sec > rhs.tv_sec) &&
-         (lhs.tv_nsec > rhs.tv_nsec);
+void caidaHandler::open_list(int id, string listFile) {
+  // Open text list file:
+  ifstream lf;
+  lf.open(listFile);
+  if (!lf.is_open()) {
+    cerr << "Failed to open_list(" << id << ", " << listFile << endl;
+    return;
+  }
+
+  // Find directory component of listFile:
+  size_t path = listFile.find_last_of('/');
+
+  // Queue all files up in list (in read-in order)
+  auto& fileQueue = pcap_files_[id];
+  string fileName;
+  while (getline(lf, fileName)) {
+    fileName.insert(0, listFile, 0, path+1);
+    cerr << fileName << '\n';
+    fileQueue.emplace( std::move(fileName) );
+  }
+  cerr.flush();
+  lf.close();
+
+  // Attempt to open first file in stream:
+  fileName = std::move(fileQueue.front());
+  fileQueue.pop();
+  open(id, fileName);
 }
 
-bool timespec_equal(const timespec& lhs, const timespec& rhs) {
-  return (lhs.tv_sec == rhs.tv_sec) &&
-         (lhs.tv_nsec == rhs.tv_nsec);
+void caidaHandler::open(int id, string file) {
+  // Automatically call open_list if file ends in ".files":
+  const string ext(".files");
+  if (file.compare(file.length()-ext.length(), string::npos, ext) == 0) {
+    return open_list(id, file);
+  }
+
+  // Open PCAP file:
+  pcap_.emplace(std::piecewise_construct,
+                std::forward_as_tuple(id),
+                std::forward_as_tuple(id, file.c_str()) );
+  pcap_files_[id];  // ensure id exists
+
+  // Attempt to queue first packet in stream:
+  advance(id);
 }
 
-struct context_cmp {
-  bool operator()(const fp::Context& lhs, const fp::Context& rhs) {
-    const timespec& lhs_ts = lhs.packet().timestamp();
-    const timespec& rhs_ts = rhs.packet().timestamp();
-
-    return timespec_greater(lhs_ts, rhs_ts);
-  }
-};
-
-class caidaHandler {
-public:
-  caidaHandler() = default;
-  ~caidaHandler() = default;
-
-private:
-  int advance(int id) {
-    fp::Context cxt;
-    if (pcap_.at(id).recv(&cxt) > 0) {
-      next_cxt_.push( std::move(cxt) );
-      return 1; // 1 packet read
+fp::Context caidaHandler::recv() {
+  if (next_cxt_.empty()) {
+    for (const auto& l : pcap_files_) {
+      // Sanity check to ensure no dangling unread pcap files...
+      assert(l.second.size() == 0);
     }
-    else {
-      if (pcap_files_.at(id).size() > 0) {
-        // Queue next pcap file and prepare for first read:
-        auto& list = pcap_files_.at(id);
-        string file = list.front();
-        list.pop();
-
-        cerr << "Opening PCAP file: " << file << endl;
-        pcap_.erase(id);
-        pcap_.emplace(std::piecewise_construct,
-                      std::forward_as_tuple(id),
-                      std::forward_as_tuple(id, file.c_str()) );
-
-        return advance(id); // recursive call to handle 1st read
-      }
-    }
-    cerr << "No packets to read from Port: " << id << endl;
-    return 0; // no packets to read
+    return fp::Context();
   }
 
-public:
-  void open_list(int id, string listFile) {
-    // Open text list file:
-    ifstream lf;
-    lf.open(listFile);
-    if (!lf.is_open()) {
-      cerr << "Failed to open_list(" << id << ", " << listFile << endl;
-      return;
-    }
+  // Swap priority_queue container objects without a built-in move optimization:
+  fp::Context top = std::move( const_cast<fp::Context&>(next_cxt_.top()) );
+  next_cxt_.pop();
+  int id = top.in_port();
 
-    // Find directory component of listFile:
-    size_t path = listFile.find_last_of('/');
+  // Queue next packet in stream:
+  advance(id);
+  return top;
+}
 
-    // Queue all files up in list (in read-in order)
-    auto& fileQueue = pcap_files_[id];
-    string fileName;
-    while (getline(lf, fileName)) {
-      fileName.insert(0, listFile, 0, path+1);
-      cerr << fileName << endl;
-      fileQueue.emplace( std::move(fileName) );
-    }
-    lf.close();
+int caidaHandler::rebound(fp::Context* cxt) {
+  return pcap_.at(cxt->in_port()).rebound(cxt);
+}
 
-    // Attempt to open first file in stream:
-    fileName = std::move(fileQueue.front());
-    fileQueue.pop();
-    open(id, fileName);
+
+static inline stringstream dump_packet(fp::Packet* p) {
+  stringstream pktDump;
+
+  // Dump hex of packet:
+  uint8_t *const d = p->data();
+  pktDump << hex << setfill('0');
+  for (int i = 0; i < p->size(); ++i) {
+    pktDump << setw(2) << static_cast<int>(d[i]);
   }
+  return pktDump;
+}
 
-  void open(int id, string file) {
-    // Automatically call open_list if file ends in ".files":
-    const string ext(".files");
-    if (file.compare(file.length()-ext.length(), string::npos, ext) == 0) {
-      return open_list(id, file);
-    }
 
-    // Open PCAP file:
-    pcap_.emplace(std::piecewise_construct,
-                  std::forward_as_tuple(id),
-                  std::forward_as_tuple(id, file.c_str()) );
-    pcap_files_[id];  // ensure id exists
-
-    // Attempt to queue first packet in stream:
-    advance(id);
-  }
-
-  fp::Context recv() {
-    if (next_cxt_.empty()) {
-      for (const auto& l : pcap_files_) {
-        // Sanity check to ensure no dangling unread pcap files...
-        assert(l.second.size() == 0);
-      }
-      return fp::Context();
-    }
-
-    // Swap priority_queue container objects without a built-in move optimization:
-    fp::Context top = std::move( const_cast<fp::Context&>(next_cxt_.top()) );
-    next_cxt_.pop();
-    int id = top.in_port();
-
-    // Queue next packet in stream:
-    advance(id);
-    return top;
-  }
-
-  int rebound(fp::Context* cxt) {
-    return pcap_.at(cxt->in_port()).rebound(cxt);
-  }
-
-private:
-  // Next packet in stream from each portID, 'sorted' by arrival timestamp:
-  priority_queue<fp::Context, vector<fp::Context>, context_cmp> next_cxt_;
-  // Currently open pcap file hand by portID:
-  map<int, fp::Port_pcap> pcap_;
-  // Next pcap files to open by portID:
-  map<int, std::queue<std::string>> pcap_files_;
-};
-
+///////////////////////////////////////////////////////////////////////////////
 int
 main(int argc, const char* argv[])
 {
@@ -1182,6 +883,9 @@ main(int argc, const char* argv[])
 //  using test = decltype(std::make_tuple(k.ipv4Src, k.ipv4Dst, k.ipProto, k.srcPort, k.dstPort));
   u64 flowID = 0;
   unordered_map<string, FlowRecord> flows;
+  vector< pair<string, FlowRecord> > completedFlows;
+//  priority_queue< pair<timespec, string> > timeoutQueue;
+//  deque< pair<timespec, string> > timeoutQueue;
 
   // Global Stats:
   u16 maxPacketSize = std::numeric_limits<u16>::lowest();
@@ -1193,30 +897,20 @@ main(int argc, const char* argv[])
   while (cxt.packet_ != nullptr) {
     fp::Packet* p = cxt.packet_;
     EvalContext evalCxt(p);
-
-    // Dump hex of packet:
-    const int capBytes = p->size();
-    count++;
-    stringstream pktDump;
-    {
-    uint8_t *const d = p->data();
-    pktDump << hex << setfill('0');
-    for (int i = 0; i < capBytes; ++i) {
-      pktDump << setw(2) << static_cast<int>(d[i]);
-    }
-    }
+    const auto& time = p->timestamp();
 
     // Attempt to parse packet headers:
+    count++;
     try {
     int status = extract(evalCxt, IP);
     }
     catch (std::exception& e) {
-      cerr << count << " (" << capBytes << "B): ";
+      cerr << count << " (" << p->size() << "B): ";
       cerr << evalCxt.v.absoluteBytes<int>() << ", "
            << evalCxt.v.committedBytes<int>() << ", "
            << evalCxt.v.pendingBytes<int>() << '\n';
-      cerr << pktDump.str() << '\n';
-      printEval(cerr, evalCxt);
+      cerr << dump_packet(p).str() << '\n';
+      print_eval(cerr, evalCxt);
       cerr << "> Exception occured durring to extract: " << e.what() << endl;
     }
 
@@ -1227,44 +921,39 @@ main(int argc, const char* argv[])
     char* fkp = reinterpret_cast<char*>(&fk);
     string fks(fkp, sizeof(fk));
 
-//    FlowRecord fr(flowID, bytes, p->timestamp());
+//    FlowRecord fr(flowID, bytes, time);
 //    auto status = flows.insert(make_pair(fks, fr));
     u16 wireBytes = evalCxt.origBytes;
     maxPacketSize = std::max(maxPacketSize, wireBytes);
     minPacketSize = std::min(minPacketSize, wireBytes);
     auto status = flows.emplace(std::piecewise_construct,
                                  std::forward_as_tuple(fks),
-                                 std::forward_as_tuple(flowID, wireBytes, p->timestamp()));
+                                 std::forward_as_tuple(flowID, wireBytes, time));
     // Unexpectingly, emplace construsts a record before testing lookup...
+    // TODO: perform check first to avoid unecessary emplace  construction...
     if (!status.second) {
-      auto id = (*status.first).second.update(wireBytes, p->timestamp());
+      FlowRecord& record = (*status.first).second;
+      auto id = record.update(wireBytes, time);
       evalCxt.extractLog << "Existing FlowID: " << id << '\n';
     }
     else {
       evalCxt.extractLog << "New FlowID: " << flowID << '\n';
-      flowID++;
-    }
 
-/*
-    // Print packet info:
-//    printf("ethType: %x\n"\
-//           "ethSrc: %llx\n"\
-//           "ethDst: %llx\n"\
-//           "ipv4Src: %lx\n"\
-//           "ipv4Dst: %lx\n"\
-//           "ipProto: %x\n"\
-//           "srcPort: %i\n"\
-//           "dstPort: %i\n",
-//           k.ethType,
-//           k.ethSrc,
-//           k.ethDst,
-//           k.ipv4Src,
-//           k.ipv4Dst,
-//           k.ipProto,
-//           k.srcPort,
-//           k.dstPort
-//    );
-*/
+      // Every 32k flows, clean up flow table:
+      if (++flowID % (32*1024) == 0) {
+        for (auto i = flows.begin(); i != flows.end(); ) {
+          const FlowRecord& flow = i->second;
+          timespec sinceLast = time - flow.last();
+          if (sinceLast.tv_sec >= 120) {
+            cerr << "Flow " << flow.getFlowID()
+                 << " expired after " << flow.packets() << " packets." << endl;
+            completedFlows.emplace_back( std::move(*i) );
+            i = flows.erase(i); // effectively: erase(i++)
+          }
+          i++;
+        }
+      }
+    }
 
     caida.rebound(&cxt);
     cxt = caida.recv();
@@ -1306,5 +995,4 @@ main(int argc, const char* argv[])
 
   return 0;
 }
-
 
