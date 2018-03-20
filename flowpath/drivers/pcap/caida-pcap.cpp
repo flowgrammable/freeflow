@@ -726,6 +726,7 @@ extract_icmpv6(EvalContext& cxt) {
   return extracted;
 }
 
+
 static std::ostream& print_eval(std::ostream &out, const EvalContext& evalCxt) {
   int committedBytes = evalCxt.v.absoluteBytes<int>() - evalCxt.v.committedBytes<int>();
   int pendingBytes = evalCxt.v.committedBytes<int>();
@@ -839,16 +840,32 @@ int caidaHandler::rebound(fp::Context* cxt) {
 }
 
 
-static inline stringstream dump_packet(fp::Packet* p) {
-  stringstream pktDump;
+static stringstream dump_packet(fp::Packet* p) {
+  stringstream ss;
 
   // Dump hex of packet:
   uint8_t *const d = p->data();
-  pktDump << hex << setfill('0');
+  ss << hex << setfill('0');
   for (int i = 0; i < p->size(); ++i) {
-    pktDump << setw(2) << static_cast<int>(d[i]);
+    ss << setw(2) << static_cast<int>(d[i]);
   }
-  return pktDump;
+  return ss;
+}
+
+
+static stringstream print_flow(const FlowRecord& flow) {
+  stringstream ss;
+
+  // Print flow summary information:
+  auto pkts = flow.packets();
+  auto byts = flow.bytes();
+  ss << "FlowID=" << flow.getFlowID()
+     << ", key=" << 0
+     << ", packets=" << pkts
+     << ", bytes=" << byts
+     << ", ppBytes=" << byts/pkts
+     << '\n';
+  return ss;
 }
 
 
@@ -867,7 +884,7 @@ main(int argc, const char* argv[])
     return 2;
   }
 
-  // Open Pcap Files:
+  // Open Pcap Input Files:
   caidaHandler caida;
   cout << argv[1] << endl;
   caida.open(1, argv[1]);
@@ -875,6 +892,20 @@ main(int argc, const char* argv[])
     cout << argv[2] << endl;
     caida.open(2, argv[2]);
   }
+
+  // Get current time (to generate trace filename:
+  stringstream now_ss;
+  {
+    chrono::system_clock::time_point now = chrono::system_clock::now();
+    time_t now_c = chrono::system_clock::to_time_t(now);
+    now_ss << std::put_time(std::localtime(&now_c),"%F_%T");
+  }
+
+  // Open Log/Trace Output Files:
+  ofstream flowTrace, debugLog;
+  // TODO: explore a binary output option...
+  flowTrace.open(now_ss.str().append(".trace"), ios::out);
+  debugLog.open(now_ss.str().append(".log"), ios::out);
 
   // TODO: factor me out
   endianTest();
@@ -945,11 +976,12 @@ main(int argc, const char* argv[])
           const FlowRecord& flow = i->second;
           timespec sinceLast = time - flow.last();
           if (sinceLast.tv_sec >= 120) {
-            cerr << "Flow " << flow.getFlowID()
-                 << " expired after " << flow.packets() << " packets." << endl;
+            debugLog << "Flow " << flow.getFlowID()
+                     << " expired after " << flow.packets() << " packets." << endl;
+            flowTrace << print_flow(flow).str();
             completedFlows.emplace_back( std::move(*i) );
             i = flows.erase(i); // effectively: erase(i++)
-          }
+          } // else
           i++;
         }
       }
@@ -966,6 +998,7 @@ main(int argc, const char* argv[])
   // Sort Flows by Bytes/Packets:
   multimap<u64, const FlowRecord*> sorted_bytes;
   multimap<size_t, const FlowRecord*> sorted_packets;
+  // TODO: change this to sort completed_flows vector...
   for (const auto& e : flows) {
     const FlowRecord& flow = e.second;
     auto packets = flow.packets();
@@ -977,14 +1010,7 @@ main(int argc, const char* argv[])
 //    const auto&& max = std::max_element(flow.getByteV().cbegin(), flow.getByteV().cend());
   }
   for (const auto& e : sorted_packets) {
-    const FlowRecord& flow = *(e.second);
-    auto pkts = flow.packets();
-    auto byts = flow.bytes();
-    cout << "FlowID=" << flow.getFlowID()
-         << ", packets=" << pkts
-         << ", bytes=" << byts
-         << ", ppBytes=" << byts/pkts
-         << '\n';
+    flowTrace << print_flow(*(e.second)).str();
   }
 
   // Print global stats:
