@@ -1,5 +1,7 @@
 #include "caida-pcap.h"
 
+//#include "util_bitmask.hpp"
+
 //#include "system.hpp"
 //#include "dataplane.hpp"
 //#include "application.hpp"
@@ -39,6 +41,21 @@
 #define DEBUG 1
 
 using namespace std;
+//using namespace util_bitmask;
+
+//template<>
+//struct enable_bitmask_operators<ProtoFlags>{
+//    static const bool enable=true;
+//};
+//template<>
+//struct enable_bitmask_operators<IPFlags>{
+//    static const bool enable=true;
+//};
+//template<>
+//struct enable_bitmask_operators<TCPFlags>{
+//    static const bool enable=true;
+//};
+
 
 static bool running;
 void
@@ -120,6 +137,7 @@ operator-(const timespec& lhs, const timespec& rhs) {
 
 u64 FlowRecord::update(const EvalContext& e) {
   // TODO: record flowstate...
+
   return FlowRecord::update(e.origBytes, e.packet().timestamp());
 }
 
@@ -219,22 +237,21 @@ L3:
   { // check for IP fragmentation
     stringstream fragLog;
     fragLog << hex << setfill('0') << setw(2);
-    constexpr u16 DF = 0x4000;
-    constexpr u16 MF = 0x2000;
-    constexpr u16 FragOffset = 0x1FFF;
-    u16 frag = gKey.ipFlags & (MF | FragOffset);
-    if (frag != 0) {
-      // Packet was fragmented...
-      if (frag == MF) {
+
+    if (gKey.fIP == IPFlags::MF || gKey.ipFragOffset != 0) {
+      // Either MF set, or FragOffset non-0; packet is a fragment...
+      if (gKey.fIP == IPFlags::MF && gKey.ipFragOffset == 0) {
         // First fragment, parse L4
-        fragLog << "First IPv4 fragment! flags=0x" << gKey.ipFlags << '\n';
+        fragLog << "First IPv4 fragment!\n";
       }
-      else if ((~frag & MF) == MF) {
-        fragLog << "Last IPv4 fragment! flags=0x" << gKey.ipFlags << '\n';
+      else if (gKey.fIP != IPFlags::MF) {
+        fragLog << "Last IPv4 fragment! ipFragOffset=0x"
+                << gKey.ipFragOffset << '\n';
         return extracted;
       }
       else {
-        fragLog << "Another IPv4 fragment! flags=0x" << gKey.ipFlags << '\n';
+        fragLog << "Another IPv4 fragment! ipFragOffset=0x"
+                << gKey.ipFragOffset << '\n';
         return extracted;
       }
     }
@@ -384,13 +401,9 @@ extract_ipv4(EvalContext& cxt) {
   //uint16_t id = bs16(*v.get());
   view.discard(2);
 
-  //bool df = (0x40 & *v.get()) == 0x40;
-  //bool mf = (0x20 & *v.get()) == 0x20;
-  //uint16_t frag_offset = 0x1FFF & bs16(*(uint16_t*)v.get());	// 64-bit block offset relative to original
-  u16 flags = gKey.ipFlags = betoh16(view.get<u16>());
-  bool df = (flags & 0x4000) != 0;
-  bool mf = (flags & 0x2000) != 0;
-  u16 fragOffset = flags & 0x1FFF;  // offset in 8B blocks
+  u16 flags = betoh16(view.get<u16>());
+  gKey.fIP = static_cast<IPFlags>(flags >> 13);
+  gKey.ipFragOffset = flags & 0x1FFF;  // offset in 8B blocks
 
   //uint8_t ttl = *v.get();
   view.discard(1);
@@ -509,8 +522,10 @@ extract_tcp(EvalContext& cxt) {
   view.discard(4);
 
   // {offset, flags}
-  u8 offset = (0xF0 & view.get<u8>())>>4;	// size of TCP header in 4B words
-  view.discard(1);
+  u16 tmp = view.get<u8>();
+  u8 offset = (0xF0 & tmp)>>4;	// size of TCP header in 4B words
+  tmp = ((tmp&0x0F) << 8) | view.get<u8>();
+  gKey.fTCP = static_cast<TCPFlags>(tmp);
   // END flags
 
   // check TCP header offset is consistant with packet size
@@ -936,13 +951,16 @@ main(int argc, const char* argv[])
     int status = extract(evalCxt, IP);
     }
     catch (std::exception& e) {
-      cerr << count << " (" << p->size() << "B): ";
-      cerr << evalCxt.v.absoluteBytes<int>() << ", "
-           << evalCxt.v.committedBytes<int>() << ", "
-           << evalCxt.v.pendingBytes<int>() << '\n';
-      cerr << dump_packet(p).str() << '\n';
-      print_eval(cerr, evalCxt);
-      cerr << "> Exception occured durring to extract: " << e.what() << endl;
+      stringstream ss;
+      ss << count << " (" << p->size() << "B): ";
+      ss << evalCxt.v.absoluteBytes<int>() << ", "
+         << evalCxt.v.committedBytes<int>() << ", "
+         << evalCxt.v.pendingBytes<int>() << '\n';
+      ss << dump_packet(p).str() << '\n';
+      print_eval(ss, evalCxt);
+      ss << "> Exception occured durring extract: " << e.what();
+      debugLog <<  ss.str() << '\n';
+      cerr << ss.str() << endl;
     }
 
     // Associate packet with flow:
@@ -964,7 +982,8 @@ main(int argc, const char* argv[])
     // TODO: perform check first to avoid unecessary emplace  construction...
     if (!status.second) {
       FlowRecord& record = (*status.first).second;
-      auto id = record.update(wireBytes, time);
+//      auto id = record.update(wireBytes, time);
+      auto id = record.update(evalCxt);
       evalCxt.extractLog << "Existing FlowID: " << id << '\n';
     }
     else {
@@ -979,7 +998,7 @@ main(int argc, const char* argv[])
             debugLog << "Flow " << flow.getFlowID()
                      << " expired after " << flow.packets() << " packets." << endl;
             flowTrace << print_flow(flow).str();
-            completedFlows.emplace_back( std::move(*i) );
+//            completedFlows.emplace_back( std::move(*i) );
             i = flows.erase(i); // effectively: erase(i++)
           } // else
           i++;
@@ -1006,18 +1025,17 @@ main(int argc, const char* argv[])
     totalPackets += packets;
     totalBytes += bytes;
     sorted_packets.insert(make_pair(packets, &flow));
-    sorted_bytes.insert(make_pair(bytes, &flow));
-//    const auto&& max = std::max_element(flow.getByteV().cbegin(), flow.getByteV().cend());
+//    sorted_bytes.insert(make_pair(bytes, &flow));
   }
   for (const auto& e : sorted_packets) {
     flowTrace << print_flow(*(e.second)).str();
   }
 
   // Print global stats:
-  cout << "Max packet size: " << maxPacketSize << '\n';
-  cout << "Min packet size: " << minPacketSize << '\n';
-  cout << "Total bytes: " << totalBytes << '\n';
-  cout << "Total packets: " << totalPackets << '\n';
+  debugLog << "Max packet size: " << maxPacketSize << '\n';
+  debugLog << "Min packet size: " << minPacketSize << '\n';
+  debugLog << "Total bytes: " << totalBytes << '\n';
+  debugLog << "Total packets: " << totalPackets << '\n';
 
   return 0;
 }

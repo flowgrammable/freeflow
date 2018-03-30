@@ -10,6 +10,7 @@
 #include "context.hpp"
 ///#include "packet.hpp" // temporary for sizeof packet
 ///#include "context.hpp" // temporary for sizeof context
+#include "util_bitmask.hpp"
 
 #include <string>
 #include <iostream>
@@ -38,7 +39,6 @@
 #include <endian.h>
 
 #include <typeinfo>
-
 
 // Common types with guaranteed widths and signed-ness
 using u8 = uint8_t;
@@ -72,17 +72,52 @@ constexpr u8 IP_PROTO_IPSEC_AH = 0x33; // 51
 constexpr u8 IP_PROTO_ENCAP_IPV6 = 0x29; //41
 
 
+// Definition of useful Flags/Metadata
+// - Union of all possible flags our huristic cares about...
+// - Flags are not limited to header bits, but can also be metadata...
+enum class ProtoFlags {
+  isUDP =1<<3,
+  isTCP =1<<2,
+  isIPv6=1<<1,
+  isIPv4=1<<0
+};
+ENABLE_BITMASK_OPERATORS(ProtoFlags);
+
+// Offsets starts relative to {Flags, Fragment Offset} in IPv4 Header
+enum class IPFlags {
+  DF=1<<1,
+  MF=1<<0
+};
+ENABLE_BITMASK_OPERATORS(IPFlags);
+
+enum class TCPFlags {
+  NS =1<<8,
+  CWR=1<<7,
+  ECE=1<<6,
+  URG=1<<5,
+  ACK=1<<4,
+  PSH=1<<3,
+  RST=1<<2,
+  SYN=1<<1,
+  FIN=1<<0
+};
+ENABLE_BITMASK_OPERATORS(TCPFlags);
+
 struct Fields {
- u64 ethSrc;
- u64 ethDst;
- u16 ethType;
- u16 vlanID;
- u32 ipv4Src;
- u32 ipv4Dst;
- u8  ipProto;
- u16 ipFlags;
- u16 srcPort;
- u16 dstPort;
+  ProtoFlags fProto;
+  IPFlags fIP;
+  u16 ipFragOffset;
+  TCPFlags fTCP;
+  u64 ethSrc;
+  u64 ethDst;
+  u16 ethType;
+  u16 vlanID;
+  u32 ipv4Src;
+  u32 ipv4Dst;
+  u8  ipProto;
+//  u16 ipFlags;  // and IP FragOffset
+  u16 srcPort;
+  u16 dstPort;
 };
 struct FlowKey {
   u32 ipv4Src;
@@ -369,7 +404,6 @@ public:
   std::stringstream extractLog;
 
   EvalContext(fp::Packet* const p);
-
   const fp::Packet& packet() const {return pkt_;}
 
 private:
