@@ -22,18 +22,6 @@ namespace entangle {
 
 FILE *gzip_open(const char *path, const char *mode);
 
-extern "C" {
-// ZLIB (GZIP) Custom Stream Hook Functions:
-// https://www.gnu.org/software/libc/manual/html_node/Hook-Functions.html
-ssize_t gzip_read(void *cookie, char *buffer, size_t size);
-ssize_t gzip_write(void *cookie, const char *buffer, size_t size);
-int gzip_seek(void *cookie, off64_t *position, int whence);
-int gzip_close(void *cookie);
-// gzip_cookie is gzFile's file pointer itself
-} // END extern "C" (ZLIB Custom Stream)
-
-
-
 template <char const* str>
 class Msg {
    public:
