@@ -36,7 +36,11 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
+#ifdef __APPLE__
+#include <machine/endian.h>
+#else
 #include <endian.h>
+#endif
 
 #include <typeinfo>
 
@@ -103,6 +107,7 @@ enum class TCPFlags {
 };
 ENABLE_BITMASK_OPERATORS(TCPFlags);
 
+
 struct Fields {
   ProtoFlags fProto;
   IPFlags fIP;
@@ -115,22 +120,14 @@ struct Fields {
   u32 ipv4Src;
   u32 ipv4Dst;
   u8  ipProto;
-//  u16 ipFlags;  // and IP FragOffset
   u16 srcPort;
   u16 dstPort;
 };
-struct FlowKey {
-  u32 ipv4Src;
-  u32 ipv4Dst;
-  u16 srcPort;
-  u16 dstPort;
-  u8  ipProto;
-};
-
 
 using IpTuple = std::tuple<u32, u32>;
 using PortTuple = std::tuple<u16, u16>;
-using FlowKeyTuple = std::tuple<IpTuple, PortTuple, u8>;
+using ProtoTuple = std::tuple<u8>;
+using FlowKeyTuple = std::tuple<IpTuple, PortTuple, ProtoTuple>;
 
 class EvalContext;  // forward declaration
 

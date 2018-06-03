@@ -24,26 +24,27 @@ namespace entangle {
 extern "C" {
 // ZLIB (GZIP) Custom Stream Hook Functions:
 // https://www.gnu.org/software/libc/manual/html_node/Hook-Functions.html
-int gzip_read(void *cookie, char *buffer, unsigned size) {
+#ifdef __APPLE__
+int gzip_read(void *cookie, char *buffer, int size) {
   return gzread(static_cast<gzFile>(cookie), buffer, size);
 }
+int gzip_write(void *cookie, const char *buffer, int size) {
+  return gzwrite(static_cast<gzFile>(cookie), buffer, size);
+}
+fpos_t gzip_seek(void *cookie, fpos_t position, int whence) {
+  return gzseek(static_cast<gzFile>(cookie), position, whence);
+}
+#else
 ssize_t gzip_read64(void *cookie, char *buffer, size_t size) {
   return gzread(static_cast<gzFile>(cookie), buffer, size);
-}
-
-int gzip_write(void *cookie, const char *buffer, unsigned size) {
-  return gzwrite(static_cast<gzFile>(cookie), buffer, size);
 }
 ssize_t gzip_write64(void *cookie, const char *buffer, size_t size) {
   return gzwrite(static_cast<gzFile>(cookie), buffer, size);
 }
-
-int gzip_seek(void *cookie, off_t *position, int whence) {
-  return gzseek(static_cast<gzFile>(cookie), *position, whence);
-}
 int gzip_seek64(void *cookie, off64_t *position, int whence) {
   return gzseek64(static_cast<gzFile>(cookie), *position, whence);
 }
+#endif
 
 int gzip_close(void *cookie) {
   return gzclose(static_cast<gzFile>(cookie));
@@ -53,17 +54,19 @@ int gzip_close(void *cookie) {
 
 FILE *gzip_open(const char *path, const char *mode) {
   FILE *fp = NULL;
-#ifndef __APPLE__
-  gzFile z = gzopen64(path, mode);
-#else
+#ifdef __APPLE__
   gzFile z = gzopen(path, mode);
+#else
+  gzFile z = gzopen64(path, mode);
 #endif
   if (z == NULL) {
     perror("gzopen");
     return NULL;
   }
 
-#ifndef __APPLE__
+#ifdef __APPLE__
+  fp = funopen(z, gzip_read, gzip_write, gzip_seek, gzip_close);
+#else
   static const cookie_io_functions_t gzip_io_func = {
     .read = gzip_read64,
     .write = gzip_write64,
@@ -71,8 +74,6 @@ FILE *gzip_open(const char *path, const char *mode) {
     .close = gzip_close
   };
   fp = fopencookie(z, mode, gzip_io_func);
-#else
-  fp = funopen(z, gzip_read, gzip_write, gzip_seek, gzip_close);
 #endif
   if (fp == NULL) {
     perror("fopencookie");

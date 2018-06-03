@@ -74,14 +74,19 @@ inline void endianTest() {
   littleEndian = (end == 0xCD);
 }
 static inline u16 betoh16(u16 n) {
-  return be16toh(n);
+//  return be16toh(n);
+  return ntohs(n);
+
+
 //  if (littleEndian)
 //    return (n & 0x00FFU)<<8 | (n & 0xFF00U)>>8;
 //  else
 //    return n;
 }
 static inline u32 betoh32(u32 n) {
-  return be32toh(n);
+//  return be32toh(n);
+  return ntohl(n);
+
 //  if (littleEndian)
 //    return (n & 0x000000FFUl)<<24 | (n & 0xFF000000Ul)>>24 |
 //           (n & 0x0000FF00Ul)<<8  | (n & 0x00FF0000Ul)>>8;
@@ -89,7 +94,8 @@ static inline u32 betoh32(u32 n) {
 //    return n;
 }
 static inline u64 betoh64(u64 n) {
-  return be64toh(n);
+//  return be64toh(n);
+  return ntohll(n);
 //  if (littleEndian)
 //    return (n&0x00000000000000FFUll)<<56 | (n&0x000000000000FF00Ull)<<40 |
 //           (n&0x0000000000FF0000Ull)<<24 | (n&0x00000000FF000000Ull)<<8  |
@@ -137,7 +143,6 @@ operator-(const timespec& lhs, const timespec& rhs) {
 
 u64 FlowRecord::update(const EvalContext& e) {
   // TODO: record flowstate...
-
   return FlowRecord::update(e.origBytes, e.packet().timestamp());
 }
 
@@ -926,12 +931,11 @@ main(int argc, const char* argv[])
   endianTest();
 
   // Metadata structures:
-//  using test = decltype(std::make_tuple(k.ipv4Src, k.ipv4Dst, k.ipProto, k.srcPort, k.dstPort));
   u64 flowID = 0;
+  // Note: currently leveraging string instead of FlowKeyTuple since string
+  //   has a default generic hash for use in STL
   unordered_map<string, FlowRecord> flows;
   vector< pair<string, FlowRecord> > completedFlows;
-//  priority_queue< pair<timespec, string> > timeoutQueue;
-//  deque< pair<timespec, string> > timeoutQueue;
 
   // Global Stats:
   u16 maxPacketSize = std::numeric_limits<u16>::lowest();
@@ -964,25 +968,24 @@ main(int argc, const char* argv[])
     }
 
     // Associate packet with flow:
-    Fields& k = evalCxt.k;
-//    auto t = std::make_tuple(k.ipv4Src, k.ipv4Dst, k.ipProto, k.srcPort, k.dstPort);
-    FlowKey fk {k.ipv4Src, k.ipv4Dst, k.srcPort, k.dstPort, k.ipProto};
-    char* fkp = reinterpret_cast<char*>(&fk);
-    string fks(fkp, sizeof(fk));
+    const Fields& k = evalCxt.k;
+    const FlowKeyTuple fkt {
+      IpTuple{k.ipv4Src, k.ipv4Dst},
+      PortTuple{k.srcPort, k.dstPort},
+      ProtoTuple{k.ipProto}
+    };
+    const string fks(reinterpret_cast<const char*>(&fkt), sizeof(fkt));
 
-//    FlowRecord fr(flowID, bytes, time);
-//    auto status = flows.insert(make_pair(fks, fr));
     u16 wireBytes = evalCxt.origBytes;
     maxPacketSize = std::max(maxPacketSize, wireBytes);
     minPacketSize = std::min(minPacketSize, wireBytes);
     auto status = flows.emplace(std::piecewise_construct,
-                                 std::forward_as_tuple(fks),
-                                 std::forward_as_tuple(flowID, wireBytes, time));
-    // Unexpectingly, emplace construsts a record before testing lookup...
-    // TODO: perform check first to avoid unecessary emplace  construction...
+                                std::forward_as_tuple(move(fks)),
+                                std::forward_as_tuple(flowID, wireBytes, time));
+    // Unexpectingly, emplace constructs a record before testing lookup...
+    // TODO: perform check first to avoid unecessary emplace construction...
     if (!status.second) {
       FlowRecord& record = (*status.first).second;
-//      auto id = record.update(wireBytes, time);
       auto id = record.update(evalCxt);
       evalCxt.extractLog << "Existing FlowID: " << id << '\n';
     }
@@ -999,13 +1002,16 @@ main(int argc, const char* argv[])
                      << " expired after " << flow.packets() << " packets." << endl;
             flowTrace << print_flow(flow).str();
 //            completedFlows.emplace_back( std::move(*i) );
-            i = flows.erase(i); // effectively: erase(i++)
-          } // else
-          i++;
+            i = flows.erase(i); // returns iterator following erased elements
+          }
+          else {
+            i++;  // don't i++ on erase...
+          }
         }
       }
     }
 
+    // Release resources and retrieve another packet:
     caida.rebound(&cxt);
     cxt = caida.recv();
   }
