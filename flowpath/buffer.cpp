@@ -38,6 +38,12 @@ Odp::Odp(uint8_t* buf, int bytes) {
   bytes_ = bytes;
 }
 
+Odp::Odp(const uint8_t* buf, int bytes) {
+  // TODO: provide a constant buffer interface to ODP!
+  data_ = const_cast<uint8_t*>(buf);
+  bytes_ = bytes;
+}
+
 Odp::~Odp() {
 }
 

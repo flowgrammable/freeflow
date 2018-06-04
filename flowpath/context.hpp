@@ -12,7 +12,7 @@
 namespace fp
 {
 class Table;
-class Flow;
+struct Flow;
 class Port;
 
 
@@ -108,7 +108,7 @@ struct Metadata
 //
 // TODO: The use of member functions may prevent optimizations
 // due to aliasing issues.
-struct Context
+class Context
 {
 public:
   Context() = default;

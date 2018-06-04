@@ -13,7 +13,7 @@
 namespace fp
 {
 
-struct Context;
+class Context;
 
 // The base class for any port object. Contains methods for receiving,
 // sending, and dropping packets, as well as the ability to close the

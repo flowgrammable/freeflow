@@ -7,9 +7,9 @@
 namespace fp
 {
 
-struct Dataplane;
-struct Context;
-struct Table;
+class Dataplane;
+class Context;
+class Table;
 
 // Flow instructions are a pointer to a function to
 // be executed on match.

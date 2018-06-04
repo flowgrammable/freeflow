@@ -51,7 +51,7 @@ fp::Byte*      fp_bind_field(fp::Context*, int, std::uint16_t, std::uint16_t);
 namespace fp
 {
 
-struct Dataplane;
+class Dataplane;
 
 // Port management functions.
 //

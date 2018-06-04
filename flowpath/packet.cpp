@@ -3,47 +3,6 @@
 namespace fp
 {
 
-
-// Packet constructor.
-Packet::Packet(uint8_t* data, int size, timespec time, void* buf_handle, Buffer::BUF_TYPE buf_type)
-  : ts_(time), buf_handle_(buf_handle)
-{
-  switch (buf_type) {
-  case Buffer::BUF_TYPE::FP_BUF_ODP:
-    // placement new in reserved (aligned_union) space for buffer struct
-    new (&buf_) Buffer::Odp(data, size);
-    break;
-  case Buffer::BUF_TYPE::FP_BUF_SIMPLE:
-    // placement new
-    new (&buf_) Buffer::Simple(data, size);
-    break;
-  case Buffer::BUF_TYPE::FP_BUF_PCAP:
-    // placement new
-    new (&buf_) Buffer::Pcap(data, size);
-    break;
-  default:
-    throw "Unknown buffer type, can't construct Packet";
-  }
-}
-
-Packet::Packet(const uint8_t* data, int size, timespec time, void* buf_handle, Buffer::BUF_TYPE buf_type)
-  : ts_(time), buf_handle_(buf_handle)
-{
-  switch (buf_type) {
-  case Buffer::BUF_TYPE::FP_BUF_SIMPLE:
-    // placement new
-    new (&buf_) Buffer::Simple(data, size);
-    break;
-  case Buffer::BUF_TYPE::FP_BUF_PCAP:
-    // placement new
-    new (&buf_) Buffer::Pcap(data, size);
-    break;
-  default:
-    throw "Unknown buffer type, can't construct Packet";
-  }
-}
-
-
 // Packet destructor.
 Packet::~Packet()
 {
@@ -64,6 +23,8 @@ Packet::~Packet()
     // placement new
     dynamic_cast<Buffer::Pcap*>(b)->~Pcap();
     break;
+  default:
+    throw "Unknown buffer type, can't destruct Packet";
   }
 }
 
@@ -78,7 +39,7 @@ Packet*
 packet_create(unsigned char* buf, int size, timespec time, void* buf_handle)
 {
   Packet* p = new Packet(buf, size, time, buf_handle, Buffer::BUF_TYPE::FP_BUF_SIMPLE);
-	return p;
+  return p;
 }
 
 

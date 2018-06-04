@@ -13,7 +13,7 @@ Key::Key(Byte const* buf, int len)
 
 // Returns a reference to a flow. If no flow matches the
 // key, the table-miss flow is returned.
-inline Flow&
+Flow&
 Hash_table::find(Key const& k)
 {
   auto iter = std::unordered_map<Key, Flow, Key_hash>::find(k);
@@ -26,7 +26,7 @@ Hash_table::find(Key const& k)
 
 // Returns a reference to a flow. If no flow matches the
 // key, the table-miss flow is returned.
-inline Flow const&
+Flow const&
 Hash_table::find(Key const& k) const
 {
   auto iter = std::unordered_map<Key, Flow, Key_hash>::find(k);
@@ -39,7 +39,7 @@ Hash_table::find(Key const& k) const
 
 // If an equivalent flow entry exists, no action is taken.
 // Returns a reference to the inserted (or previous) flow.
-inline void
+void
 Hash_table::insert(Key const& k, Flow const& f)
 {
   std::unordered_map<Key, Flow, Key_hash>::insert({k, f});
@@ -47,7 +47,7 @@ Hash_table::insert(Key const& k, Flow const& f)
 
 
 // If no such entry exists, no action is taken.
-inline void
+void
 Hash_table::erase(Key const& k)
 {
   erase(k);

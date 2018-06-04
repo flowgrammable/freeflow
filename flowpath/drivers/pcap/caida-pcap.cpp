@@ -1,60 +1,40 @@
-#include "caida-pcap.h"
+#include "caida-pcap.hpp"
 
-//#include "util_bitmask.hpp"
-
-//#include "system.hpp"
-//#include "dataplane.hpp"
-//#include "application.hpp"
-//#include "port_table.hpp"
-//#include "port.hpp"
-//#include "port_pcap.hpp"
-//#include "context.hpp"
-/////#include "packet.hpp" // temporary for sizeof packet
-/////#include "context.hpp" // temporary for sizeof context
-
-//#include <string>
-//#include <iostream>
-//#include <stdexcept>
-//#include <iomanip>
-//#include <signal.h>
-//#include <type_traits>
-//#include <bitset>
-//#include <map>
-//#include <tuple>
-//#include <functional>
-//#include <algorithm>
-//#include <numeric>
-//#include <unordered_map>
-//#include <unordered_set>
-//#include <vector>
-//#include <queue>
-
-//#include <net/ethernet.h>
-//#include <netinet/ip.h>
-//#include <netinet/in.h>
-//#include <netinet/tcp.h>
-//#include <arpa/inet.h>
-//#include <endian.h>
-
+#include <string>
+#include <iostream>
+#include <stdexcept>
+#include <iomanip>
+#include <ctime>
+#include <signal.h>
+#include <type_traits>
+#include <bitset>
+#include <map>
+#include <tuple>
+#include <functional>
+#include <algorithm>
+#include <numeric>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+#include <queue>
+#include <chrono>
 //#include <typeinfo>
 
-#define DEBUG 1
+#include <net/ethernet.h>
+#include <netinet/ip.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <arpa/inet.h>
+#ifdef __APPLE__
+#include <machine/endian.h>
+#else
+#include <endian.h>
+#endif
+
+//#define DEBUG 1
 
 using namespace std;
-//using namespace util_bitmask;
-
-//template<>
-//struct enable_bitmask_operators<ProtoFlags>{
-//    static const bool enable=true;
-//};
-//template<>
-//struct enable_bitmask_operators<IPFlags>{
-//    static const bool enable=true;
-//};
-//template<>
-//struct enable_bitmask_operators<TCPFlags>{
-//    static const bool enable=true;
-//};
+using namespace util_view;
 
 
 static bool running;
@@ -156,6 +136,9 @@ u64 FlowRecord::update(const u16 bytes, const timespec& ts) {
   return flowID_;
 }
 
+u64 FlowRecord::bytes() const {
+  return std::accumulate(bytes_.begin(), bytes_.end(), u64(0));
+}
 
 
 EvalContext::EvalContext(fp::Packet* const p) :

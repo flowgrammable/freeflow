@@ -80,6 +80,7 @@ struct Odp : public Base
   using Base::Base;
 
   Odp(uint8_t*, int);
+  Odp(const uint8_t*, int);
   ~Odp();
 
   inline const BUF_TYPE type() const { return FP_BUF_ODP; }

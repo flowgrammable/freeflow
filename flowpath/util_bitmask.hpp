@@ -752,5 +752,5 @@ operator!=(const enumerator<T>& lhs, const bitmask<T>& rhs)
   return false;
 }
 
-} // namespace util
+} // namespace util_bitmask
 #endif // UTIL_BITMASK_HPP
