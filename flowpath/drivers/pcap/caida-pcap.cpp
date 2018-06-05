@@ -896,7 +896,7 @@ main(int argc, const char* argv[])
     caida.open(2, argv[2]);
   }
 
-  // Get current time (to generate trace filename:
+  // Get current time (to generate trace filename):
   stringstream now_ss;
   {
     chrono::system_clock::time_point now = chrono::system_clock::now();
@@ -911,7 +911,7 @@ main(int argc, const char* argv[])
   debugLog.open(now_ss.str().append(".log"), ios::out);
 
   // TODO: factor me out
-  endianTest();
+//  endianTest();
 
   // Metadata structures:
   u64 flowID = 0;

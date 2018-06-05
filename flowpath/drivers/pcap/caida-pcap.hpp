@@ -92,8 +92,8 @@ struct Fields {
   u16 dstPort;
 };
 
-using IpTuple = std::tuple<u32, u32>;
-using PortTuple = std::tuple<u16, u16>;
+using IpTuple = std::tuple<u32, u32>;   // {src, dst}
+using PortTuple = std::tuple<u16, u16>; // {src, dst}
 using ProtoTuple = std::tuple<u8>;
 using FlowKeyTuple = std::tuple<IpTuple, PortTuple, ProtoTuple>;
 
