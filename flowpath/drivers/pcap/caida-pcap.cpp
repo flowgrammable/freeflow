@@ -25,11 +25,8 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
-#ifdef __APPLE__
-#include <machine/endian.h>
-#else
-#include <endian.h>
-#endif
+
+#include <boost/endian/conversion.hpp>
 
 //#define DEBUG 1
 
@@ -47,42 +44,33 @@ sig_handle(int sig)
 
 // Network byte-order translations
 // - messy run-time translations...  need to fix with LLVM intrinsic
-bool littleEndian;
-inline void endianTest() {
-  volatile u16 endianTest = 0xABCD;
-  u8 end = *((volatile u8*)(&endianTest));
-  littleEndian = (end == 0xCD);
-}
+bool littleEndian = boost::endian::order::native == boost::endian::order::little;
+
 static inline u16 betoh16(u16 n) {
-//  return be16toh(n);
-  return ntohs(n);
+    //  return be16toh(n);
+    //return ntohs(n);
 
-
-//  if (littleEndian)
-//    return (n & 0x00FFU)<<8 | (n & 0xFF00U)>>8;
-//  else
-//    return n;
+    if (littleEndian)
+        return boost::endian::native_to_big(n);
+    else
+        return n;
 }
 static inline u32 betoh32(u32 n) {
 //  return be32toh(n);
-  return ntohl(n);
+  //return ntohl(n);
 
-//  if (littleEndian)
-//    return (n & 0x000000FFUl)<<24 | (n & 0xFF000000Ul)>>24 |
-//           (n & 0x0000FF00Ul)<<8  | (n & 0x00FF0000Ul)>>8;
-//  else
-//    return n;
+    if (littleEndian)
+        return boost::endian::native_to_big(n);
+    else
+        return n;
 }
 static inline u64 betoh64(u64 n) {
 //  return be64toh(n);
-  return ntohll(n);
-//  if (littleEndian)
-//    return (n&0x00000000000000FFUll)<<56 | (n&0x000000000000FF00Ull)<<40 |
-//           (n&0x0000000000FF0000Ull)<<24 | (n&0x00000000FF000000Ull)<<8  |
-//           (n&0x000000FF00000000Ull)>>8  | (n&0x0000FF0000000000Ull)>>24 |
-//           (n&0x00FF000000000000Ull)>>40 | (n&0xFF00000000000000Ull)>>56;
-//  else
-//    return n;
+  //return ntohll(n);
+    if (littleEndian)
+        return boost::endian::native_to_big(n);
+    else
+        return n;
 }
 
 
