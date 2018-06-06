@@ -43,36 +43,29 @@ sig_handle(int sig)
 
 
 // Network byte-order translations
-// - messy run-time translations...  need to fix with LLVM intrinsic
-bool littleEndian = boost::endian::order::native == boost::endian::order::little;
+// - compile time swap; need to fix with LLVM intrinsic
+constexpr bool littleEndian = boost::endian::order::native == boost::endian::order::little;
 
 static inline u16 betoh16(u16 n) {
-    //  return be16toh(n);
-    //return ntohs(n);
-
-    if (littleEndian)
-        return boost::endian::native_to_big(n);
-    else
-        return n;
+  return littleEndian ? boost::endian::endian_reverse(n) : n;
 }
 static inline u32 betoh32(u32 n) {
-//  return be32toh(n);
-  //return ntohl(n);
-
-    if (littleEndian)
-        return boost::endian::native_to_big(n);
-    else
-        return n;
+  return littleEndian ? boost::endian::endian_reverse(n) : n;
 }
 static inline u64 betoh64(u64 n) {
-//  return be64toh(n);
-  //return ntohll(n);
-    if (littleEndian)
-        return boost::endian::native_to_big(n);
-    else
-        return n;
+  return littleEndian ? boost::endian::endian_reverse(n) : n;
 }
 
+template <typename T>
+inline T betoh(T n) {
+//  return boost::endian::big_to_native(n);
+  return littleEndian ? boost::endian::endian_reverse(n) : n;
+}
+template <typename T>
+inline T htobe(T n) {
+//  return boost::endian::native_to_big(n);
+  return littleEndian ? boost::endian::endian_reverse(n) : n;
+}
 
 
 // TODO: replace this with chrono duration...
