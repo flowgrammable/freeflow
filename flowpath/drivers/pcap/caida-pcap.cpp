@@ -26,6 +26,7 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 
+#include <boost/program_options.hpp>
 #include <boost/endian/conversion.hpp>
 
 //#define DEBUG 1
@@ -33,6 +34,7 @@
 using namespace std;
 using namespace util_view;
 
+namespace po = boost::program_options;
 
 static bool running;
 void
@@ -852,6 +854,11 @@ static stringstream print_flow(const FlowRecord& flow) {
   return ss;
 }
 
+static void print_help(const char* argv0, const po::options_description desc)
+{
+    cout << "Usage: " << argv0 << " [options] (directionA.pcap) [directionB.pcap]" << endl;
+    cout << desc << endl;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 int
@@ -862,20 +869,11 @@ main(int argc, const char* argv[])
   signal(SIGHUP, sig_handle);
   running = true;
 
-  if (argc < 2 || argc > 3) {
-    cout << "Usage: " << argv[0] <<
-            " (directionA.pcap) [directionB.pcap]" << endl;
-    return 2;
-  }
-
-  // Open Pcap Input Files:
-  caidaHandler caida;
-  cout << argv[1] << endl;
-  caida.open(1, argv[1]);
-  if (argc == 3) {
-    cout << argv[2] << endl;
-    caida.open(2, argv[2]);
-  }
+  std::string tracefilename;
+  std::string logfilename;
+  std::string filelistfilename;
+  std::string inputAfilename;
+  std::string inputBfilename;
 
   // Get current time (to generate trace filename):
   stringstream now_ss;
@@ -885,11 +883,60 @@ main(int argc, const char* argv[])
     now_ss << std::put_time(std::localtime(&now_c),"%F_%T");
   }
 
+  po::options_description desc("Available options");
+  po::positional_options_description p;
+  po::variables_map vm;
+
+  desc.add_options()
+      ("help,h", "Display this message")
+      ("logfile,l",
+           po::value<std::string>(&logfilename)->default_value(now_ss.str().append(".log")),
+           "The name of the log file")
+      ("outputfile,o",
+           po::value<std::string>(&tracefilename)->default_value(now_ss.str().append(".trace")),
+           "The name of the trace file")
+      ("filelist,F",  po::value<std::string>(&filelistfilename), "The name of a file containing the file names of traces to run sequentially")
+      ("directionA", po::value<std::string>(&inputAfilename)->required(), "The name of the pcap input file")
+      ("directionB", po::value<std::string>(&inputBfilename), "The name of the pcap input file")
+  ;
+
+  p.add("directionA", 1);
+  p.add("directionB", 1);
+
+  try {
+      po::store(po::command_line_parser(argc, argv)
+                  .options(desc)
+                  .positional(p)
+                  .run()
+               , vm);
+      po::notify(vm);
+
+      if (vm.count("help"))
+      {
+          print_help(argv[0], desc);
+          return 0;
+      }
+  }
+  catch (std::exception)
+  {
+      print_help(argv[0], desc);
+      return 2;
+  }
+
+  // Open Pcap Input Files:
+  caidaHandler caida;
+  cout << inputAfilename << endl;
+  caida.open(1, inputAfilename);
+  if (vm.count("directionB")) {
+    cout << inputBfilename << endl;
+    caida.open(2, inputBfilename);
+  }
+
   // Open Log/Trace Output Files:
   ofstream flowTrace, debugLog;
   // TODO: explore a binary output option...
-  flowTrace.open(now_ss.str().append(".trace"), ios::out);
-  debugLog.open(now_ss.str().append(".log"), ios::out);
+  flowTrace.open(tracefilename, ios::out);
+  debugLog.open(logfilename, ios::out);
 
   // TODO: factor me out
 //  endianTest();
