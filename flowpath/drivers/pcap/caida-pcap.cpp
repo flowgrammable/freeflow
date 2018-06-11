@@ -786,12 +786,6 @@ void caidaHandler::open_list(int id, string listFile) {
 }
 
 void caidaHandler::open(int id, string file) {
-  // Automatically call open_list if file ends in ".files":
-  const string ext(".files");
-  if (file.compare(file.length()-ext.length(), string::npos, ext) == 0) {
-    return open_list(id, file);
-  }
-
   // Open PCAP file:
   pcap_.emplace(std::piecewise_construct,
                 std::forward_as_tuple(id),
@@ -875,6 +869,8 @@ main(int argc, const char* argv[])
   std::string inputAfilename;
   std::string inputBfilename;
 
+  caidaHandler caida;
+
   // Get current time (to generate trace filename):
   stringstream now_ss;
   {
@@ -883,53 +879,80 @@ main(int argc, const char* argv[])
     now_ss << std::put_time(std::localtime(&now_c),"%F_%T");
   }
 
-  po::options_description desc("Available options");
+  po::options_description nonpos_desc("Available options");
+  po::options_description pos_desc("Positional options");
+  po::options_description cmdline_desc("All options");
   po::positional_options_description p;
   po::variables_map vm;
 
-  desc.add_options()
+  nonpos_desc.add_options()
       ("help,h", "Display this message")
-      ("logfile,l",
+      ("log-file,l",
            po::value<std::string>(&logfilename)->default_value(now_ss.str().append(".log")),
            "The name of the log file")
-      ("outputfile,o",
+      ("output-file,o",
            po::value<std::string>(&tracefilename)->default_value(now_ss.str().append(".trace")),
            "The name of the trace file")
-      ("filelist,F",  po::value<std::string>(&filelistfilename), "The name of a file containing the file names of traces to run sequentially")
-      ("directionA", po::value<std::string>(&inputAfilename)->required(), "The name of the pcap input file")
+      ("list,L",
+           "Indicates that the input file contains a list of pcap files to read")
+  ;
+
+  pos_desc.add_options()
+      ("directionA", po::value<std::string>(&inputAfilename), "The name of the pcap input file")
       ("directionB", po::value<std::string>(&inputBfilename), "The name of the pcap input file")
   ;
 
   p.add("directionA", 1);
   p.add("directionB", 1);
 
+  cmdline_desc.add(nonpos_desc).add(pos_desc);
+
   try {
       po::store(po::command_line_parser(argc, argv)
-                  .options(desc)
-                  .positional(p)
-                  .run()
-               , vm);
-      po::notify(vm);
+              .options(cmdline_desc)
+              .positional(p)
+              .run()
+              , vm);
 
       if (vm.count("help"))
       {
-          print_help(argv[0], desc);
+          print_help(argv[0], nonpos_desc);
           return 0;
       }
+
+      po::notify(vm);
   }
-  catch (std::exception)
+  catch (po::unknown_option ex)
   {
-      print_help(argv[0], desc);
+      cout << ex.what() << endl;
+      print_help(argv[0], nonpos_desc);
+      return 2;
+  }
+
+  // Ensure at least one input file is given
+  if (!vm.count("directionA"))
+  {
+      cout << "An input file is required" << endl;
+      print_help(argv[0], nonpos_desc);
       return 2;
   }
 
   // Open Pcap Input Files:
-  caidaHandler caida;
   cout << inputAfilename << endl;
-  caida.open(1, inputAfilename);
-  if (vm.count("directionB")) {
-    cout << inputBfilename << endl;
-    caida.open(2, inputBfilename);
+
+  // If the flag is set that indicates a list file
+  if (vm.count("list,L"))
+  {
+      caida.open_list(1, inputAfilename);
+  }
+  else // otherwise, assume the file is a PCAP file.
+  {
+      caida.open(1, inputAfilename);
+      if (vm.count("directionB"))
+      {
+          cout << inputBfilename << endl;
+          caida.open(2, inputBfilename);
+      }
   }
 
   // Open Log/Trace Output Files:
