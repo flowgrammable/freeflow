@@ -26,6 +26,7 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 
+#include <boost/program_options.hpp>
 #include <boost/endian/conversion.hpp>
 
 //#define DEBUG 1
@@ -33,6 +34,7 @@
 using namespace std;
 using namespace util_view;
 
+namespace po = boost::program_options;
 
 static bool running;
 void
@@ -784,12 +786,6 @@ void caidaHandler::open_list(int id, string listFile) {
 }
 
 void caidaHandler::open(int id, string file) {
-  // Automatically call open_list if file ends in ".files":
-  const string ext(".files");
-  if (file.compare(file.length()-ext.length(), string::npos, ext) == 0) {
-    return open_list(id, file);
-  }
-
   // Open PCAP file:
   pcap_.emplace(std::piecewise_construct,
                 std::forward_as_tuple(id),
@@ -852,6 +848,11 @@ static stringstream print_flow(const FlowRecord& flow) {
   return ss;
 }
 
+static void print_help(const char* argv0, const po::options_description desc)
+{
+    cout << "Usage: " << argv0 << " [options] (directionA.pcap) [directionB.pcap]" << endl;
+    cout << desc << endl;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 int
@@ -862,20 +863,13 @@ main(int argc, const char* argv[])
   signal(SIGHUP, sig_handle);
   running = true;
 
-  if (argc < 2 || argc > 3) {
-    cout << "Usage: " << argv[0] <<
-            " (directionA.pcap) [directionB.pcap]" << endl;
-    return 2;
-  }
+  std::string tracefilename;
+  std::string logfilename;
+  std::string filelistfilename;
+  std::string inputAfilename;
+  std::string inputBfilename;
 
-  // Open Pcap Input Files:
   caidaHandler caida;
-  cout << argv[1] << endl;
-  caida.open(1, argv[1]);
-  if (argc == 3) {
-    cout << argv[2] << endl;
-    caida.open(2, argv[2]);
-  }
 
   // Get current time (to generate trace filename):
   stringstream now_ss;
@@ -885,11 +879,87 @@ main(int argc, const char* argv[])
     now_ss << std::put_time(std::localtime(&now_c),"%F_%T");
   }
 
+  po::options_description nonpos_desc("Available options");
+  po::options_description pos_desc("Positional options");
+  po::options_description cmdline_desc("All options");
+  po::positional_options_description p;
+  po::variables_map vm;
+
+  nonpos_desc.add_options()
+      ("help,h", "Display this message")
+      ("log-file,l",
+           po::value<std::string>(&logfilename)->default_value(now_ss.str().append(".log")),
+           "The name of the log file")
+      ("output-file,o",
+           po::value<std::string>(&tracefilename)->default_value(now_ss.str().append(".trace")),
+           "The name of the trace file")
+      ("list,L",
+           "Indicates that the input file contains a list of pcap files to read")
+  ;
+
+  pos_desc.add_options()
+      ("directionA", po::value<std::string>(&inputAfilename), "The name of the pcap input file")
+      ("directionB", po::value<std::string>(&inputBfilename), "The name of the pcap input file")
+  ;
+
+  p.add("directionA", 1);
+  p.add("directionB", 1);
+
+  cmdline_desc.add(nonpos_desc).add(pos_desc);
+
+  try {
+      po::store(po::command_line_parser(argc, argv)
+              .options(cmdline_desc)
+              .positional(p)
+              .run()
+              , vm);
+
+      if (vm.count("help"))
+      {
+          print_help(argv[0], nonpos_desc);
+          return 0;
+      }
+
+      po::notify(vm);
+  }
+  catch (po::unknown_option ex)
+  {
+      cout << ex.what() << endl;
+      print_help(argv[0], nonpos_desc);
+      return 2;
+  }
+
+  // Ensure at least one input file is given
+  if (!vm.count("directionA"))
+  {
+      cout << "An input file is required" << endl;
+      print_help(argv[0], nonpos_desc);
+      return 2;
+  }
+
+  // Open Pcap Input Files:
+  cout << inputAfilename << endl;
+
+  // If the flag is set that indicates a list file
+  if (vm.count("list,L"))
+  {
+      caida.open_list(1, inputAfilename);
+  }
+  else // otherwise, assume the file is a PCAP file.
+  {
+      caida.open(1, inputAfilename);
+      if (vm.count("directionB"))
+      {
+          cout << inputBfilename << endl;
+          caida.open(2, inputBfilename);
+      }
+  }
+
   // Open Log/Trace Output Files:
   ofstream flowTrace, debugLog;
   // TODO: explore a binary output option...
-  flowTrace.open(now_ss.str().append(".trace"), ios::out);
-  debugLog.open(now_ss.str().append(".log"), ios::out);
+  flowTrace.open(tracefilename, ios::out);
+  debugLog.open(logfilename, ios::out);
 
   // TODO: factor me out
 //  endianTest();

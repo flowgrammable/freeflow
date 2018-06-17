@@ -41,6 +41,7 @@ endif()
 
 # Allow includes to find from headers from this dir.
 include_directories(.)
+include_directories(..)
 
 # Applications.
 #add_subdirectory(apps)

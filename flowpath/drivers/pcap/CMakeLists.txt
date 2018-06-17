@@ -14,3 +14,8 @@ target_link_libraries(caida-pcap flowpath-rt flowpath-applib ${PCAP_LIBRARY} ${C
 #  target_link_libraries(pcap-driver-odp flowpath-rt flowpath-applib ${CMAKE_DL_LIBS})
 #endif()
 
+# Require Boost C++ Libraries.
+find_package(Boost 1.55.0 COMPONENTS program_options REQUIRED)
+include_directories(${Boost_INCLUDE_DIRS})
+target_link_libraries(caida-pcap ${Boost_LIBRARIES})
+
