@@ -25,7 +25,7 @@ struct enable_enum_class_bitmask<T> {  \
 }
 
 
-namespace util_bitmask {
+//namespace util_bitmask {
 
 /**
  * Wrapper for an enumerator that provides implicit bool conversion
@@ -33,14 +33,13 @@ namespace util_bitmask {
 template <typename T>
 struct enumerator
 {
-  constexpr enumerator(const T& value) : value(value) {}
-  constexpr explicit operator bool() const
-  {
-    using underlying_type = typename std::underlying_type<T>::type;
+  using underlying_type = typename std::underlying_type<T>::type;
+
+  constexpr enumerator(const T& v) : value(v) {}
+  constexpr explicit operator bool() const {
     return static_cast<underlying_type>(value) != 0;
   }
-  constexpr operator T() const
-  {
+  constexpr operator T() const {
     return value;
   }
 
@@ -57,10 +56,9 @@ struct bitmask
 {
   using underlying_type = typename std::underlying_type<T>::type;
 
-  constexpr bitmask(const T& value) : value(static_cast<underlying_type>(value)) {}
-  constexpr bitmask(const enumerator<T>& enumerator) : value(static_cast<underlying_type>(enumerator.value)) {}
-  constexpr explicit operator bool() const
-  {
+  constexpr bitmask(const T& v) : value(static_cast<underlying_type>(v)) {}
+  constexpr bitmask(const enumerator<T>& e) : value(static_cast<underlying_type>(e.value)) {}
+  constexpr explicit operator bool() const {
     return value != 0;
   }
 
@@ -75,6 +73,7 @@ make_bitmask(const T& t)
   return bitmask<T>{t};
 }
 
+
 /**
  * operator&(T, T)
  */
@@ -84,7 +83,8 @@ typename std::enable_if<std::is_enum<T>::value && enable_enum_class_bitmask<T>::
 operator&(const T& lhs, const T& rhs)
 {
   using underlying_type = typename std::underlying_type<T>::type;
-  assert((static_cast<underlying_type>(lhs) & (static_cast<underlying_type>(lhs) - 1)) == 0);
+// What is this assert checking...?!
+//  assert((static_cast<underlying_type>(lhs) & (static_cast<underlying_type>(lhs) - 1)) == 0);
   return enumerator<T>{static_cast<T>(static_cast<underlying_type>(lhs) & static_cast<underlying_type>(rhs))};
 }
 
@@ -752,5 +752,5 @@ operator!=(const enumerator<T>& lhs, const bitmask<T>& rhs)
   return false;
 }
 
-} // namespace util_bitmask
+//} // namespace util_bitmask
 #endif // UTIL_BITMASK_HPP
