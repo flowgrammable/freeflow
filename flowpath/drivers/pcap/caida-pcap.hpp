@@ -1,6 +1,8 @@
 #ifndef DRIVER_CAIDA_PCAP_HPP
 #define DRIVER_CAIDA_PCAP_HPP
 
+#include "util_bitmask.hpp"
+
 #include "system.hpp"
 //#include "dataplane.hpp"
 //#include "application.hpp"
@@ -8,7 +10,7 @@
 //#include "port.hpp"
 #include "port_pcap.hpp"
 #include "context.hpp"
-#include "util_bitmask.hpp"
+
 #include "util_view.hpp"
 
 
@@ -114,6 +116,7 @@ public:
   u64 getFlowID() const { return flowID_; }
   size_t packets() const { return arrival_ns_.size(); }
   u64 bytes() const;
+  const std::string& getLog() const { return log_; }
 
   timespec last() const {
     // TODO: replace this with chrono duration...
@@ -132,14 +135,37 @@ public:
   const std::vector<u16>& getByteV() const { return bytes_; }
 
 private:
+  // Flow Identification:
   u64 flowID_;
-  // Timeseries:
+  ProtoFlags protoFlags_;
+  // also useful to have IPFlags?
+
+  // Time-series:
   timespec start_;
   std::vector<u64> arrival_ns_;
   std::vector<u16> bytes_;
+
   // Flow State:
-  bool saw_open_;  // TODO: change to direction open/close?
+  // - Frame Characteristics:
+  // e.g. Max frame seen, fragment count, retransmit detection via checksum?
+  //      directionality ratio (bytes forward vs. reverse)
+  u64 fragments_;
+  u64 retransmits_;
+  s64 directionality_; // counter: pure ACKs (dec), non-zero payload (inc)
+
+  // - Session Characteristics:
+  // e.g. directional initator and directional terminator/finisher?
+  //      retransmits
+  bool saw_open_;
   bool saw_close_;
+  bool saw_reset_;
+  // - TCP Specific Characteristics:
+  u64 ACK_count_;
+  u64 PSH_count_;
+  u64 URG_count_;
+
+  // Flow Processing Log:
+  std::string log_;
 };
 
 
@@ -172,7 +198,7 @@ class EvalContext {
 public:
   util_view::View v;
   u16 origBytes;
-  Fields k;
+  Fields fields;
   std::stringstream extractLog;
 
   EvalContext(fp::Packet* const p);

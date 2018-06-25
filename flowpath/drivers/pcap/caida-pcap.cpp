@@ -106,6 +106,60 @@ operator-(const timespec& lhs, const timespec& rhs) {
 
 u64 FlowRecord::update(const EvalContext& e) {
   // TODO: record flowstate...
+  const auto& protoFlags = e.fields.fProto;
+  const auto& ipFlags = e.fields.fIP;
+  const auto& tcpFlags = e.fields.fTCP;
+  const int payloadBytes = static_cast<int>(e.origBytes) - e.v.committedBytes<int>();
+
+  // Track TCP state:
+  if (protoFlags & ProtoFlags::isTCP) {
+    // TCP Session Changes:
+    if (tcpFlags == TCPFlags::SYN) {
+      // Detect if initator vs. responder
+      saw_open_ = true;
+    }
+    else if (tcpFlags & TCPFlags::FIN) {
+      // Detect if terminator vs. term. responder
+      saw_close_ = true;
+    }
+    else if (tcpFlags & TCPFlags::RST) {
+      // Detect if initates reset
+      saw_reset_ = true;
+    }
+
+    // TCP Flow Updates:
+    if (tcpFlags & TCPFlags::ACK) {
+      // Acknowledge present
+      ACK_count_++;
+      if (payloadBytes > 0) {
+        directionality_++;
+      }
+      else if (payloadBytes == 0) {
+        directionality_--;
+      }
+      else {
+        // negative
+        cerr << "error in payload size for directionality: " << payloadBytes << endl;
+      }
+    }
+    if (tcpFlags & TCPFlags::URG) {
+      // Urgent pointer is significant (application specific)
+      URG_count_++;
+    }
+    if (tcpFlags & TCPFlags::PSH) {
+      // Push flag (application specific)
+      PSH_count_++;
+    }
+
+    // TCP Congestion Control Information:
+    // e.g. NS, CWR, ECE
+  }
+
+  // Update flow processing log:
+  // -- TODO: wrap in compile-time enable
+  log_.append(e.extractLog.str());
+
+  // TODO: record flowstate...
   return FlowRecord::update(e.origBytes, e.packet().timestamp());
 }
 
@@ -125,7 +179,7 @@ u64 FlowRecord::bytes() const {
 
 
 EvalContext::EvalContext(fp::Packet* const p) :
-  v(p->data(), p->size()), k{}, extractLog(), pkt_(*p)
+  v(p->data(), p->size()), fields{}, extractLog(), pkt_(*p)
 {
   // Replace View with observed bytes
   if (p->type() == fp::Buffer::FP_BUF_PCAP) {
@@ -149,7 +203,7 @@ int
 extract(EvalContext& cxt, HeaderType t = ETHERNET) {
   // provides a view of packet payload:
   View& view = cxt.v;
-  Fields& gKey = cxt.k;
+  Fields& gKey = cxt.fields;
   stringstream& log = cxt.extractLog;
 
   int extracted = 0;
@@ -209,19 +263,19 @@ L3:
     stringstream fragLog;
     fragLog << hex << setfill('0') << setw(2);
 
-    if (gKey.fIP == IPFlags::MF || gKey.ipFragOffset != 0) {
+    if (gKey.fIP & IPFlags::MF || gKey.ipFragOffset != 0) {
       // Either MF set, or FragOffset non-0; packet is a fragment...
-      if (gKey.fIP == IPFlags::MF && gKey.ipFragOffset == 0) {
+      if (gKey.fIP & IPFlags::MF && gKey.ipFragOffset == 0) {
         // First fragment, parse L4
         fragLog << "First IPv4 fragment!\n";
       }
-      else if (gKey.fIP != IPFlags::MF) {
-        fragLog << "Last IPv4 fragment! ipFragOffset=0x"
+      else if (gKey.fIP & IPFlags::MF) {
+        fragLog << "Another IPv4 fragment! ipFragOffset=0x"
                 << gKey.ipFragOffset << '\n';
         return extracted;
       }
       else {
-        fragLog << "Another IPv4 fragment! ipFragOffset=0x"
+        fragLog << "Last IPv4 fragment! ipFragOffset=0x"
                 << gKey.ipFragOffset << '\n';
         return extracted;
       }
@@ -273,7 +327,7 @@ L4:
 int
 extract_ethernet(EvalContext& cxt) {
   View& view = cxt.v;
-  Fields& gKey = cxt.k;
+  Fields& gKey = cxt.fields;
   stringstream& log = cxt.extractLog;
 
   log << '(' << __func__ << ")\n";
@@ -312,7 +366,7 @@ extract_ethernet(EvalContext& cxt) {
 int
 extract_ip(EvalContext& cxt) {
   View& view = cxt.v;
-  Fields& gKey = cxt.k;
+  Fields& gKey = cxt.fields;
   stringstream& log = cxt.extractLog;
 
   log << '(' << __func__ << ")\n";
@@ -335,7 +389,7 @@ extract_ip(EvalContext& cxt) {
 int
 extract_ipv4(EvalContext& cxt) {
   View& view = cxt.v;
-  Fields& gKey = cxt.k;
+  Fields& gKey = cxt.fields;
   stringstream& log = cxt.extractLog;
 
   log << '(' << __func__ << ")\n";
@@ -406,7 +460,7 @@ extract_ipv4(EvalContext& cxt) {
 int
 extract_ipv6(EvalContext& cxt) {
   View& view = cxt.v;
-  Fields& gKey = cxt.k;
+  Fields& gKey = cxt.fields;
   stringstream& log = cxt.extractLog;
 
   log << '(' << __func__ << ")\n";
@@ -478,7 +532,7 @@ extract_ipv6(EvalContext& cxt) {
 int
 extract_tcp(EvalContext& cxt) {
   View& view = cxt.v;
-  Fields& gKey = cxt.k;
+  Fields& gKey = cxt.fields;
   stringstream& log = cxt.extractLog;
 
   log << '(' << __func__ << ")\n";
@@ -545,7 +599,7 @@ extract_tcp(EvalContext& cxt) {
 int
 extract_udp(EvalContext& cxt) {
   View& view = cxt.v;
-  Fields& gKey = cxt.k;
+  Fields& gKey = cxt.fields;
   stringstream& log = cxt.extractLog;
 
   log << '(' << __func__ << ")\n";
@@ -577,7 +631,7 @@ extract_udp(EvalContext& cxt) {
 int
 extract_ipsec_ah(EvalContext& cxt) {
   View& view = cxt.v;
-  Fields& gKey = cxt.k;
+  Fields& gKey = cxt.fields;
   stringstream& log = cxt.extractLog;
 
   log << '(' << __func__ << ")\n";
@@ -618,7 +672,7 @@ extract_ipsec_ah(EvalContext& cxt) {
 int
 extract_ipsec_esp(EvalContext& cxt) {
   View& view = cxt.v;
-  Fields& gKey = cxt.k;
+  Fields& gKey = cxt.fields;
   stringstream& log = cxt.extractLog;
 
   log << '(' << __func__ << ")\n";
@@ -649,7 +703,7 @@ extract_ipsec_esp(EvalContext& cxt) {
 int
 extract_icmpv4(EvalContext& cxt) {
   View& view = cxt.v;
-  Fields& gKey = cxt.k;
+  Fields& gKey = cxt.fields;
   stringstream& log = cxt.extractLog;
 
   log << '(' << __func__ << ")\n";
@@ -683,7 +737,7 @@ extract_icmpv4(EvalContext& cxt) {
 int
 extract_icmpv6(EvalContext& cxt) {
   View& view = cxt.v;
-  Fields& gKey = cxt.k;
+  Fields& gKey = cxt.fields;
   stringstream& log = cxt.extractLog;
 
   log << '(' << __func__ << ")\n";
@@ -773,7 +827,7 @@ void caidaHandler::open_list(int id, string listFile) {
   string fileName;
   while (getline(lf, fileName)) {
     fileName.insert(0, listFile, 0, path+1);
-    cerr << fileName << '\n';
+//    cerr << fileName << '\n';
     fileQueue.emplace( std::move(fileName) );
   }
   cerr.flush();
@@ -786,6 +840,12 @@ void caidaHandler::open_list(int id, string listFile) {
 }
 
 void caidaHandler::open(int id, string file) {
+  // Automatically call open_list if file ends in ".files":
+  const string ext(".files");
+  if (file.compare(file.length()-ext.length(), string::npos, ext) == 0) {
+    return open_list(id, file);
+  }
+
   // Open PCAP file:
   pcap_.emplace(std::piecewise_construct,
                 std::forward_as_tuple(id),
@@ -848,8 +908,7 @@ static stringstream print_flow(const FlowRecord& flow) {
   return ss;
 }
 
-static void print_help(const char* argv0, const po::options_description desc)
-{
+static void print_help(const char* argv0, const po::options_description desc) {
     cout << "Usage: " << argv0 << " [options] (directionA.pcap) [directionB.pcap]" << endl;
     cout << desc << endl;
 }
@@ -888,19 +947,17 @@ main(int argc, const char* argv[])
   nonpos_desc.add_options()
       ("help,h", "Display this message")
       ("log-file,l",
-           po::value<std::string>(&logfilename)->default_value(now_ss.str().append(".log")),
-           "The name of the log file")
+       po::value<std::string>(&logfilename)->default_value(now_ss.str().append(".log")),
+       "The name of the log file")
       ("output-file,o",
-           po::value<std::string>(&tracefilename)->default_value(now_ss.str().append(".trace")),
-           "The name of the trace file")
-      ("list,L",
-           "Indicates that the input file contains a list of pcap files to read")
-  ;
+       po::value<std::string>(&tracefilename)->default_value(now_ss.str().append(".trace")),
+       "The name of the trace file")
+      ;
 
   pos_desc.add_options()
       ("directionA", po::value<std::string>(&inputAfilename), "The name of the pcap input file")
       ("directionB", po::value<std::string>(&inputBfilename), "The name of the pcap input file")
-  ;
+      ;
 
   p.add("directionA", 1);
   p.add("directionB", 1);
@@ -908,51 +965,36 @@ main(int argc, const char* argv[])
   cmdline_desc.add(nonpos_desc).add(pos_desc);
 
   try {
-      po::store(po::command_line_parser(argc, argv)
+    po::store(po::command_line_parser(argc, argv)
               .options(cmdline_desc)
               .positional(p)
               .run()
               , vm);
 
-      if (vm.count("help"))
-      {
-          print_help(argv[0], nonpos_desc);
-          return 0;
-      }
-
-      po::notify(vm);
-  }
-  catch (po::unknown_option ex)
-  {
-      cout << ex.what() << endl;
+    if (vm.count("help")) {
       print_help(argv[0], nonpos_desc);
-      return 2;
+      return 0;
+    }
+
+    po::notify(vm);
+  }
+  catch (po::unknown_option ex) {
+    cout << ex.what() << endl;
+    print_help(argv[0], nonpos_desc);
+    return 2;
   }
 
   // Ensure at least one input file is given
-  if (!vm.count("directionA"))
-  {
-      cout << "An input file is required" << endl;
-      print_help(argv[0], nonpos_desc);
-      return 2;
+  if (!vm.count("directionA")) {
+    cout << "An input file is required" << endl;
+    print_help(argv[0], nonpos_desc);
+    return 2;
   }
 
   // Open Pcap Input Files:
-  cout << inputAfilename << endl;
-
-  // If the flag is set that indicates a list file
-  if (vm.count("list,L"))
-  {
-      caida.open_list(1, inputAfilename);
-  }
-  else // otherwise, assume the file is a PCAP file.
-  {
-      caida.open(1, inputAfilename);
-      if (vm.count("directionB"))
-      {
-          cout << inputBfilename << endl;
-          caida.open(2, inputBfilename);
-      }
+  caida.open(1, inputAfilename);
+  if (vm.count("directionB")) {
+    caida.open(2, inputBfilename);
   }
 
   // Open Log/Trace Output Files:
@@ -961,13 +1003,10 @@ main(int argc, const char* argv[])
   flowTrace.open(tracefilename, ios::out);
   debugLog.open(logfilename, ios::out);
 
-  // TODO: factor me out
-//  endianTest();
-
   // Metadata structures:
   u64 flowID = 0;
   // Note: currently leveraging string instead of FlowKeyTuple since string
-  //   has a default generic hash for use in STL
+  //   has a default generic hash in the STL
   unordered_map<string, FlowRecord> flows;
   vector< pair<string, FlowRecord> > completedFlows;
 
@@ -997,12 +1036,12 @@ main(int argc, const char* argv[])
       ss << dump_packet(p).str() << '\n';
       print_eval(ss, evalCxt);
       ss << "> Exception occured durring extract: " << e.what();
-      debugLog <<  ss.str() << '\n';
+//      debugLog <<  ss.str() << '\n';
       cerr << ss.str() << endl;
     }
 
     // Associate packet with flow:
-    const Fields& k = evalCxt.k;
+    const Fields& k = evalCxt.fields;
     const FlowKeyTuple fkt {
       IpTuple{k.ipv4Src, k.ipv4Dst},
       PortTuple{k.srcPort, k.dstPort},
@@ -1013,25 +1052,27 @@ main(int argc, const char* argv[])
     u16 wireBytes = evalCxt.origBytes;
     maxPacketSize = std::max(maxPacketSize, wireBytes);
     minPacketSize = std::min(minPacketSize, wireBytes);
-    auto status = flows.emplace(std::piecewise_construct,
-                                std::forward_as_tuple(move(fks)),
-                                std::forward_as_tuple(flowID, wireBytes, time));
-    // Unexpectingly, emplace constructs a record before testing lookup...
-    // TODO: perform check first to avoid unecessary emplace construction...
-    if (!status.second) {
-      FlowRecord& record = (*status.first).second;
+
+    auto status = flows.find(fks);
+    if (status != flows.end()) {
+      FlowRecord& record = status->second;
       auto id = record.update(evalCxt);
       evalCxt.extractLog << "Existing FlowID: " << id << '\n';
     }
     else {
+      flows.emplace(std::piecewise_construct,
+                    std::forward_as_tuple(fks),
+                    std::forward_as_tuple(flowID, wireBytes, time));
       evalCxt.extractLog << "New FlowID: " << flowID << '\n';
 
       // Every 32k flows, clean up flow table:
+      // - Create a configurable notion of flow timeout...
       if (++flowID % (32*1024) == 0) {
         for (auto i = flows.begin(); i != flows.end(); ) {
           const FlowRecord& flow = i->second;
           timespec sinceLast = time - flow.last();
           if (sinceLast.tv_sec >= 120) {
+//            debugLog << flow.getLog();
             debugLog << "Flow " << flow.getFlowID()
                      << " expired after " << flow.packets() << " packets." << endl;
             flowTrace << print_flow(flow).str();
@@ -1068,7 +1109,11 @@ main(int argc, const char* argv[])
 //    sorted_bytes.insert(make_pair(bytes, &flow));
   }
   for (const auto& e : sorted_packets) {
-    flowTrace << print_flow(*(e.second)).str();
+    const FlowRecord& flow = *(e.second);
+//    debugLog << flow.getLog();
+    debugLog << "Flow " << flow.getFlowID()
+             << " persists after " << flow.packets() << " packets." << endl;
+    flowTrace << print_flow(flow).str();
   }
 
   // Print global stats:
