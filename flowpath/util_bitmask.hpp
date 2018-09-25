@@ -509,6 +509,32 @@ operator|=(bitmask<T>& lhs, const bitmask<T>& rhs)
 }
 
 /**
+ * operator|=(T, bitmask<T>)
+ * (added bitset for enum class)
+ */
+//template <typename T>
+//typename std::enable_if<std::is_enum<T>::value && enable_enum_class_bitmask<T>::value, T&>::type
+//operator|=(T& lhs, const bitmask<T>& rhs)
+//{
+//  lhs.value |= rhs.value;
+//  return lhs;
+//}
+
+/**
+ * operator|=(T,T)
+ * (added bitset for enum class)
+ */
+template <typename T>
+typename std::enable_if<std::is_enum<T>::value && enable_enum_class_bitmask<T>::value, T&>::type
+operator|=(T& lhs, const T& rhs)
+{
+  using underlying_type = typename std::underlying_type<T>::type;
+  lhs = static_cast<T>(static_cast<underlying_type>(lhs) |
+                       static_cast<underlying_type>(rhs) );
+  return lhs;
+}
+
+/**
  * operator^=(bitmask<T>, T)
  */
 template <typename T>

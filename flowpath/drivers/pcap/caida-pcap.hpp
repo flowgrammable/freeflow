@@ -77,12 +77,14 @@ enum class TCPFlags {
 };
 ENABLE_BITMASK_OPERATORS(TCPFlags);
 
-
 struct Fields {
+  // Interpreted Flags:
   ProtoFlags fProto;
   IPFlags fIP;
   u16 ipFragOffset;
   TCPFlags fTCP;
+
+  // Raw Fields:
   u64 ethSrc;
   u64 ethDst;
   u16 ethType;
@@ -94,20 +96,75 @@ struct Fields {
   u16 dstPort;
 };
 
-using IpTuple = std::tuple<u32, u32>;   // {src, dst}
-using PortTuple = std::tuple<u16, u16>; // {src, dst}
-using ProtoTuple = std::tuple<u8>;
-using FlowKeyTuple = std::tuple<IpTuple, PortTuple, ProtoTuple>;
+//using IpTuple = std::tuple<u32, u32>;   // {src, dst}
+//using PortTuple = std::tuple<u16, u16>; // {src, dst}
+//using ProtoTuple = std::tuple<u8>;
+//using FlowKeyTuple = std::tuple<IpTuple, PortTuple, ProtoTuple>;
+
+//namespace std {
+//  template <>
+//  class hash<FlowKeyTuple> {
+//    using result_type = std::size_t;
+//    using object_type = FlowKeyTuple;
+
+//    result_type operator()(const object_type& x) const {
+//      IpTuple ip = std::get<0>(x);
+//      result_type h1 = std::get<0>(ip) << ;
+////      std::tie() = x;
+
+////      result_type const h1 = std::tie()
+//    }
+//  }
+//}
+
+std::string make_flow_key(const Fields& k) {
+//  const FlowKeyTuple fkt {
+//    IpTuple{k.ipv4Src, k.ipv4Dst},
+//    PortTuple{k.srcPort, k.dstPort},
+//    ProtoTuple{k.ipProto}
+//  };
+//  std::string fks(reinterpret_cast<const char*>(&fkt), sizeof(fkt));
+//  assert(fks.size() == sizeof(fkt));
+
+//  struct __attribute__((packed)) {
+//    IpTuple ip{k.ipv4Src, k.ipv4Dst};
+//    PortTuple port{k.srcPort, k.dstPort};
+//    ProtoTuple proto{k.ipProto};
+//  } fkt;
+
+  struct __attribute__((packed)) FlowKeyStruct{
+    u32 ipv4Src;
+    u32 ipv4Dst;
+    u16 srcPort;
+    u16 dstPort;
+    u8 ipProto;
+  };
+  FlowKeyStruct fkt {k.ipv4Src, k.ipv4Dst, k.srcPort, k.dstPort, k.ipProto};
+  static_assert(sizeof(FlowKeyStruct) == 13, "FlowKeyStruct appears to be padded.");
+
+  std::string fks(reinterpret_cast<const char*>(&fkt), sizeof(fkt));
+  assert(fks.size() == 13);
+  return fks;
+}
 
 class EvalContext;  // forward declaration
 
 
 class FlowRecord {
 public:
-  FlowRecord(u64 flowID, const u16 bytes, const timespec& ts) :
+//  FlowRecord(u64 flowID, const EvalContext& e) :
+//    flowID_(flowID), start_(e.packet().timestamp()),
+//    arrival_ns_({0}), bytes_({e.origBytes}),
+//    saw_open_(false), saw_close_(false), saw_reset_(false),
+//    fragments_(0), retransmits_(0), directionality_(0) {
+//  }
+
+  FlowRecord(u64 flowID, const timespec& ts) :
     flowID_(flowID), start_(ts),
-    arrival_ns_({0}), bytes_({bytes}),
-    saw_open_(false), saw_close_(false) {
+    arrival_ns_{}, bytes_{}, protoFlags_{},
+    saw_open_(false), saw_close_(false), saw_reset_(false),
+    fragments_(0), retransmits_(0), directionality_(0),
+    ACK_count_(0), PSH_count_(0), URG_count_(0) {
   }
 
   u64 update(const EvalContext& e);
@@ -119,14 +176,16 @@ public:
   const std::string& getLog() const { return log_; }
 
   timespec last() const {
+    constexpr auto NS_IN_SEC = 1000000000LL;
+
     // TODO: replace this with chrono duration...
     timespec t = start_;
     auto dif = arrival_ns_.back();
-    t.tv_nsec += dif % 1000000000;
-    t.tv_sec += dif / 1000000000;
-    if (t.tv_nsec >= 1000000000) {
-      t.tv_sec += t.tv_nsec / 1000000000;
-      t.tv_nsec %= 1000000000;
+    t.tv_nsec += dif % NS_IN_SEC;
+    t.tv_sec += dif / NS_IN_SEC;
+    if (t.tv_nsec >= NS_IN_SEC) {
+      t.tv_sec += t.tv_nsec / NS_IN_SEC;
+      t.tv_nsec %= NS_IN_SEC;
     }
     return t;
   }
@@ -134,9 +193,16 @@ public:
   const std::vector<u64>& getArrivalV() const { return arrival_ns_; }
   const std::vector<u16>& getByteV() const { return bytes_; }
 
+  // generic flow questions:
+  bool isAlive() const { return !(saw_close_ || saw_reset_); }
+//  const bool activeSince(const timespec& t) const {
+//    return flowR.saw_close_ || flowR.saw_reset_
+//  }
+
 private:
   // Flow Identification:
   u64 flowID_;
+  std::string flowKey_;
   ProtoFlags protoFlags_;
   // also useful to have IPFlags?
 

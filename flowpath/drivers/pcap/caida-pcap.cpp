@@ -86,19 +86,28 @@ operator-(const timespec& lhs, const timespec& rhs) {
 //   result.tv_nsec -= NS_IN_SEC;
 //  }
 
-  if (lhs.tv_nsec < rhs.tv_nsec) {
-    auto carry = (rhs.tv_nsec - lhs.tv_nsec) / NS_IN_SEC + 1;
-    result.tv_nsec -= NS_IN_SEC * carry;
-    result.tv_sec += carry;
-  }
-  if (lhs.tv_nsec - rhs.tv_nsec > NS_IN_SEC) {
-    auto carry = (lhs.tv_nsec - rhs.tv_nsec) / NS_IN_SEC;
+//  if (lhs.tv_nsec < rhs.tv_nsec) {
+//    auto carry = (rhs.tv_nsec - lhs.tv_nsec) / NS_IN_SEC + 1;
+//    result.tv_nsec -= NS_IN_SEC * carry;
+//    result.tv_sec += carry;
+//  }
+//  if (lhs.tv_nsec - rhs.tv_nsec > NS_IN_SEC) {
+//    auto carry = (lhs.tv_nsec - rhs.tv_nsec) / NS_IN_SEC;
+//    result.tv_nsec += NS_IN_SEC * carry;
+//    result.tv_sec -= carry;
+//  }
+
+  if (result.tv_nsec < 0) {
+    auto carry = result.tv_nsec / NS_IN_SEC + 1;
     result.tv_nsec += NS_IN_SEC * carry;
     result.tv_sec -= carry;
   }
+  else if (result.tv_nsec >= NS_IN_SEC) {
+    auto carry = result.tv_nsec / NS_IN_SEC;
+    result.tv_nsec -= NS_IN_SEC * carry;
+    result.tv_sec += carry;
+  }
 
-  /* Return 1 if result is negative. */
-//  return lhs.tv_sec < rhs.tv_sec;
   return result;
 }
 
@@ -110,11 +119,13 @@ u64 FlowRecord::update(const EvalContext& e) {
   const auto& ipFlags = e.fields.fIP;
   const auto& tcpFlags = e.fields.fTCP;
   const int payloadBytes = static_cast<int>(e.origBytes) - e.v.committedBytes<int>();
+  // Committed bytes is insufficient...
 
   // Track TCP state:
   if (protoFlags & ProtoFlags::isTCP) {
     // TCP Session Changes:
-    if (tcpFlags == TCPFlags::SYN) {
+    if (tcpFlags & TCPFlags::SYN) {
+    //if (tcpFlags == TCPFlags::SYN) {
       // Detect if initator vs. responder
       saw_open_ = true;
     }
@@ -153,21 +164,27 @@ u64 FlowRecord::update(const EvalContext& e) {
 
     // TCP Congestion Control Information:
     // e.g. NS, CWR, ECE
+
+    if (arrival_ns_.size() == 0) {
+      flowKey_ = make_flow_key(e.fields);
+    }
   }
 
   // Update flow processing log:
-  // -- TODO: wrap in compile-time enable
+#ifdef DEBUG_LOG
   log_.append(e.extractLog.str());
+#endif
 
   // TODO: record flowstate...
   return FlowRecord::update(e.origBytes, e.packet().timestamp());
 }
 
 u64 FlowRecord::update(const u16 bytes, const timespec& ts) {
+  constexpr auto NS_IN_SEC = 1000000000LL;
   bytes_.push_back(bytes);
 
   timespec diff = ts - start_; // NEED TO VERIFY
-  u64 diff_ns = diff.tv_sec * 1000000000 + diff.tv_nsec;
+  u64 diff_ns = diff.tv_sec * NS_IN_SEC + diff.tv_nsec;
   arrival_ns_.push_back(diff_ns);
 
   return flowID_;
@@ -293,9 +310,11 @@ L4:
     status = extract_icmpv6(cxt);
     break;
   case IP_PROTO_TCP:
+    gKey.fProto |= ProtoFlags::isTCP;
     status = extract_tcp(cxt);
     break;
   case IP_PROTO_UDP:
+    gKey.fProto |= ProtoFlags::isUDP;
     status = extract_udp(cxt);
     break;
   case IP_PROTO_IPSEC_AH:
@@ -375,8 +394,10 @@ extract_ip(EvalContext& cxt) {
 
   switch (ipVersion) {
   case 4:
+    gKey.fProto |= ProtoFlags::isIPv4;
     return extract_ipv4(cxt);
   case 6:
+    gKey.fProto |= ProtoFlags::isIPv6;
 //    return extract_ipv6(cxt);
     log << __func__ << ": Skipping IPv6...\n";
   default:
@@ -880,16 +901,32 @@ int caidaHandler::rebound(fp::Context* cxt) {
 }
 
 
-static stringstream dump_packet(fp::Packet* p) {
+stringstream hexdump(const void* msg, size_t bytes) {
+  auto m = static_cast<const uint8_t*>(msg);
   stringstream ss;
 
-  // Dump hex of packet:
-  uint8_t *const d = p->data();
-  ss << hex << setfill('0');
-  for (int i = 0; i < p->size(); ++i) {
-    ss << setw(2) << static_cast<int>(d[i]);
+  ss << std::hex << std::setfill('0');
+  for (decltype(bytes) i = 0; i < bytes; i++) {
+    ss << setw(2) << static_cast<unsigned int>(m[i]);
   }
   return ss;
+}
+
+
+static void print_hex(const string& s) {
+  stringstream ss = hexdump(s.c_str(), s.size());
+  cerr << ss.str() << endl;
+}
+
+
+static stringstream dump_packet(fp::Packet* p) {
+  return hexdump(p->data(), p->size());
+}
+
+
+static void print_packet(fp::Packet* p) {
+  cerr << p->timestamp().tv_sec << ':' << p->timestamp().tv_nsec << '\n'
+       << dump_packet(p).str() << endl;
 }
 
 
@@ -908,10 +945,22 @@ static stringstream print_flow(const FlowRecord& flow) {
   return ss;
 }
 
+
+static void print_log(const EvalContext& e) {
+  cerr << e.extractLog.str() << endl;
+}
+
+
+static void print_log(const FlowRecord& flow) {
+  cerr << flow.getLog() << endl;
+}
+
+
 static void print_help(const char* argv0, const po::options_description desc) {
     cout << "Usage: " << argv0 << " [options] (directionA.pcap) [directionB.pcap]" << endl;
     cout << desc << endl;
 }
+
 
 ///////////////////////////////////////////////////////////////////////////////
 int
@@ -1004,11 +1053,13 @@ main(int argc, const char* argv[])
   debugLog.open(logfilename, ios::out);
 
   // Metadata structures:
-  u64 flowID = 0;
+  u64 nextFlowID = 1;
   // Note: currently leveraging string instead of FlowKeyTuple since string
   //   has a default generic hash in the STL
-  unordered_map<string, FlowRecord> flows;
-  vector< pair<string, FlowRecord> > completedFlows;
+  unordered_map<string, u64> flowIDs;
+  map<u64, FlowRecord> flowRecords;
+  unordered_set<u64> dormantFlows;
+//  vector< pair<string, FlowRecord> > completedFlows;
 
   // Global Stats:
   u16 maxPacketSize = std::numeric_limits<u16>::lowest();
@@ -1025,7 +1076,7 @@ main(int argc, const char* argv[])
     // Attempt to parse packet headers:
     count++;
     try {
-    int status = extract(evalCxt, IP);
+      int status = extract(evalCxt, IP);
     }
     catch (std::exception& e) {
       stringstream ss;
@@ -1035,54 +1086,82 @@ main(int argc, const char* argv[])
          << evalCxt.v.pendingBytes<int>() << '\n';
       ss << dump_packet(p).str() << '\n';
       print_eval(ss, evalCxt);
-      ss << "> Exception occured durring extract: " << e.what();
+      ss << "> Exception occured during extract: " << e.what();
 //      debugLog <<  ss.str() << '\n';
       cerr << ss.str() << endl;
     }
 
     // Associate packet with flow:
     const Fields& k = evalCxt.fields;
-    const FlowKeyTuple fkt {
-      IpTuple{k.ipv4Src, k.ipv4Dst},
-      PortTuple{k.srcPort, k.dstPort},
-      ProtoTuple{k.ipProto}
-    };
-    const string fks(reinterpret_cast<const char*>(&fkt), sizeof(fkt));
+    const string fks = make_flow_key(k);
 
     u16 wireBytes = evalCxt.origBytes;
     maxPacketSize = std::max(maxPacketSize, wireBytes);
     minPacketSize = std::min(minPacketSize, wireBytes);
 
-    auto status = flows.find(fks);
-    if (status != flows.end()) {
-      FlowRecord& record = status->second;
-      auto id = record.update(evalCxt);
-      evalCxt.extractLog << "Existing FlowID: " << id << '\n';
+    // Perform initial flowID lookup:
+    u64 flowID;
+    {
+      auto status = flowIDs.find(fks);
+      flowID = (status != flowIDs.end()) ? status->second : 0;
+    }
+
+    // If flow exists:
+    if (flowID != 0) {
+      auto status = flowRecords.find(flowID); // iterator to {key, value}
+
+      if (status != flowRecords.end()) {
+        // Flow is currently tracked:
+        FlowRecord& flowR = status->second;
+        flowR.update(evalCxt);
+//      evalCxt.extractLog << "Existing FlowID: " << id << '\n';
+
+        // Check if observed a termination flag:
+        if (!flowR.isAlive()) {
+          dormantFlows.insert(flowID);
+        }
+      }
+      else {
+        // Flow was seen before but no longer tracked:
+        debugLog << "FlowID " << flowID << " is no longer being tracked." << endl;
+      }
     }
     else {
-      flows.emplace(std::piecewise_construct,
-                    std::forward_as_tuple(fks),
-                    std::forward_as_tuple(flowID, wireBytes, time));
+      // Flow previously unseen:
+      auto newFlowRecord = flowRecords.emplace(std::piecewise_construct,
+                            std::forward_as_tuple(nextFlowID),
+                            std::forward_as_tuple(nextFlowID, time));
+      newFlowRecord.first->second.update(evalCxt);
+
+      auto newFlowID = flowIDs.emplace(std::piecewise_construct,
+                            std::forward_as_tuple(fks),
+                            std::forward_as_tuple(nextFlowID));
+      assert(newFlowID.second && newFlowRecord.second);
+
+      flowID = nextFlowID++;
       evalCxt.extractLog << "New FlowID: " << flowID << '\n';
 
-      // Every 32k flows, clean up flow table:
-      // - Create a configurable notion of flow timeout...
-      if (++flowID % (32*1024) == 0) {
-        for (auto i = flows.begin(); i != flows.end(); ) {
-          const FlowRecord& flow = i->second;
-          timespec sinceLast = time - flow.last();
-          if (sinceLast.tv_sec >= 120) {
-//            debugLog << flow.getLog();
-            debugLog << "Flow " << flow.getFlowID()
-                     << " expired after " << flow.packets() << " packets." << endl;
-            flowTrace << print_flow(flow).str();
-//            completedFlows.emplace_back( std::move(*i) );
-            i = flows.erase(i); // returns iterator following erased elements
+      // Clean up dormant flows every new 128k new flows:
+      if (flowID % (128*1024) == 0) {
+        for (auto i = dormantFlows.begin(); i != dormantFlows.end(); ) {
+          auto fri = flowRecords.find(*i);
+          const FlowRecord& fr = fri->second;
+
+          timespec sinceLast = time - fr.last();
+          if (sinceLast.tv_sec >= 10) {
+////            debugLog << flow.getLog();
+            debugLog << "Flow " << *i
+                     << " expired after " << fr.packets() << " packets." << endl;
+            flowTrace << print_flow(fr).str();
+
+            flowRecords.erase(fri);
+            i = dormantFlows.erase(i);  // returns iterator following erased elements
           }
           else {
             i++;  // don't i++ on erase...
           }
         }
+        flowTrace.flush();
       }
     }
 
@@ -1099,7 +1178,7 @@ main(int argc, const char* argv[])
   multimap<u64, const FlowRecord*> sorted_bytes;
   multimap<size_t, const FlowRecord*> sorted_packets;
   // TODO: change this to sort completed_flows vector...
-  for (const auto& e : flows) {
+  for (const auto& e : flowRecords) {
     const FlowRecord& flow = e.second;
     auto packets = flow.packets();
     auto bytes = flow.bytes();
