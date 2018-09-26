@@ -3,7 +3,10 @@
 
 #find_package(ZLIB REQUIRED)
 
-add_executable(caida-pcap caida-pcap.cpp)
+# Temporarily disable verbose warnings for this project...
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-variable -Wno-reorder -Wno-unused-function")
+
+add_executable(caida-pcap caida-pcap.cpp util_caida.cpp util_extract.cpp)
 #target_link_libraries(caida-pcap flowpath-rt flowpath-applib ${CMAKE_DL_LIBS})
 #target_link_libraries(caida-pcap flowpath-rt flowpath-applib ${ZLIB_LIBRARIES} ${PCAP_LIBRARY} ${CMAKE_DL_LIBS})
 target_link_libraries(caida-pcap flowpath-rt flowpath-applib ${PCAP_LIBRARY} ${CMAKE_DL_LIBS})

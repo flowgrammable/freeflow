@@ -39,8 +39,8 @@ find_package(PCAP REQUIRED)
 include_directories(${PCAP_INCLUDE_DIR})
 
 # Require Boost C++ Libraries.
-find_package(Boost 1.55.0 REQUIRED)
-include_directories(${Boost_INCLUDE_DIRS})
+#find_package(Boost 1.55.0 REQUIRED)
+#include_directories(${Boost_INCLUDE_DIRS})
 
 
 # ODP Linking Options.

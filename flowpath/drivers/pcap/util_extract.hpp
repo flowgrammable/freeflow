@@ -1,5 +1,5 @@
-#ifndef DRIVER_CAIDA_PCAP_HPP
-#define DRIVER_CAIDA_PCAP_HPP
+#ifndef DRIVER_UTIL_EXTRACT_HPP
+#define DRIVER_UTIL_EXTRACT_HPP
 
 #include "util_bitmask.hpp"
 
@@ -44,6 +44,9 @@ constexpr u8 IP_PROTO_UDP = 0x11; // 17
 constexpr u8 IP_PROTO_IPSEC_ESP = 0x32; // 50
 constexpr u8 IP_PROTO_IPSEC_AH = 0x33; // 51
 constexpr u8 IP_PROTO_ENCAP_IPV6 = 0x29; //41
+
+
+timespec operator-(const timespec& lhs, const timespec& rhs);
 
 
 // Definition of useful Flags/Metadata
@@ -96,59 +99,10 @@ struct Fields {
   u16 dstPort;
 };
 
-//using IpTuple = std::tuple<u32, u32>;   // {src, dst}
-//using PortTuple = std::tuple<u16, u16>; // {src, dst}
-//using ProtoTuple = std::tuple<u8>;
-//using FlowKeyTuple = std::tuple<IpTuple, PortTuple, ProtoTuple>;
+std::string make_flow_key(const Fields& k);
 
-//namespace std {
-//  template <>
-//  class hash<FlowKeyTuple> {
-//    using result_type = std::size_t;
-//    using object_type = FlowKeyTuple;
-
-//    result_type operator()(const object_type& x) const {
-//      IpTuple ip = std::get<0>(x);
-//      result_type h1 = std::get<0>(ip) << ;
-////      std::tie() = x;
-
-////      result_type const h1 = std::tie()
-//    }
-//  }
-//}
-
-std::string make_flow_key(const Fields& k) {
-//  const FlowKeyTuple fkt {
-//    IpTuple{k.ipv4Src, k.ipv4Dst},
-//    PortTuple{k.srcPort, k.dstPort},
-//    ProtoTuple{k.ipProto}
-//  };
-//  std::string fks(reinterpret_cast<const char*>(&fkt), sizeof(fkt));
-//  assert(fks.size() == sizeof(fkt));
-
-//  struct __attribute__((packed)) {
-//    IpTuple ip{k.ipv4Src, k.ipv4Dst};
-//    PortTuple port{k.srcPort, k.dstPort};
-//    ProtoTuple proto{k.ipProto};
-//  } fkt;
-
-  struct __attribute__((packed)) FlowKeyStruct{
-    u32 ipv4Src;
-    u32 ipv4Dst;
-    u16 srcPort;
-    u16 dstPort;
-    u8 ipProto;
-  };
-  FlowKeyStruct fkt {k.ipv4Src, k.ipv4Dst, k.srcPort, k.dstPort, k.ipProto};
-  static_assert(sizeof(FlowKeyStruct) == 13, "FlowKeyStruct appears to be padded.");
-
-  std::string fks(reinterpret_cast<const char*>(&fkt), sizeof(fkt));
-  assert(fks.size() == 13);
-  return fks;
-}
 
 class EvalContext;  // forward declaration
-
 
 class FlowRecord {
 public:
@@ -195,9 +149,6 @@ public:
 
   // generic flow questions:
   bool isAlive() const { return !(saw_close_ || saw_reset_); }
-//  const bool activeSince(const timespec& t) const {
-//    return flowR.saw_close_ || flowR.saw_reset_
-//  }
 
 private:
   // Flow Identification:
@@ -235,31 +186,6 @@ private:
 };
 
 
-bool timespec_less(const timespec& lhs, const timespec& rhs) {
-  return (lhs.tv_sec < rhs.tv_sec) &&
-         (lhs.tv_nsec < rhs.tv_nsec);
-}
-
-bool timespec_greater(const timespec& lhs, const timespec& rhs) {
-  return (lhs.tv_sec > rhs.tv_sec) &&
-         (lhs.tv_nsec > rhs.tv_nsec);
-}
-
-bool timespec_equal(const timespec& lhs, const timespec& rhs) {
-  return (lhs.tv_sec == rhs.tv_sec) &&
-         (lhs.tv_nsec == rhs.tv_nsec);
-}
-
-struct context_cmp {
-  bool operator()(const fp::Context& lhs, const fp::Context& rhs) {
-    const timespec& lhs_ts = lhs.packet().timestamp();
-    const timespec& rhs_ts = rhs.packet().timestamp();
-
-    return timespec_greater(lhs_ts, rhs_ts);
-  }
-};
-
-
 class EvalContext {
 public:
   util_view::View v;
@@ -288,31 +214,6 @@ int extract_icmpv4(EvalContext&);
 int extract_icmpv6(EvalContext&);
 int extract_ipsec_esp(EvalContext&);
 int extract_ipsec_ah(EvalContext&);
-
-
-class caidaHandler {
-public:
-  caidaHandler() = default;
-  ~caidaHandler() = default;
-
-private:
-  int advance(int id);
-
-public:
-  void open_list(int id, std::string listFile);
-  void open(int id, std::string file);
-
-  fp::Context recv();
-  int rebound(fp::Context* cxt);
-
-private:
-  // Next packet in stream from each portID, 'sorted' by arrival timestamp:
-  std::priority_queue<fp::Context, std::deque<fp::Context>, context_cmp> next_cxt_;
-  // Currently open pcap file hand by portID:
-  std::map<int, fp::Port_pcap> pcap_;
-  // Next pcap files to open by portID:
-  std::map<int, std::queue<std::string>> pcap_files_;
-};
 
 
 #endif
