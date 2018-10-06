@@ -1,33 +1,7 @@
 #include "util_caida.hpp"
 
-#include <string>
 #include <iostream>
-//#include <stdexcept>
-//#include <iomanip>
-//#include <ctime>
-//#include <signal.h>
-//#include <type_traits>
-//#include <bitset>
-#include <map>
-//#include <tuple>
-//#include <functional>
-//#include <algorithm>
-//#include <numeric>
-//#include <unordered_map>
-//#include <unordered_set>
-//#include <vector>
-#include <queue>
-//#include <chrono>
-//#include <typeinfo>
-
-//#include <net/ethernet.h>
-//#include <netinet/ip.h>
-//#include <netinet/in.h>
-//#include <netinet/tcp.h>
-//#include <arpa/inet.h>
-
-//#include <boost/program_options.hpp>
-//#include <boost/endian/conversion.hpp>
+#include <functional>
 
 using namespace std;
 
@@ -45,33 +19,6 @@ bool timespec_greater(const timespec& lhs, const timespec& rhs) {
 bool timespec_equal(const timespec& lhs, const timespec& rhs) {
   return (lhs.tv_sec == rhs.tv_sec) &&
          (lhs.tv_nsec == rhs.tv_nsec);
-}
-
-
-int caidaHandler::advance(int id) {
-  fp::Context cxt;
-  if (pcap_.at(id).recv(&cxt) > 0) {
-    next_cxt_.push( std::move(cxt) );
-    return 1; // 1 packet read
-  }
-  else {
-    if (pcap_files_.at(id).size() > 0) {
-      // Queue next pcap file and prepare for first read:
-      auto& list = pcap_files_.at(id);
-      string file = list.front();
-      list.pop();
-
-      cerr << "Opening PCAP file: " << file << endl;
-      pcap_.erase(id);
-      pcap_.emplace(std::piecewise_construct,
-                    std::forward_as_tuple(id),
-                    std::forward_as_tuple(id, file.c_str()) );
-
-      return advance(id); // recursive call to handle 1st read
-    }
-  }
-  cerr << "No packets to read from Port: " << id << endl;
-  return 0; // no packets to read
 }
 
 void caidaHandler::open_list(int id, string listFile) {
@@ -117,7 +64,37 @@ void caidaHandler::open(int id, string file) {
   pcap_files_[id];  // ensure id exists
 
   // Attempt to queue first packet in stream:
-  advance(id);
+  next_cxt_.push( move(advance(id)) );
+}
+
+fp::Context caidaHandler::advance(int id) {
+  fp::Context cxt;
+  if (pcap_.at(id).recv(&cxt) > 0) {
+    return cxt;
+  }
+  else {
+    if (pcap_files_.at(id).size() > 0) {
+      // Queue next pcap file and prepare for first read:
+      auto& list = pcap_files_.at(id);
+      string file = list.front();
+      list.pop();
+
+      cerr << "Opening PCAP file: " << file << endl;
+      pcap_.erase(id);
+      pcap_.emplace(std::piecewise_construct,
+                    std::forward_as_tuple(id),
+                    std::forward_as_tuple(id, file.c_str()) );
+
+      return advance(id); // recursive call to handle 1st read
+    }
+  }
+  cerr << "No packets to read from Port: " << id << endl;
+  return cxt; // no packets to read
+}
+
+void caidaHandler::advance_async(int id) {
+  async_cxt_.push_back( std::async(std::launch::async,
+                        std::bind(&caidaHandler::advance, this, id)) );
 }
 
 fp::Context caidaHandler::recv() {
@@ -129,13 +106,19 @@ fp::Context caidaHandler::recv() {
     return fp::Context();
   }
 
+  for (auto& cxt : async_cxt_) {
+    next_cxt_.push( move(cxt.get()) );
+  }
+  async_cxt_.clear();
+
   // Swap priority_queue container objects without a built-in move optimization:
   fp::Context top = std::move( const_cast<fp::Context&>(next_cxt_.top()) );
   next_cxt_.pop();
   int id = top.in_port();
 
   // Queue next packet in stream:
-  advance(id);
+//  advance(id);
+  advance_async(id);
   return top;
 }
 
