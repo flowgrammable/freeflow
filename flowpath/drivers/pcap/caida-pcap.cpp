@@ -261,7 +261,7 @@ main(int argc, const char* argv[])
 
     // Associate packet with flow:
     const Fields& k = evalCxt.fields;
-    const string fks = make_flow_key(k);
+    const string fks = make_flow_key_string(k);
 
     u16 wireBytes = evalCxt.origBytes;
     maxPacketSize = std::max(maxPacketSize, wireBytes);

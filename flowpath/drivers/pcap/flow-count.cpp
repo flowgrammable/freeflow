@@ -252,8 +252,9 @@ main(int argc, const char* argv[])
   u64 nextFlowID = 1;
   // Note: currently leveraging string instead of FlowKeyTuple since string
   //   has a default generic hash in the STL
-  unordered_map<string, u64> flowIDs;
+//  unordered_map<string, u64> flowIDs;
 //  absl::flat_hash_map<string, u64> flowIDs;
+  absl::flat_hash_map<FlowKeyTuple, u64> flowIDs;
 
   // Global Stats:
   u16 maxPacketSize = std::numeric_limits<u16>::lowest();
@@ -288,7 +289,8 @@ main(int argc, const char* argv[])
 
     // Associate packet with flow:
     const Fields& k = evalCxt.fields;
-    const string fks = make_flow_key(k);
+//    const string fks = make_flow_key_string(k);
+    const FlowKeyTuple fkt = make_flow_key_tuple(k);
 
     u16 wireBytes = evalCxt.origBytes;
     maxPacketSize = std::max(maxPacketSize, wireBytes);
@@ -299,7 +301,7 @@ main(int argc, const char* argv[])
     // Perform initial flowID lookup:
     u64 flowID;
     {
-      auto status = flowIDs.find(fks);
+      auto status = flowIDs.find(fkt);
       flowID = (status != flowIDs.end()) ? status->second : 0;
     }
 
@@ -310,17 +312,17 @@ main(int argc, const char* argv[])
     else {
       // Flow previously unseen:
       auto newFlowID = flowIDs.emplace(std::piecewise_construct,
-                            std::forward_as_tuple(fks),
+                            std::forward_as_tuple(fkt),
                             std::forward_as_tuple(nextFlowID));
       assert(newFlowID.second);
       flowID = nextFlowID++;
 
-      flowStats << fks;
+//      flowStats << fks;
       flowStats.write(reinterpret_cast<char*>(&flowID), sizeof(flowID));
 
       if (flowID == 1) {
-        debugLog << "Flow Key String: " << fks.size() << "B\n";
-        debugLog << "- : " << fks.size() << "B\n";
+        debugLog << "Flow Key String: " << sizeof(fkt) << "B\n";
+//        debugLog << "- : " << fks.size() << "B\n";
         debugLog << "FlowID: " << sizeof(flowID) << "B\n";
         debugLog.flush();
       }

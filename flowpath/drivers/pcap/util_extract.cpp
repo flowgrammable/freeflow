@@ -99,7 +99,7 @@ operator-(const timespec& lhs, const timespec& rhs) {
 }
 
 
-std::string make_flow_key(const Fields& k) {
+std::string make_flow_key_string(const Fields& k) {
   struct __attribute__((packed)) FlowKeyStruct{
     u32 ipv4Src;
     u32 ipv4Dst;
@@ -113,6 +113,13 @@ std::string make_flow_key(const Fields& k) {
   std::string fks(reinterpret_cast<const char*>(&fkt), sizeof(fkt));
   assert(fks.size() == 13);
   return fks;
+}
+
+FlowKeyTuple make_flow_key_tuple(const Fields& k) {
+  IpTuple ipt {k.ipv4Src, k.ipv4Dst};
+  PortTuple pt {k.srcPort, k.dstPort};
+  FlowKeyTuple fkt {move(ipt), move(pt), k.ipProto};
+  return fkt;
 }
 
 
@@ -169,7 +176,7 @@ u64 FlowRecord::update(const EvalContext& e) {
     // e.g. NS, CWR, ECE
 
     if (arrival_ns_.size() == 0) {
-      flowKey_ = make_flow_key(e.fields);
+//      flowKey_ = make_flow_key_string(e.fields);
     }
   }
 

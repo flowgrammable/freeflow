@@ -102,8 +102,12 @@ struct Fields {
   u16 dstPort;
 };
 
-std::string make_flow_key(const Fields& k);
+using IpTuple = std::tuple<u32, u32>;
+using PortTuple = std::tuple<u16, u16>;
+using FlowKeyTuple = std::tuple<IpTuple, PortTuple, u8>;
 
+std::string make_flow_key_string(const Fields& k);
+FlowKeyTuple make_flow_key_tuple(const Fields& k);
 
 class EvalContext;  // forward declaration
 
