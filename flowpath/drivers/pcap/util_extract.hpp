@@ -14,6 +14,9 @@
 #include "util_view.hpp"
 
 
+//#define DEBUG_LOG 1
+
+
 // Common types with guaranteed widths and signed-ness
 using u8 = uint8_t;
 using u16 = uint16_t;
@@ -191,7 +194,9 @@ public:
   util_view::View v;
   u16 origBytes;
   Fields fields;
+#ifdef DEBUG_LOG
   std::stringstream extractLog;
+#endif
 
   EvalContext(fp::Packet* const p);
   const fp::Packet& packet() const {return pkt_;}

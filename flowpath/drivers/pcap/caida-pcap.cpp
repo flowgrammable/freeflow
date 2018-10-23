@@ -33,7 +33,7 @@
 #include <boost/program_options.hpp>
 //#include <boost/endian/conversion.hpp>
 
-//#define DEBUG 1
+//#define DEBUG_LOG 1
 
 using namespace std;
 //using namespace util_view;
@@ -60,7 +60,9 @@ static std::ostream& print_eval(std::ostream &out, const EvalContext& evalCxt) {
     pending.append("|");
   }
   out << committed << pending << '\n';
+#ifdef DEBUG_LOG
   out << evalCxt.extractLog.str();
+#endif
   return out;
 }
 
@@ -111,7 +113,9 @@ static stringstream print_flow(const FlowRecord& flow) {
 
 
 static void print_log(const EvalContext& e) {
+#ifdef DEBUG_LOG
   cerr << e.extractLog.str() << endl;
+#endif
 }
 
 
@@ -250,8 +254,9 @@ main(int argc, const char* argv[])
       ss << dump_packet(p).str() << '\n';
       print_eval(ss, evalCxt);
       ss << "> Exception occured during extract: " << e.what();
-//      debugLog <<  ss.str() << '\n';
-      cerr << ss.str() << endl;
+      string msg = ss.str();
+      debugLog <<  msg << '\n';
+      cerr << msg << endl;
     }
 
     // Associate packet with flow:
@@ -302,7 +307,9 @@ main(int argc, const char* argv[])
       assert(newFlowID.second && newFlowRecord.second);
 
       flowID = nextFlowID++;
+#ifdef DEBUG_LOG
       evalCxt.extractLog << "New FlowID: " << flowID << '\n';
+#endif
 
       // Clean up dormant flows every new 128k new flows:
       if (flowID % (128*1024) == 0) {

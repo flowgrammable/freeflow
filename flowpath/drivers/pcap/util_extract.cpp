@@ -199,7 +199,7 @@ u64 FlowRecord::bytes() const {
 
 
 EvalContext::EvalContext(fp::Packet* const p) :
-  v(p->data(), p->size()), fields{}, extractLog(), pkt_(*p)
+  v(p->data(), p->size()), fields{}, pkt_(*p)
 {
   // Replace View with observed bytes
   if (p->type() == fp::Buffer::FP_BUF_PCAP) {
@@ -224,7 +224,9 @@ extract(EvalContext& cxt, HeaderType t = ETHERNET) {
   // provides a view of packet payload:
   View& view = cxt.v;
   Fields& gKey = cxt.fields;
+#ifdef DEBUG_LOG
   stringstream& log = cxt.extractLog;
+#endif
 
   int extracted = 0;
   int status;
@@ -272,7 +274,9 @@ L3:
     status = extract_ip(cxt);
     break;
   default:
-    log << ": Unknown ethertype=" << etherType << '\n';
+#ifdef DEBUG_LOG
+    log << __func__ << ": Unknown ethertype=" << etherType << '\n';
+#endif
     return extracted;
   }
   if (status == 0) { return extracted; }
@@ -280,27 +284,37 @@ L3:
   ipProto = gKey.ipProto;
 
   { // check for IP fragmentation
+#ifdef DEBUG_LOG
     stringstream fragLog;
     fragLog << hex << setfill('0') << setw(2);
+#endif
 
     if (gKey.fIP & IPFlags::MF || gKey.ipFragOffset != 0) {
       // Either MF set, or FragOffset non-0; packet is a fragment...
       if (gKey.fIP & IPFlags::MF && gKey.ipFragOffset == 0) {
         // First fragment, parse L4
+#ifdef DEBUG_LOG
         fragLog << "First IPv4 fragment!\n";
+#endif
       }
       else if (gKey.fIP & IPFlags::MF) {
+#ifdef DEBUG_LOG
         fragLog << "Another IPv4 fragment! ipFragOffset=0x"
                 << gKey.ipFragOffset << '\n';
+#endif
         return extracted;
       }
       else {
+#ifdef DEBUG_LOG
         fragLog << "Last IPv4 fragment! ipFragOffset=0x"
                 << gKey.ipFragOffset << '\n';
+#endif
         return extracted;
       }
     }
+#ifdef DEBUG_LOG
     log << fragLog.str();
+#endif
   }
 
 L4:
@@ -335,7 +349,9 @@ L4:
 //    }
     break;
   default:
+#ifdef DEBUG_LOG
     log << __func__ << ": Unknown ipProto=" << ipProto << '\n';
+#endif
     return extracted;
   }
 //  if (status == 0) { return extracted; }
@@ -351,9 +367,11 @@ int
 extract_ethernet(EvalContext& cxt) {
   View& view = cxt.v;
   Fields& gKey = cxt.fields;
+#ifdef DEBUG_LOG
   stringstream& log = cxt.extractLog;
+#endif
 
-  log << '(' << __func__ << ")\n";
+//  log << '(' << __func__ << ")\n";
 
   gKey.ethDst = betoh64(view.get<u64,6>());
   gKey.ethSrc = betoh64(view.get<u64,6>());
@@ -380,7 +398,10 @@ extract_ethernet(EvalContext& cxt) {
 
   // restrict view after extracting ethernet + [VLAN/s]:
   auto extracted = view.pendingBytes<int>();
+
+#ifdef DEBUG_LOG
   log << __func__ << ": extracted " << extracted << "B\n";
+#endif
   view.commit();  // success
   return extracted;
 }
@@ -391,9 +412,12 @@ int
 extract_ip(EvalContext& cxt) {
   View& view = cxt.v;
   Fields& gKey = cxt.fields;
+#ifdef DEBUG_LOG
   stringstream& log = cxt.extractLog;
+#endif
 
-  log << '(' << __func__ << ")\n";
+
+//  log << '(' << __func__ << ")\n";
 
   u8 ipVersion = view.peek<u8>() >> 4;
 
@@ -404,9 +428,13 @@ extract_ip(EvalContext& cxt) {
   case 6:
     gKey.fProto |= ProtoFlags::isIPv6;
 //    return extract_ipv6(cxt);
+#ifdef DEBUG_LOG
     log << __func__ << ": Skipping IPv6...\n";
+#endif
   default:
+#ifdef DEBUG_LOG
     log << __func__ << ": Abort, Unknown IP Version! ipVersion=" << ipVersion << '\n';
+#endif
     return 0;
   }
 }
@@ -417,15 +445,19 @@ int
 extract_ipv4(EvalContext& cxt) {
   View& view = cxt.v;
   Fields& gKey = cxt.fields;
+#ifdef DEBUG_LOG
   stringstream& log = cxt.extractLog;
+#endif
 
-  log << '(' << __func__ << ")\n";
+//  log << '(' << __func__ << ")\n";
 
   auto tmp = view.get<u8>();
   u8 ipVersion = (tmp & 0xF0)>>4;
   u8 ihl = tmp & 0x0F;  // number of 32-bit words in header
   if (ipVersion != 4) {
+#ifdef DEBUG_LOG
     log << __func__ << ": Abort, Not IPv4! ipVersion=" << ipVersion << '\n';
+#endif
     view.rollback();
     return 0;
   }
@@ -434,7 +466,9 @@ extract_ipv4(EvalContext& cxt) {
   // min: 5
   // max: remaining payload (view)
   if (ihl < 5 || ihl*4 > view.committedBytes<size_t>()) {
+#ifdef DEBUG_LOG
     log << __func__ << ": Warn IPv4! ihl=" << static_cast<int>(ihl) << '\n';
+#endif
 //    return view.pendingBytes<int>();
   }
 
@@ -446,7 +480,9 @@ extract_ipv4(EvalContext& cxt) {
 
   // check ipv4Length field for consistency, should exactly match view
   if (ipv4Length != view.committedBytes<size_t>()) {
+#ifdef DEBUG_LOG
     log << __func__ << ": Warn IPv4! ipv4Length=" << ipv4Length << '\n';
+#endif
 //    return 0; // malformed ipv4
   }
 
@@ -478,7 +514,9 @@ extract_ipv4(EvalContext& cxt) {
 
   // restrict view after extracting IPv4:
   auto extracted = view.pendingBytes<int>();
+#ifdef DEBUG_LOG
   log << __func__ << ": extracted " << extracted << "B\n";
+#endif
   view.commit();
   return extracted;
 }
@@ -489,16 +527,20 @@ int
 extract_ipv6(EvalContext& cxt) {
   View& view = cxt.v;
   Fields& gKey = cxt.fields;
+#ifdef DEBUG_LOG
   stringstream& log = cxt.extractLog;
+#endif
 
-  log << '(' << __func__ << ")\n";
+//  log << '(' << __func__ << ")\n";
 
   // Assert sufficient bytes in view for minimum IPv6 frame...
   {
     size_t bytes = view.committedBytes<size_t>();
     if (bytes < 40) {
+#ifdef DEBUG_LOG
       log << __func__ << ": View insufficient for IPv6 Header ("
           << bytes << " / 40 B)\n";
+#endif
       // IMPROVE: extract some bytes even though truncated?...
 //      return view.pendingBytes<int>();
     }
@@ -507,7 +549,9 @@ extract_ipv6(EvalContext& cxt) {
   auto tmp = view.get<u8>();
   u8 ipVersion = (tmp & 0xF0) >> 4;
   if (ipVersion != 6) {
+#ifdef DEBUG_LOG
     log << __func__ << ": Abort IPv6! ipVersion=" << ipVersion << '\n';
+#endif
     view.rollback();
     return 0;
   }
@@ -525,7 +569,9 @@ extract_ipv6(EvalContext& cxt) {
   // exception: 0 when jumbo extention is present...
   // otherwise: num bytes of payload including any options.
   if (payloadLength > view.committedBytes<size_t>()) {
+#ifdef DEBUG_LOG
     log << __func__ << ": Warning IPv6! payloadLength=" << payloadLength << '\n';
+#endif
 //    return 0; // payload length of ipv6 insufficient
   }
 
@@ -551,7 +597,9 @@ extract_ipv6(EvalContext& cxt) {
 
   // restrict view after extracting IPv4:
   auto extracted = view.pendingBytes<int>();
+#ifdef DEBUG_LOG
   log << __func__ << ": extracted " << extracted << "B\n";
+#endif
   view.commit();
   return extracted;
 }
@@ -562,9 +610,11 @@ int
 extract_tcp(EvalContext& cxt) {
   View& view = cxt.v;
   Fields& gKey = cxt.fields;
+#ifdef DEBUG_LOG
   stringstream& log = cxt.extractLog;
+#endif
 
-  log << '(' << __func__ << ")\n";
+//  log << '(' << __func__ << ")\n";
 
   gKey.srcPort = betoh16(view.get<u16>());
   gKey.dstPort = betoh16(view.get<u16>());
@@ -584,11 +634,15 @@ extract_tcp(EvalContext& cxt) {
 
   // check TCP header offset is consistant with packet size
   if (offset < 4) {
+#ifdef DEBUG_LOG
     log << __func__ << ": Warn TCP header length too small! offset=" << int(offset) << '\n';
+#endif
 //    return 0;  // Malformed TCP
   }
   if (offset*4 > view.committedBytes<size_t>()) {
+#ifdef DEBUG_LOG
     log << __func__ << ": Warn TCP header length larger than buf! offset=" << int(offset) << '\n';
+#endif
   }
 
   //uint16_t window = bs16(*(uint16_t*)v.get());
@@ -600,21 +654,29 @@ extract_tcp(EvalContext& cxt) {
 
   // restrict view before extracting TCP options:
   auto extracted = view.pendingBytes<int>();
+#ifdef DEBUG_LOG
   log << __func__ << ": extracted " << extracted << "B\n";
+#endif
   view.commit();
 
   // BEGIN TCP options
   if (offset > 5) {
+#ifdef DEBUG_LOG
     log << __func__ << ": Ignoring TCP options present (TODO: Fixme)\n";
+#endif
     // handle TCP options as needed...
     int skip = (offset - 5) * 4;
     if (skip <= view.bytes<int>()) {
+#ifdef DEBUG_LOG
       log << __func__ << ": TCP options " << skip << '/' << view.bytes<int>() << '\n';
+#endif
       view.discard(skip); // skip past...
 
       // restrict view after exctracting TCP options:
       extracted += view.pendingBytes<int>();
+#ifdef DEBUG_LOG
       log << __func__ << ": options extracted " << extracted << "B\n";
+#endif
       view.commit();
     }
   }
@@ -629,20 +691,26 @@ int
 extract_udp(EvalContext& cxt) {
   View& view = cxt.v;
   Fields& gKey = cxt.fields;
+#ifdef DEBUG_LOG
   stringstream& log = cxt.extractLog;
+#endif
 
-  log << '(' << __func__ << ")\n";
+//  log << '(' << __func__ << ")\n";
 
   gKey.srcPort = betoh16(view.get<u16>());
   gKey.dstPort = betoh16(view.get<u16>());
 
   u16 udpLen = betoh16(view.get<u16>());  // length (in bytes) of UDP header and Payload
   if (udpLen < 8) {
+#ifdef DEBUG_LOG
     log << __func__ << ": Warn UDP header length too small! udpLen=" << udpLen << '\n';
+#endif
 //    return 0;  // Malformed UDP
   }
   if (udpLen > view.committedBytes<size_t>()) {
+#ifdef DEBUG_LOG
     log << __func__ << ": Warn UDP header length larger than buf! udpLen=" << udpLen << '\n';
+#endif
   }
 
   //uint16_t checksum = bs16(*(uint16_t*)v.get());
@@ -650,7 +718,9 @@ extract_udp(EvalContext& cxt) {
 
   // restrict view after extracting TCP:
   auto extracted = view.pendingBytes<int>();
+#ifdef DEBUG_LOG
   log << __func__ << ": extracted " << extracted << "B\n";
+#endif
   view.commit();
   return extracted;
 }
@@ -661,16 +731,20 @@ int
 extract_ipsec_ah(EvalContext& cxt) {
   View& view = cxt.v;
   Fields& gKey = cxt.fields;
+#ifdef DEBUG_LOG
   stringstream& log = cxt.extractLog;
+#endif
 
-  log << '(' << __func__ << ")\n";
+//  log << '(' << __func__ << ")\n";
 
   // Assert sufficient bytes in view for minimum ESP frame...
   {
     size_t bytes = view.committedBytes<size_t>();
     if (bytes < 12) {
+#ifdef DEBUG_LOG
       log << __func__ << ": Warn buffer insufficient for AH Header ("
           << bytes << " / 12 B)\n";
+#endif
       // IMPROVE: extract some bytes even though truncated?...
 //      return 0; // length of AH insufficient
     }
@@ -691,7 +765,9 @@ extract_ipsec_ah(EvalContext& cxt) {
 
   // restrict view after extracting TCP:
   auto extracted = view.pendingBytes<int>();
+#ifdef DEBUG_LOG
   log << __func__ << ": extracted " << extracted << "B\n";
+#endif
   view.commit();
   return extracted;
 }
@@ -702,16 +778,20 @@ int
 extract_ipsec_esp(EvalContext& cxt) {
   View& view = cxt.v;
   Fields& gKey = cxt.fields;
+#ifdef DEBUG_LOG
   stringstream& log = cxt.extractLog;
+#endif
 
-  log << '(' << __func__ << ")\n";
+//  log << '(' << __func__ << ")\n";
 
   // Assert sufficient bytes in view for minimum ESP frame...
   {
     size_t bytes = view.committedBytes<size_t>();
     if (bytes < 8) {
+#ifdef DEBUG_LOG
       log << __func__ << ": Warn buffer insufficient for ESP Header ("
           << bytes << " / 8 B)\n";
+#endif
       // IMPROVE: extract some bytes even though truncated?...
 //      return 0; // length of ESP insufficient
     }
@@ -722,7 +802,9 @@ extract_ipsec_esp(EvalContext& cxt) {
 
   // restrict view after extracting TCP:
   auto extracted = view.pendingBytes<int>();
+#ifdef DEBUG_LOG
   log << __func__ << ": extracted " << extracted << "B\n";
+#endif
   view.commit();
   return extracted;
 }
@@ -733,16 +815,20 @@ int
 extract_icmpv4(EvalContext& cxt) {
   View& view = cxt.v;
   Fields& gKey = cxt.fields;
+#ifdef DEBUG_LOG
   stringstream& log = cxt.extractLog;
+#endif
 
-  log << '(' << __func__ << ")\n";
+//  log << '(' << __func__ << ")\n";
 
   // Assert sufficient bytes in view for minimum ESP frame...
   {
     size_t bytes = view.committedBytes<size_t>();
     if (bytes < 4) {
+#ifdef DEBUG_LOG
       log << __func__ << ": Warn buffer insufficient for ICMPv4 Header ("
           << bytes << " / 4 B)\n";
+#endif
       // IMPROVE: extract some bytes even though truncated?...
 //      return 0; // length of ICMPv4 insufficient
     }
@@ -756,7 +842,9 @@ extract_icmpv4(EvalContext& cxt) {
 
   // restrict view after extracting:
   auto extracted = view.pendingBytes<int>();
+#ifdef DEBUG_LOG
   log << __func__ << ": extracted " << extracted << "B\n";
+#endif
   view.commit();
   return extracted;
 }
@@ -767,16 +855,20 @@ int
 extract_icmpv6(EvalContext& cxt) {
   View& view = cxt.v;
   Fields& gKey = cxt.fields;
+#ifdef DEBUG_LOG
   stringstream& log = cxt.extractLog;
+#endif
 
-  log << '(' << __func__ << ")\n";
+//  log << '(' << __func__ << ")\n";
 
   // Assert sufficient bytes in view for minimum ESP frame...
   {
     size_t bytes = view.committedBytes<size_t>();
     if (bytes < 4) {
+#ifdef DEBUG_LOG
       log << __func__ << ": Warn buffer insufficient for ICMPv6 Header ("
           << bytes << " / 4 B)\n";
+#endif
       // IMPROVE: extract some bytes even though truncated?...
 //      return 0; // length of ICMPv6 insufficient
     }
@@ -790,7 +882,9 @@ extract_icmpv6(EvalContext& cxt) {
 
   // commit view after success:
   auto extracted = view.pendingBytes<int>();
+#ifdef DEBUG_LOG
   log << __func__ << ": extracted " << extracted << "B\n";
+#endif
   view.commit();
   return extracted;
 }
