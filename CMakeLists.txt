@@ -38,6 +38,9 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 find_package(PCAP REQUIRED)
 include_directories(${PCAP_INCLUDE_DIR})
 
+# Include Abseil-CPP Library.
+add_subdirectory(abseil-cpp.git)
+
 # Require Boost C++ Libraries.
 #find_package(Boost 1.55.0 REQUIRED)
 #include_directories(${Boost_INCLUDE_DIRS})
