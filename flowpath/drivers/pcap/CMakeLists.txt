@@ -11,7 +11,7 @@ add_executable(flow-count flow-count.cpp util_caida.cpp util_extract.cpp)
 #target_link_libraries(caida-pcap flowpath-rt flowpath-applib ${CMAKE_DL_LIBS})
 #target_link_libraries(caida-pcap flowpath-rt flowpath-applib ${ZLIB_LIBRARIES} ${PCAP_LIBRARY} ${CMAKE_DL_LIBS})
 target_link_libraries(caida-pcap flowpath-rt flowpath-applib ${PCAP_LIBRARY} ${CMAKE_DL_LIBS})
-target_link_libraries(flow-count flowpath-rt flowpath-applib ${PCAP_LIBRARY} ${CMAKE_DL_LIBS})
+target_link_libraries(flow-count flowpath-rt flowpath-applib absl::container ${PCAP_LIBRARY} ${CMAKE_DL_LIBS})
 
 #if (ENABLE_ODP)
 #  add_definitions(-DFP_ENABLE_ODP)
