@@ -45,6 +45,9 @@ using namespace std;
 
 namespace po = boost::program_options;
 
+using flow_id_t = u64;
+
+
 static bool running;
 void
 sig_handle(int sig)
@@ -144,8 +147,8 @@ main(int argc, const char* argv[])
   signal(SIGHUP, sig_handle);
   running = true;
 
-  std::string flowsfilename;
-  std::string tracefilename;
+  std::string flowsFilename;
+  std::string traceFilename;
   std::string logfilename;
   std::string inputAfilename;
   std::string inputBfilename;
@@ -172,10 +175,10 @@ main(int argc, const char* argv[])
        po::value<std::string>(&logfilename)->default_value(now_ss.str().append(".log")),
        "The name of the log file")
       ("flows-file,f",
-       po::value<std::string>(&flowsfilename)->default_value(now_ss.str().append(".flows")),
+       po::value<std::string>(&flowsFilename)->default_value(now_ss.str().append(".flows")),
        "The name of the observed flows file")
       ("trace-file,t",
-       po::value<std::string>(&tracefilename)->default_value(now_ss.str().append(".trace")),
+       po::value<std::string>(&traceFilename)->default_value(now_ss.str().append(".trace")),
        "The name of the timeseries trace file")
       ;
 
@@ -228,11 +231,11 @@ main(int argc, const char* argv[])
     caida.open(2, inputBfilename);
   }
   debugLog << "Logging to: " << logfilename << '\n';
-  debugLog << "Tracing to: " << tracefilename << '\n';
+  debugLog << "Tracing to: " << traceFilename << '\n';
 
   // Open Flows Output Files:
   ofstream flowStatsRaw;
-  flowStatsRaw.open(flowsfilename.append(".gz"), ios::out | ios::binary);
+  flowStatsRaw.open(flowsFilename.append(".gz"), ios::out | ios::binary);
   // gzip compression filter
   boost::iostreams::filtering_streambuf<boost::iostreams::output> flowStatsBuf;
   flowStatsBuf.push(boost::iostreams::gzip_compressor());
@@ -241,7 +244,7 @@ main(int argc, const char* argv[])
 
   // Open Trace Output Files:
   ofstream traceRaw;
-  traceRaw.open(tracefilename.append(".gz"), ios::out | ios::binary);
+  traceRaw.open(traceFilename.append(".gz"), ios::out | ios::binary);
   // gzip compression filter
   boost::iostreams::filtering_streambuf<boost::iostreams::output> traceBuf;
   traceBuf.push(boost::iostreams::gzip_compressor());
@@ -249,17 +252,25 @@ main(int argc, const char* argv[])
   ostream flowTrace(&traceBuf);
 
   // Metadata structures:
-  u64 nextFlowID = 1;
-  // Note: currently leveraging string instead of FlowKeyTuple since string
-  //   has a default generic hash in the STL
+  flow_id_t nextFlowID = 1; // flowID 0 is reserved for 'flow not found'
 //  unordered_map<string, u64> flowIDs;
 //  absl::flat_hash_map<string, u64> flowIDs;
-  absl::flat_hash_map<FlowKeyTuple, u64> flowIDs;
+  absl::flat_hash_map<FlowKeyTuple, flow_id_t> flowIDs;
+  absl::flat_hash_map<flow_id_t, FlowRecord> flowRecords;
 
   // Global Stats:
   u16 maxPacketSize = std::numeric_limits<u16>::lowest();
   u16 minPacketSize = std::numeric_limits<u16>::max();
   u64 totalPackets = 0, totalBytes = 0;
+
+  // Log output format:
+  debugLog << "File: " << flowsFilename << "\n"
+           << "- Flow Key String: " << sizeof(FlowKeyTuple) << "B\n"
+           << "- FlowID: " << sizeof(flow_id_t) << "B\n";
+  debugLog << "File: " << traceFilename << "\n"
+           << "- Flow Key String: " << sizeof(FlowKeyTuple) << "B\n"
+           << "- FlowID: " << sizeof(flow_id_t) << "B\n";
+  debugLog.flush();
 
   // File read:
   s64 count = 0;
@@ -299,7 +310,7 @@ main(int argc, const char* argv[])
     totalPackets++;
 
     // Perform initial flowID lookup:
-    u64 flowID;
+    flow_id_t flowID;
     {
       auto status = flowIDs.find(fkt);
       flowID = (status != flowIDs.end()) ? status->second : 0;
@@ -317,21 +328,26 @@ main(int argc, const char* argv[])
       assert(newFlowID.second);
       flowID = nextFlowID++;
 
-//      flowStats << fks;
-      flowStats.write(reinterpret_cast<char*>(&flowID), sizeof(flowID));
 
-      if (flowID == 1) {
-        debugLog << "Flow Key String: " << sizeof(fkt) << "B\n";
-//        debugLog << "- : " << fks.size() << "B\n";
-        debugLog << "FlowID: " << sizeof(flowID) << "B\n";
-        debugLog.flush();
-      }
+//      auto serialize = [&](auto&& x) {
+//        flowStats.write(reinterpret_cast<const char*>(&x), sizeof(x));
+//      };
+//      std::apply([&](auto& ...x){(..., serialize(x));}, fkt);
+
+//      flowStats << fkt;
+//      for_each(fkt, [&](auto&& e) {serialize(flowStats, e);});
+
+      serialize(flowStats, fkt);
+      flowStats.write(reinterpret_cast<char*>(&flowID), sizeof(flowID));
     }
 
     // Release resources and retrieve another packet:
     caida.rebound(&cxt);
     cxt = caida.recv();
   }
+
+  // Print flow tuples:
+
 
   // Print global stats:
   debugLog << "Max packet size: " << maxPacketSize << '\n';
@@ -340,9 +356,13 @@ main(int argc, const char* argv[])
   debugLog << "Total packets: " << totalPackets << '\n';
 
   chrono::system_clock::time_point end_time = chrono::system_clock::now();
-  auto delta_ms = chrono::duration_cast<chrono::milliseconds>(end_time - start_time).count();
-
-  cout << "Run took " << delta_ms/1000 << "s " << delta_ms%1000 << "ms" << endl;
+  auto msec = chrono::duration_cast<chrono::milliseconds>(end_time - start_time).count();
+  auto sec  = msec/1000;
+  auto min  = sec/60;
+  auto hrs  = min/60;
+  cout << "Run took "
+       << hrs << "h:" << min%60 << "m:"
+       << sec%60 << "s:" << msec%1000 << "ms" << endl;
 
   return 0;
 }

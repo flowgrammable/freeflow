@@ -2,32 +2,8 @@
 
 #include <string>
 #include <iostream>
-//#include <stdexcept>
-//#include <iomanip>
-//#include <ctime>
-//#include <signal.h>
-//#include <type_traits>
-//#include <bitset>
 #include <map>
-//#include <tuple>
-//#include <functional>
-//#include <algorithm>
-//#include <numeric>
-//#include <unordered_map>
-//#include <unordered_set>
-//#include <vector>
 #include <queue>
-//#include <chrono>
-//#include <typeinfo>
-
-//#include <net/ethernet.h>
-//#include <netinet/ip.h>
-//#include <netinet/in.h>
-//#include <netinet/tcp.h>
-//#include <arpa/inet.h>
-
-//#include <boost/program_options.hpp>
-//#include <boost/endian/conversion.hpp>
 
 using namespace std;
 

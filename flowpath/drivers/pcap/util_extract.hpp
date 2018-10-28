@@ -13,6 +13,9 @@
 
 #include "util_view.hpp"
 
+//#include "absl/utility/utility.h"
+#include <utility>
+
 
 //#define DEBUG_LOG 1
 
@@ -108,6 +111,72 @@ using FlowKeyTuple = std::tuple<IpTuple, PortTuple, u8>;
 
 std::string make_flow_key_string(const Fields& k);
 FlowKeyTuple make_flow_key_tuple(const Fields& k);
+
+
+// Serialize element:
+template <typename T>
+void serialize(std::ostream& os, const T& x) {
+  os.write(reinterpret_cast<const char*>(&x), sizeof(x));
+}
+
+// Serialize pairs - gets pair elements:
+template <typename T1, typename T2>
+void serialize(std::ostream& os, const std::pair<T1, T2>& p) {
+  serialize(os, p.first);
+  serialize(os, p.second);
+}
+
+// Serialize tuple helper - gets tuple element from index_sequence:
+template <typename Tuple, size_t... Is>
+void serialize_tuple(std::ostream& os, const Tuple& t, std::index_sequence<Is...>) {
+  (serialize(os, std::get<Is>(t)), ...);
+}
+
+// Serialize tuples - generates index sequence:
+template <typename... Ts>
+void serialize(std::ostream& os, const std::tuple<Ts...>& t) {
+  serialize_tuple(os, t, std::index_sequence_for<Ts...>{});
+}
+
+
+//template<class Ch, class Tr, class Tuple, std::size_t... Is>
+//void serialize_tuple_impl(std::basic_ostream<Ch,Tr>& os,
+//                      const Tuple& t,
+//                      std::index_sequence<Is...>)
+//{
+////    ((os << (Is == 0? "" : ", ") << std::get<Is>(t)), ...);
+////  ((os << std::get<Is>(t)), ...);
+//  ((os << std::get<Is>(t)), ...);
+////  (os.write(os << std::get<Is>(t)), ...);
+////  ((std::cout << std::get<Is>(t) << std::endl), ...);
+//}
+
+//template<class Ch, class Tr, class... Args>
+//auto& operator<<(std::basic_ostream<Ch, Tr>& os,
+//                 const std::tuple<Args...>& t)
+//{
+//    serialize_tuple_impl(os, t, std::index_sequence_for<Args...>{});
+//    return os;
+//}
+
+
+template <std::size_t... Idx>
+auto make_index_dispatcher(std::index_sequence<Idx...>) {
+    return [] (auto&& f) { (f(std::integral_constant<std::size_t,Idx>{}), ...); };
+}
+
+template <std::size_t N>
+auto make_index_dispatcher() {
+    return make_index_dispatcher(std::make_index_sequence<N>{});
+}
+
+template <typename Tuple, typename Func>
+void for_each(Tuple&& t, Func&& f) {
+    constexpr auto n = std::tuple_size<std::decay_t<Tuple>>::value;
+    auto dispatcher = make_index_dispatcher<n>();
+    dispatcher([&f,&t](auto idx) { f(std::get<idx>(std::forward<Tuple>(t))); });
+}
+
 
 class EvalContext;  // forward declaration
 

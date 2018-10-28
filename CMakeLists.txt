@@ -9,8 +9,8 @@ project(freeflow C CXX)
 # We effectively require a functioning C++11 implementation.
 # For Clang, use the libc++ as the standard library.
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-  if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "4.8")
-    message(FATAL_ERROR "Requires GCC version 4.8 or greater")
+  if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "7.3")
+    message(FATAL_ERROR "Requires GCC version 7.3 or greater")
   endif()
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Qunused-arguments -stdlib=libc++")
@@ -20,7 +20,7 @@ endif()
 # C/C++ build flags.
 # - Use CMAKE_BUILD_TYPE={Debug, Release, RelWithDebInfo} to set optimization.
 set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -g -Wall")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -std=c++14 -Wall -pthread")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -std=c++17 -Wall -pthread")
 
 
 # Extra build flags for profiling.

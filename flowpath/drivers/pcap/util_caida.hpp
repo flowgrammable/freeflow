@@ -1,8 +1,6 @@
 #ifndef DRIVER_UTIL_CAIDA_HPP
 #define DRIVER_UTIL_CAIDA_HPP
 
-//#include "system.hpp"
-
 #include "port_pcap.hpp"
 #include "context.hpp"
 
