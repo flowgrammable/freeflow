@@ -112,54 +112,61 @@ using FlowKeyTuple = std::tuple<IpTuple, PortTuple, u8>;
 std::string make_flow_key_string(const Fields& k);
 FlowKeyTuple make_flow_key_tuple(const Fields& k);
 
+static_assert(!std::is_integral<FlowKeyTuple>::value, "FKT is integral?!");
 
-// Serialize element:
+// Compile-time tuple detection:
+template<typename> struct is_tuple: std::false_type {};
+template<typename ...T> struct is_tuple<std::tuple<T...>>: std::true_type {};
+
+//// Element and target specializations ////
+// Serialize element to output stream (Binary):
 template <typename T>
-void serialize(std::ostream& os, const T& x) {
+typename std::enable_if<std::is_integral<T>::value, void>::type
+serialize(std::ostream& os, const T& x) {
   os.write(reinterpret_cast<const char*>(&x), sizeof(x));
 }
 
-// Serialize pairs - gets pair elements:
-template <typename T1, typename T2>
-void serialize(std::ostream& os, const std::pair<T1, T2>& p) {
-  serialize(os, p.first);
-  serialize(os, p.second);
+// Serialize element to std::string:
+template <typename T>
+void serialize(std::string& s, const T& x) {
+  const char* x_ptr = reinterpret_cast<const char*>(&x);
+  s.append(x_ptr, sizeof(x));
 }
 
+// Serialize pairs - gets pair elements:
+template <typename Target, typename T1, typename T2>
+void serialize(Target& out, const std::pair<T1, T2>& p) {
+  serialize(out, p.first);
+  serialize(out, p.second);
+}
+
+
+//// Tuple unpacking ////
+// Forward declaration of top-level tuple template specialization
+// - Required to enable recursive tuple unpacking.
+template <typename Target, typename... Ts>
+void serialize(Target&, const std::tuple<Ts...>&);
+
 // Serialize tuple helper - gets tuple element from index_sequence:
-template <typename Tuple, size_t... Is>
-void serialize_tuple(std::ostream& os, const Tuple& t, std::index_sequence<Is...>) {
-  (serialize(os, std::get<Is>(t)), ...);
+template <typename Target, typename Tuple, size_t... Is>
+void serialize_tuple(Target& out, const Tuple& t, std::index_sequence<Is...>) {
+  (serialize(out, std::get<Is>(t)), ...);
 }
 
 // Serialize tuples - generates index sequence:
-template <typename... Ts>
-void serialize(std::ostream& os, const std::tuple<Ts...>& t) {
-  serialize_tuple(os, t, std::index_sequence_for<Ts...>{});
+template <typename Target, typename... Ts>
+void serialize(Target& out, const std::tuple<Ts...>& t) {
+  serialize_tuple(out, t, std::index_sequence_for<Ts...>{});
+}
+
+template<class Ch, class Tr, class... Ts>
+auto& operator<<(std::basic_ostream<Ch, Tr>& os, const std::tuple<Ts...>& t) {
+    serialize_tuple(os, t, std::index_sequence_for<Ts...>{});
+    return os;
 }
 
 
-//template<class Ch, class Tr, class Tuple, std::size_t... Is>
-//void serialize_tuple_impl(std::basic_ostream<Ch,Tr>& os,
-//                      const Tuple& t,
-//                      std::index_sequence<Is...>)
-//{
-////    ((os << (Is == 0? "" : ", ") << std::get<Is>(t)), ...);
-////  ((os << std::get<Is>(t)), ...);
-//  ((os << std::get<Is>(t)), ...);
-////  (os.write(os << std::get<Is>(t)), ...);
-////  ((std::cout << std::get<Is>(t) << std::endl), ...);
-//}
-
-//template<class Ch, class Tr, class... Args>
-//auto& operator<<(std::basic_ostream<Ch, Tr>& os,
-//                 const std::tuple<Args...>& t)
-//{
-//    serialize_tuple_impl(os, t, std::index_sequence_for<Args...>{});
-//    return os;
-//}
-
-
+//// Generic for_each element in tuple ////
 template <std::size_t... Idx>
 auto make_index_dispatcher(std::index_sequence<Idx...>) {
     return [] (auto&& f) { (f(std::integral_constant<std::size_t,Idx>{}), ...); };
@@ -176,6 +183,7 @@ void for_each(Tuple&& t, Func&& f) {
     auto dispatcher = make_index_dispatcher<n>();
     dispatcher([&f,&t](auto idx) { f(std::get<idx>(std::forward<Tuple>(t))); });
 }
+
 
 
 class EvalContext;  // forward declaration
