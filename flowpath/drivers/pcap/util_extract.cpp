@@ -115,10 +115,16 @@ std::string make_flow_key_string(const Fields& k) {
 }
 
 FlowKeyTuple make_flow_key_tuple(const Fields& k) {
-  IpTuple ipt {k.ipv4Src, k.ipv4Dst};
+  Ipv4Tuple ipt {k.ipv4Src, k.ipv4Dst};
   PortTuple pt {k.srcPort, k.dstPort};
   FlowKeyTuple fkt {move(ipt), move(pt), k.ipProto};
   return fkt;
+}
+
+Flags make_flags_bitset(const Fields& k) {
+  return (static_cast<Flags>(k.fProto) << 11) |
+         (static_cast<Flags>(k.fIP) << 9) |
+          static_cast<Flags>(k.fTCP);
 }
 
 
@@ -173,10 +179,6 @@ u64 FlowRecord::update(const EvalContext& e) {
 
     // TCP Congestion Control Information:
     // e.g. NS, CWR, ECE
-
-    if (arrival_ns_.size() == 0) {
-//      flowKey_ = make_flow_key_string(e.fields);
-    }
   }
 
   // Update flow processing log:

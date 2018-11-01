@@ -3,6 +3,7 @@
 #include "util_caida.hpp"
 #include "util_extract.hpp"
 #include "util_bitmask.hpp"
+#include "util_io.hpp"
 
 #include <string>
 #include <iostream>
@@ -22,19 +23,9 @@
 #include <vector>
 #include <queue>
 #include <chrono>
-//#include <typeinfo>
-
-//#include <net/ethernet.h>
-//#include <netinet/ip.h>
-//#include <netinet/in.h>
-//#include <netinet/tcp.h>
-//#include <arpa/inet.h>
+#include <memory>
 
 #include <boost/program_options.hpp>
-//#include <boost/endian/conversion.hpp>
-#include <boost/iostreams/filtering_streambuf.hpp>
-#include <boost/iostreams/filter/gzip.hpp>
-#include <boost/iostreams/copy.hpp>
 
 // Google's Abseil C++ library:
 #include "absl/container/flat_hash_map.h"
@@ -42,7 +33,6 @@
 
 using namespace std;
 //using namespace util_view;
-
 namespace po = boost::program_options;
 
 using flow_id_t = u64;
@@ -163,6 +153,8 @@ main(int argc, const char* argv[])
     now_ss << std::put_time(std::localtime(&now_c),"%F_%T");
   }
 
+
+  // Boost commandline parsing:
   po::options_description nonpos_desc("Available options");
   po::options_description pos_desc("Positional options");
   po::options_description cmdline_desc("All options");
@@ -230,49 +222,60 @@ main(int argc, const char* argv[])
     debugLog << "Direction B: " << inputBfilename << '\n';
     caida.open(2, inputBfilename);
   }
+
+  // Output Files:
+  // - unique_ptr to prevent resizing vector destroying gz_ostream.
+  std::vector< unique_ptr<gz_ostream> > gz_handles;
+  // boost gzip file open helper lambda:
+  auto open_gzip = [&](const std::string& filename) -> ostream& {
+    gz_handles.push_back( make_unique<gz_ostream>(filename) );
+    return gz_handles.back()->get_ostream();
+  };
+
+  // Log output format:
   debugLog << "Logging to: " << logfilename << '\n';
   debugLog << "Tracing to: " << traceFilename << '\n';
+  debugLog << "Stats dumping to: " << flowsFilename << '\n';
 
-  // Open Flows Output Files:
-  ofstream flowStatsRaw;
-  flowStatsRaw.open(flowsFilename.append(".gz"), ios::out | ios::binary);
-  // gzip compression filter
-  boost::iostreams::filtering_streambuf<boost::iostreams::output> flowStatsBuf;
-  flowStatsBuf.push(boost::iostreams::gzip_compressor());
-  flowStatsBuf.push(flowStatsRaw);
-  ostream flowStats(&flowStatsBuf);
+  constexpr auto FKT_SIZE = sizeof_tuple(FlowKeyTuple{});
+  debugLog << "File: " << flowsFilename << "\n"
+           << "- Flow Key String: " << FKT_SIZE << "B\n"
+           << "- FlowID: " << sizeof(flow_id_t) << "B\n";
+  debugLog << "File: " << traceFilename + ".gz" << "\n"
+           << "- Flow Key String: " << FKT_SIZE << "B\n";
 
-  // Open Trace Output Files:
-  ofstream traceRaw;
-  traceRaw.open(traceFilename.append(".gz"), ios::out | ios::binary);
-  // gzip compression filter
-  boost::iostreams::filtering_streambuf<boost::iostreams::output> traceBuf;
-  traceBuf.push(boost::iostreams::gzip_compressor());
-  traceBuf.push(traceRaw);
-  ostream flowTrace(&traceBuf);
+
+  // Flow Stats Output Files:
+  auto& flowStats = open_gzip(flowsFilename + ".gz");
+
+  // Trace Output Files:
+  auto& flowTrace = open_gzip(traceFilename + ".gz");
+  debugLog << "File: " << traceFilename + ".gz" << "\n"
+           << "- Flow Key String: " << FKT_SIZE << "B\n";
+
+  auto& tcpFlowTrace = open_gzip(traceFilename + ".tcp.gz");
+  debugLog << "File: " << traceFilename + ".tcp.gz" << "\n"
+           << "- Flow Key String: " << FKT_SIZE << "B\n"
+           << "- Flags: " << sizeof(Flags) << "B\n";
+
+  auto& udpFlowTrace = open_gzip(traceFilename + ".udp.gz");
+  debugLog << "File: " << traceFilename + ".udp.gz" << "\n"
+           << "- Flow Key String: " << FKT_SIZE << "B\n";
+
+  debugLog.flush();
 
   // Metadata structures:
   flow_id_t nextFlowID = 1; // flowID 0 is reserved for 'flow not found'
-//  unordered_map<string, u64> flowIDs;
-//  absl::flat_hash_map<string, u64> flowIDs;
   absl::flat_hash_map<FlowKeyTuple, flow_id_t> flowIDs;
-  absl::flat_hash_map<flow_id_t, FlowRecord> flowRecords;
+  std::map<flow_id_t, FlowRecord> flowRecords;
 
   // Global Stats:
   u16 maxPacketSize = std::numeric_limits<u16>::lowest();
   u16 minPacketSize = std::numeric_limits<u16>::max();
   u64 totalPackets = 0, totalBytes = 0;
 
-  // Log output format:
-  debugLog << "File: " << flowsFilename << "\n"
-           << "- Flow Key String: " << sizeof(FlowKeyTuple) << "B\n"
-           << "- FlowID: " << sizeof(flow_id_t) << "B\n";
-  debugLog << "File: " << traceFilename << "\n"
-           << "- Flow Key String: " << sizeof(FlowKeyTuple) << "B\n"
-           << "- FlowID: " << sizeof(flow_id_t) << "B\n";
-  debugLog.flush();
 
-  // File read:
+  // PCAP file read loop:
   s64 count = 0;
   fp::Context cxt = caida.recv();
   while (cxt.packet_ != nullptr) {
@@ -300,7 +303,6 @@ main(int argc, const char* argv[])
 
     // Associate packet with flow:
     const Fields& k = evalCxt.fields;
-//    const string fks = make_flow_key_string(k);
     const FlowKeyTuple fkt = make_flow_key_tuple(k);
 
     u16 wireBytes = evalCxt.origBytes;
@@ -316,29 +318,44 @@ main(int argc, const char* argv[])
       flowID = (status != flowIDs.end()) ? status->second : 0;
     }
 
+    auto tracePoint = [&]() {
+      const auto& fields = evalCxt.fields;
+      const auto& proto = fields.fProto;
+
+      // if flow is established?...
+
+      if (proto & ProtoFlags::isTCP) {
+        serialize(tcpFlowTrace, fkt);
+        serialize(tcpFlowTrace, evalCxt.fields.fTCP);
+      }
+      else if (proto & ProtoFlags::isUDP) {
+        serialize(udpFlowTrace, fkt);
+      }
+      else {
+        serialize(flowTrace, fkt);
+      }
+    };
+
     // If flow exists:
     if (flowID != 0) {
-      //
+      // Known Flow:
+      tracePoint();
     }
     else {
-      // Flow previously unseen:
+      // Unkown Flow:
       auto newFlowID = flowIDs.emplace(std::piecewise_construct,
                             std::forward_as_tuple(fkt),
                             std::forward_as_tuple(nextFlowID));
-      assert(newFlowID.second);
+      assert(newFlowID.second); // sanity check
+
+      auto newFlowRecord = flowRecords.emplace(std::piecewise_construct,
+                            std::forward_as_tuple(nextFlowID),
+                            std::forward_as_tuple(nextFlowID, time));
+      assert(newFlowRecord.second); // sanity check
+      newFlowRecord.first->second.update(evalCxt);
+
+      tracePoint();
       flowID = nextFlowID++;
-
-
-//      auto serialize = [&](auto&& x) {
-//        flowStats.write(reinterpret_cast<const char*>(&x), sizeof(x));
-//      };
-//      std::apply([&](auto& ...x){(..., serialize(x));}, fkt);
-
-//      flowStats << fkt;
-//      for_each(fkt, [&](auto&& e) {serialize(flowStats, e);});
-
-      serialize(flowStats, fkt);
-      flowStats.write(reinterpret_cast<char*>(&flowID), sizeof(flowID));
     }
 
     // Release resources and retrieve another packet:
@@ -347,6 +364,15 @@ main(int argc, const char* argv[])
   }
 
   // Print flow tuples:
+  for (const auto& flow : flowRecords) {
+    const auto& fk = flow.first;
+    const FlowRecord& fr = flow.second;
+
+    serialize(flowStats, fk);
+    serialize(flowStats, fr.getFlowID());
+    serialize(flowStats, fr.packets());
+    // output other flow statistics?
+  }
 
 
   // Print global stats:

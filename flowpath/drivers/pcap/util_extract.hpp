@@ -15,6 +15,7 @@
 
 //#include "absl/utility/utility.h"
 #include <utility>
+#include <type_traits>
 
 
 //#define DEBUG_LOG 1
@@ -86,6 +87,13 @@ enum class TCPFlags {
 };
 ENABLE_BITMASK_OPERATORS(TCPFlags);
 
+
+using Ipv4Tuple = std::tuple<u32, u32>; // src
+using PortTuple = std::tuple<u16, u16>;
+using FlowKeyTuple = std::tuple<Ipv4Tuple, PortTuple, u8>;
+//using Flags = std::bitset<15>;
+using Flags = uint16_t;
+
 struct Fields {
   // Interpreted Flags:
   ProtoFlags fProto;
@@ -105,32 +113,39 @@ struct Fields {
   u16 dstPort;
 };
 
-using IpTuple = std::tuple<u32, u32>;
-using PortTuple = std::tuple<u16, u16>;
-using FlowKeyTuple = std::tuple<IpTuple, PortTuple, u8>;
+std::string make_flow_key_string(const Fields&);
+FlowKeyTuple make_flow_key_tuple(const Fields&);
+Flags make_flags_bitset(const Fields&);
 
-std::string make_flow_key_string(const Fields& k);
-FlowKeyTuple make_flow_key_tuple(const Fields& k);
-
+// Sanity checks:
+static_assert(sizeof(Flags) == 2, "Flags is not 2B?");
 static_assert(!std::is_integral<FlowKeyTuple>::value, "FKT is integral?!");
+//static_assert(std::has_unique_object_representations_v<Ipv4Tuple>, "Ipv4Tuple has padding!");
+static_assert(std::has_unique_object_representations_v<TCPFlags>, "TCPFlags has padding!");
 
 // Compile-time tuple detection:
 template<typename> struct is_tuple: std::false_type {};
 template<typename ...T> struct is_tuple<std::tuple<T...>>: std::true_type {};
 
+// Compile-time tuple size calculation (non-recursive):
+template <typename... Ts>
+constexpr std::size_t sizeof_tuple(const std::tuple<Ts...>&) {
+  return (sizeof(Ts) + ...);
+}
+
 //// Element and target specializations ////
-// Serialize element to output stream (Binary):
-template <typename T>
-typename std::enable_if<std::is_integral<T>::value, void>::type
-serialize(std::ostream& os, const T& x) {
-  os.write(reinterpret_cast<const char*>(&x), sizeof(x));
+// Serialize unique (non-padded) object to output stream (Binary):
+// std::enable_if<std::is_convertable<Target, std::basic_ostream>::value, Target>::type& out
+template <typename Target, typename T>
+typename std::enable_if<std::has_unique_object_representations_v<T>, void>::type
+serialize(Target& out, const T& x) {
+  out.write(reinterpret_cast<const char*>(&x), sizeof(x));
 }
 
 // Serialize element to std::string:
 template <typename T>
 void serialize(std::string& s, const T& x) {
-  const char* x_ptr = reinterpret_cast<const char*>(&x);
-  s.append(x_ptr, sizeof(x));
+  s.append(reinterpret_cast<const char*>(&x), sizeof(x));
 }
 
 // Serialize pairs - gets pair elements:
@@ -183,6 +198,13 @@ void for_each(Tuple&& t, Func&& f) {
     auto dispatcher = make_index_dispatcher<n>();
     dispatcher([&f,&t](auto idx) { f(std::get<idx>(std::forward<Tuple>(t))); });
 }
+
+// example for_each lambdas...
+//      auto serialize = [&](auto&& x) {
+//        flowStats.write(reinterpret_cast<const char*>(&x), sizeof(x));
+//      };
+//      std::apply([&](auto& ...x){(..., serialize(x));}, fkt);
+//      for_each(fkt, [&](auto&& e) {serialize(flowStats, e);});
 
 
 
@@ -237,7 +259,6 @@ public:
 private:
   // Flow Identification:
   u64 flowID_;
-  std::string flowKey_;
   ProtoFlags protoFlags_;
   // also useful to have IPFlags?
 
