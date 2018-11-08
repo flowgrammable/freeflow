@@ -21,7 +21,7 @@ gz_ostream::gz_ostream(const std::string& filename) {
 
 gz_ostream::~gz_ostream() {
   os->flush();
-  os_file.close();
+//  os_file.close();
 }
 
 ostream& gz_ostream::get_ostream() const {
