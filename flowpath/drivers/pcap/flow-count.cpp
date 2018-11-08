@@ -267,7 +267,7 @@ main(int argc, const char* argv[])
   // Metadata structures:
   flow_id_t nextFlowID = 1; // flowID 0 is reserved for 'flow not found'
   absl::flat_hash_map<FlowKeyTuple, flow_id_t> flowIDs;
-  std::map<flow_id_t, FlowRecord> flowRecords;
+//  std::map<flow_id_t, FlowRecord> flowRecords;
 
   // Global Stats:
   u16 maxPacketSize = std::numeric_limits<u16>::lowest();
@@ -278,7 +278,7 @@ main(int argc, const char* argv[])
   // PCAP file read loop:
   s64 count = 0;
   fp::Context cxt = caida.recv();
-  while (cxt.packet_ != nullptr) {
+  while (running && cxt.packet_ != nullptr) {
     fp::Packet* p = cxt.packet_;
     EvalContext evalCxt(p);
     const auto& time = p->timestamp();
@@ -318,6 +318,7 @@ main(int argc, const char* argv[])
       flowID = (status != flowIDs.end()) ? status->second : 0;
     }
 
+    // Trace output generation lambda:
     auto tracePoint = [&]() {
       const auto& fields = evalCxt.fields;
       const auto& proto = fields.fProto;
@@ -326,7 +327,7 @@ main(int argc, const char* argv[])
 
       if (proto & ProtoFlags::isTCP) {
         serialize(tcpFlowTrace, fkt);
-        serialize(tcpFlowTrace, evalCxt.fields.fTCP);
+        serialize(tcpFlowTrace, make_flags_bitset(k));
       }
       else if (proto & ProtoFlags::isUDP) {
         serialize(udpFlowTrace, fkt);
@@ -348,11 +349,11 @@ main(int argc, const char* argv[])
                             std::forward_as_tuple(nextFlowID));
       assert(newFlowID.second); // sanity check
 
-      auto newFlowRecord = flowRecords.emplace(std::piecewise_construct,
-                            std::forward_as_tuple(nextFlowID),
-                            std::forward_as_tuple(nextFlowID, time));
-      assert(newFlowRecord.second); // sanity check
-      newFlowRecord.first->second.update(evalCxt);
+//      auto newFlowRecord = flowRecords.emplace(std::piecewise_construct,
+//                            std::forward_as_tuple(nextFlowID),
+//                            std::forward_as_tuple(nextFlowID, time));
+//      assert(newFlowRecord.second); // sanity check
+//      newFlowRecord.first->second.update(evalCxt);
 
       tracePoint();
       flowID = nextFlowID++;
@@ -364,15 +365,15 @@ main(int argc, const char* argv[])
   }
 
   // Print flow tuples:
-  for (const auto& flow : flowRecords) {
-    const auto& fk = flow.first;
-    const FlowRecord& fr = flow.second;
+//  for (const auto& flow : flowRecords) {
+//    const auto& fk = flow.first;
+//    const FlowRecord& fr = flow.second;
 
-    serialize(flowStats, fk);
-    serialize(flowStats, fr.getFlowID());
-    serialize(flowStats, fr.packets());
-    // output other flow statistics?
-  }
+//    serialize(flowStats, fk);
+//    serialize(flowStats, fr.getFlowID());
+//    serialize(flowStats, fr.packets());
+//    // output other flow statistics?
+//  }
 
 
   // Print global stats:
