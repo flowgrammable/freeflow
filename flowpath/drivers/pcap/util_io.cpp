@@ -11,6 +11,7 @@
 using namespace std;
 
 
+/// OUTPUT GZ STREAM ///
 gz_ostream::gz_ostream(const std::string& filename) {
   os_file.open(filename, ios::out | ios::binary);
   gzip_buf = make_unique< boost::iostreams::filtering_streambuf<boost::iostreams::output> >();
@@ -21,9 +22,22 @@ gz_ostream::gz_ostream(const std::string& filename) {
 
 gz_ostream::~gz_ostream() {
   os->flush();
-//  os_file.close();
 }
 
 ostream& gz_ostream::get_ostream() const {
+  return *os;
+}
+
+
+/// INPUT GZ STREAM ///
+gz_istream::gz_istream(const std::string& filename) {
+  os_file.open(filename, ios::out | ios::binary);
+  gzip_buf = make_unique< boost::iostreams::filtering_streambuf<boost::iostreams::input> >();
+  gzip_buf->push(boost::iostreams::gzip_compressor());
+  gzip_buf->push(os_file);
+  os = make_unique<istream>(gzip_buf.get());
+}
+
+istream& gz_istream::get_ostream() const {
   return *os;
 }

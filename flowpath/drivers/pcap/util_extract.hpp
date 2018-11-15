@@ -255,6 +255,8 @@ public:
 
   // generic flow questions:
   bool isAlive() const { return !(saw_close_ || saw_reset_); }
+  bool sawFIN() const { return saw_close_; }
+  bool sawRST() const { return saw_reset_; }
 
 private:
   // Flow Identification:

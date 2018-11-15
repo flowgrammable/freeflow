@@ -17,6 +17,7 @@
 #include <tuple>
 #include <functional>
 #include <algorithm>
+#include <iterator>
 #include <numeric>
 #include <unordered_map>
 #include <unordered_set>
@@ -29,6 +30,7 @@
 
 // Google's Abseil C++ library:
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 
 
 using namespace std;
@@ -247,6 +249,7 @@ main(int argc, const char* argv[])
 
   // Flow Stats Output Files:
   auto& flowStats = open_gzip(flowsFilename + ".gz");
+  debugLog << "File: " << flowsFilename + ".gz" << "\n";
 
   // Trace Output Files:
   auto& flowTrace = open_gzip(traceFilename + ".gz");
@@ -266,12 +269,19 @@ main(int argc, const char* argv[])
   debugLog << "File: " << traceFilename + ".other.gz" << "\n"
            << "- Flow Key String: " << FKT_SIZE << "B\n";
 
+  auto& scanFlowTrace = open_gzip(traceFilename + ".scans.gz");
+  debugLog << "File: " << traceFilename + ".scans.gz" << "\n"
+           << "- Flow Key String: " << FKT_SIZE << "B\n"
+           << "- Flags: " << sizeof(Flags) << "B\n";
+
   debugLog.flush();
 
   // Metadata structures:
   flow_id_t nextFlowID = 1; // flowID 0 is reserved for 'flow not found'
   absl::flat_hash_map<FlowKeyTuple, flow_id_t> flowIDs;
-//  std::map<flow_id_t, FlowRecord> flowRecords;
+  std::map<flow_id_t, FlowRecord> flowRecords;
+  std::unordered_set<flow_id_t> dormantFlows;
+  std::set<flow_id_t> touchedFlows;
 
   // Global Stats:
   u16 maxPacketSize = std::numeric_limits<u16>::lowest();
@@ -301,7 +311,6 @@ main(int argc, const char* argv[])
       ss << dump_packet(p).str() << '\n';
       print_eval(ss, evalCxt);
       ss << "> Exception occured during extract: " << e.what();
-//      debugLog <<  ss.str() << '\n';
       cerr << ss.str() << endl;
     }
 
@@ -329,6 +338,7 @@ main(int argc, const char* argv[])
       const auto& proto = fields.fProto;
 
       // if flow is established?...
+      // TODO: how to punt suspected scans to seperate trace file?
 
       if (proto & ProtoFlags::isTCP) {
         serialize(tcpFlowTrace, fkt);
@@ -343,10 +353,38 @@ main(int argc, const char* argv[])
       serialize(flowTrace, fkt);
     };
 
+    tracePoint();
+
     // If flow exists:
     if (flowID != 0) {
-      // Known Flow:
-      tracePoint();
+      // Known Flow:      
+      auto status = flowRecords.find(flowID); // iterator to {key, value}
+
+      if (status != flowRecords.end()) {
+        // Flow is currently tracked:
+        FlowRecord& flowR = status->second;
+        flowR.update(evalCxt);
+
+        // Check if observed a termination flag:
+        if (!flowR.isAlive()) {
+          debugLog << "Flow " << flowID
+                   << " saw " << (flowR.sawFIN()?"FIN":"RST")
+                   << " at " << flowR.packets() << " packets." << endl;
+          dormantFlows.insert(flowID);
+        }
+      }
+      else {
+        // Flow was seen before but no longer tracked:
+        // Filter out TCP scans (first packet observed has RST):
+        if (evalCxt.fields.fProto & ProtoFlags::isTCP &&
+            (evalCxt.fields.fTCP & TCPFlags::RST) ) {
+          serialize(scanFlowTrace, fkt);
+          serialize(scanFlowTrace, make_flags_bitset(k));
+        }
+        else {
+          debugLog << "FlowID " << flowID << " is no longer being tracked." << endl;
+        }
+      }
     }
     else {
       // Unkown Flow:
@@ -355,14 +393,80 @@ main(int argc, const char* argv[])
                             std::forward_as_tuple(nextFlowID));
       assert(newFlowID.second); // sanity check
 
-//      auto newFlowRecord = flowRecords.emplace(std::piecewise_construct,
-//                            std::forward_as_tuple(nextFlowID),
-//                            std::forward_as_tuple(nextFlowID, time));
-//      assert(newFlowRecord.second); // sanity check
-//      newFlowRecord.first->second.update(evalCxt);
-
-      tracePoint();
+      // Filter out TCP scans (first packet observed has RST):
+      if (evalCxt.fields.fProto & ProtoFlags::isTCP &&
+          (evalCxt.fields.fTCP & TCPFlags::RST ||
+           evalCxt.fields.fTCP & TCPFlags::FIN) ) {
+        debugLog << "FlowID " << flowID << " is inferred a scan." << endl;
+      }
+      else {
+        auto newFlowRecord = flowRecords.emplace(std::piecewise_construct,
+                              std::forward_as_tuple(nextFlowID),
+                              std::forward_as_tuple(nextFlowID, time));
+        assert(newFlowRecord.second); // sanity check
+        newFlowRecord.first->second.update(evalCxt);
+      }
       flowID = nextFlowID++;
+
+
+      // Clean up dormant flows every new 128k new flows:
+      if (flowID % (128*1024) == 0) {
+//        cout << caida.next_cxt_.top()->packet_.ts_;
+        cout << touchedFlows.size() << " / " << flowRecords.size()
+             << " flows touched since last epoch." << endl;
+
+        // Remove flows observed from dormant list:
+        std::set<flow_id_t> observed;
+        {
+          KeyIterator tracked_begin(flowRecords.begin());
+          KeyIterator tracked_end(flowRecords.begin());
+
+          std::set_union(tracked_begin, tracked_end,
+                         touchedFlows.begin(), touchedFlows.end(),
+                         std::inserter(observed, observed.end()) );
+          for (flow_id_t id : observed) {
+            if (flowRecords.at(id).isAlive()) {
+              dormantFlows.erase(id);
+            }
+          }
+          touchedFlows.clear();
+        }
+
+        // Add flows not observed to dormant list:
+        std::set<flow_id_t> diff;
+        {
+          KeyIterator tracked_begin(flowRecords.begin());
+          KeyIterator tracked_end(flowRecords.begin());
+
+          std::set_difference(tracked_begin, tracked_end,
+                              touchedFlows.begin(), touchedFlows.end(),
+                              std::inserter(diff, diff.end()) );
+          for (flow_id_t id : diff) {
+            dormantFlows.insert(id);
+          }
+          touchedFlows.clear();
+        }
+
+        // Scan flows which have signaled FIN/RST:
+        for (auto i = dormantFlows.begin(); i != dormantFlows.end(); ) {
+          auto flowR_i = flowRecords.find(*i);
+          const FlowRecord& flowR = flowR_i->second;
+
+          timespec sinceLast = time - flowR.last();
+          if (sinceLast.tv_sec >= 1) {
+            debugLog << "Flow " << *i
+                     << " considered dormant after " << flowR.packets()
+                     << " packets and 1 second of inactivity." << endl;
+            flowStats << print_flow(flowR).str();
+
+            flowRecords.erase(flowR_i);
+            i = dormantFlows.erase(i);  // returns iterator following erased elements
+          }
+          else {
+            i++;  // advance iterator when not erasing element...
+          }
+        }
+      }
     }
 
     // Release resources and retrieve another packet:
@@ -387,6 +491,7 @@ main(int argc, const char* argv[])
   debugLog << "Min packet size: " << minPacketSize << '\n';
   debugLog << "Total bytes: " << totalBytes << '\n';
   debugLog << "Total packets: " << totalPackets << '\n';
+  debugLog << "Total flows: " << flowIDs.size() << '\n';
 
   chrono::system_clock::time_point end_time = chrono::system_clock::now();
   auto msec = chrono::duration_cast<chrono::milliseconds>(end_time - start_time).count();

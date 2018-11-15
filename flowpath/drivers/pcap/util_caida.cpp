@@ -28,6 +28,7 @@ int caidaHandler::advance(int id) {
   fp::Context cxt;
   if (pcap_.at(id).recv(&cxt) > 0) {
     next_cxt_.push( std::move(cxt) );
+    pkt_pos_.at(id)++;
     return 1; // 1 packet read
   }
   else {
@@ -37,7 +38,8 @@ int caidaHandler::advance(int id) {
       string file = list.front();
       list.pop();
 
-      cerr << "Opening PCAP file: " << file << endl;
+      cerr << "Opening PCAP file: " << file
+           << "\n - Transition at packet " << pkt_pos_.at(id) << endl;
       pcap_.erase(id);
       pcap_.emplace(std::piecewise_construct,
                     std::forward_as_tuple(id),
@@ -91,6 +93,7 @@ void caidaHandler::open(int id, string file) {
                 std::forward_as_tuple(id),
                 std::forward_as_tuple(id, file.c_str()) );
   pcap_files_[id];  // ensure id exists
+  pkt_pos_[id] = 0;
 
   // Attempt to queue first packet in stream:
   advance(id);
