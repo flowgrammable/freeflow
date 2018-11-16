@@ -282,6 +282,7 @@ main(int argc, const char* argv[])
   std::map<flow_id_t, FlowRecord> flowRecords;
   std::unordered_set<flow_id_t> dormantFlows;
   std::set<flow_id_t> touchedFlows;
+  std::unordered_set<flow_id_t> blacklistFlows;
 
   // Global Stats:
   u16 maxPacketSize = std::numeric_limits<u16>::lowest();
@@ -364,20 +365,19 @@ main(int argc, const char* argv[])
         // Flow is currently tracked:
         FlowRecord& flowR = status->second;
         flowR.update(evalCxt);
+        touchedFlows.insert(flowID);
 
         // Check if observed a termination flag:
         if (!flowR.isAlive()) {
-          debugLog << "Flow " << flowID
-                   << " saw " << (flowR.sawFIN()?"FIN":"RST")
-                   << " at " << flowR.packets() << " packets." << endl;
+//          debugLog << "Flow " << flowID
+//                   << " saw " << (flowR.sawFIN()?"FIN":"RST")
+//                   << " at " << flowR.packets() << " packets." << endl;
           dormantFlows.insert(flowID);
         }
       }
       else {
         // Flow was seen before but no longer tracked:
-        // Filter out TCP scans (first packet observed has RST):
-        if (evalCxt.fields.fProto & ProtoFlags::isTCP &&
-            (evalCxt.fields.fTCP & TCPFlags::RST) ) {
+        if (blacklistFlows.find(flowID) != blacklistFlows.end()) {
           serialize(scanFlowTrace, fkt);
           serialize(scanFlowTrace, make_flags_bitset(k));
         }
@@ -392,21 +392,32 @@ main(int argc, const char* argv[])
                             std::forward_as_tuple(fkt),
                             std::forward_as_tuple(nextFlowID));
       assert(newFlowID.second); // sanity check
+      flowID = nextFlowID++;
 
       // Filter out TCP scans (first packet observed has RST):
       if (evalCxt.fields.fProto & ProtoFlags::isTCP &&
+          evalCxt.fields.fTCP & TCPFlags::RST &&
+          evalCxt.fields.fTCP & TCPFlags::ACK ) {
+        serialize(scanFlowTrace, fkt);
+        serialize(scanFlowTrace, make_flags_bitset(k));
+        blacklistFlows.insert(flowID);
+//        debugLog << "Blacklisting FlowID " << flowID << " (RST+ACK on first packet)." << endl;
+      }
+      else if (evalCxt.fields.fProto & ProtoFlags::isTCP &&
           (evalCxt.fields.fTCP & TCPFlags::RST ||
            evalCxt.fields.fTCP & TCPFlags::FIN) ) {
-        debugLog << "FlowID " << flowID << " is inferred a scan." << endl;
+        serialize(scanFlowTrace, fkt);
+        serialize(scanFlowTrace, make_flags_bitset(k));
+        blacklistFlows.insert(flowID);
+//        debugLog << "Deferring FlowID " << flowID << " (RST|FIN on first packet)." << endl;
       }
       else {
         auto newFlowRecord = flowRecords.emplace(std::piecewise_construct,
-                              std::forward_as_tuple(nextFlowID),
-                              std::forward_as_tuple(nextFlowID, time));
+                              std::forward_as_tuple(flowID),
+                              std::forward_as_tuple(flowID, time));
         assert(newFlowRecord.second); // sanity check
         newFlowRecord.first->second.update(evalCxt);
       }
-      flowID = nextFlowID++;
 
 
       // Clean up dormant flows every new 128k new flows:
@@ -416,8 +427,8 @@ main(int argc, const char* argv[])
              << " flows touched since last epoch." << endl;
 
         // Remove flows observed from dormant list:
-        std::set<flow_id_t> observed;
         {
+          std::set<flow_id_t> observed;
           KeyIterator tracked_begin(flowRecords.begin());
           KeyIterator tracked_end(flowRecords.begin());
 
@@ -429,12 +440,11 @@ main(int argc, const char* argv[])
               dormantFlows.erase(id);
             }
           }
-          touchedFlows.clear();
         }
 
         // Add flows not observed to dormant list:
-        std::set<flow_id_t> diff;
         {
+          std::set<flow_id_t> diff;
           KeyIterator tracked_begin(flowRecords.begin());
           KeyIterator tracked_end(flowRecords.begin());
 
@@ -444,8 +454,9 @@ main(int argc, const char* argv[])
           for (flow_id_t id : diff) {
             dormantFlows.insert(id);
           }
-          touchedFlows.clear();
         }
+
+        touchedFlows.clear();
 
         // Scan flows which have signaled FIN/RST:
         for (auto i = dormantFlows.begin(); i != dormantFlows.end(); ) {
@@ -453,10 +464,10 @@ main(int argc, const char* argv[])
           const FlowRecord& flowR = flowR_i->second;
 
           timespec sinceLast = time - flowR.last();
-          if (sinceLast.tv_sec >= 1) {
+          if (sinceLast.tv_sec >= 10) {
             debugLog << "Flow " << *i
                      << " considered dormant after " << flowR.packets()
-                     << " packets and 1 second of inactivity." << endl;
+                     << " packets and 10 seconds of inactivity." << endl;
             flowStats << print_flow(flowR).str();
 
             flowRecords.erase(flowR_i);
