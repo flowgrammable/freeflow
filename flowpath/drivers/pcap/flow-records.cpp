@@ -107,7 +107,9 @@ static stringstream print_flow(const FlowRecord& flow) {
      << ", packets=" << pkts
      << ", bytes=" << byts
      << ", ppBytes=" << byts/pkts
-     << '\n';
+     << ", " << (flow.sawSYN()?"SYN":"")
+             << (flow.sawFIN()?"|FIN":"")
+             << (flow.sawRST()?"|RST\n":"\n");
   return ss;
 }
 

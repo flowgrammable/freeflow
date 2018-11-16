@@ -255,6 +255,7 @@ public:
 
   // generic flow questions:
   bool isAlive() const { return !(saw_close_ || saw_reset_); }
+  bool sawSYN() const { return saw_open_; }
   bool sawFIN() const { return saw_close_; }
   bool sawRST() const { return saw_reset_; }
 
