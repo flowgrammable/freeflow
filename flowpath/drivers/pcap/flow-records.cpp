@@ -368,12 +368,12 @@ main(int argc, const char* argv[])
         touchedFlows.insert(flowID);
 
         // Check if observed a termination flag:
-        if (!flowR.isAlive()) {
+//        if (!flowR.isAlive()) {
 //          debugLog << "Flow " << flowID
 //                   << " saw " << (flowR.sawFIN()?"FIN":"RST")
 //                   << " at " << flowR.packets() << " packets." << endl;
-          dormantFlows.insert(flowID);
-        }
+//          dormantFlows.insert(flowID);
+//        }
       }
       else {
         // Flow was seen before but no longer tracked:
@@ -423,40 +423,39 @@ main(int argc, const char* argv[])
       // Clean up dormant flows every new 128k new flows:
       if (flowID % (128*1024) == 0) {
 //        cout << caida.next_cxt_.top()->packet_.ts_;
-        cout << touchedFlows.size() << " / " << flowRecords.size()
+        cout << touchedFlows.size() << "/" << flowRecords.size()
              << " flows touched since last epoch." << endl;
 
         // Remove flows observed from dormant list:
         {
+          // TODO: touched is observed...
           std::set<flow_id_t> observed;
-          KeyIterator tracked_begin(flowRecords.begin());
-          KeyIterator tracked_end(flowRecords.begin());
-
-          std::set_union(tracked_begin, tracked_end,
-                         touchedFlows.begin(), touchedFlows.end(),
-                         std::inserter(observed, observed.end()) );
+          std::set_intersection(
+                KeyIterator(flowRecords.begin()), KeyIterator(flowRecords.end()),
+                touchedFlows.begin(), touchedFlows.end(),
+                std::inserter(observed, observed.end()) );
           for (flow_id_t id : observed) {
-            if (flowRecords.at(id).isAlive()) {
+            // TODO: timeout mechanism? vs. RST/FIN?
+//            if (flowRecords.at(id).isAlive()) {
               dormantFlows.erase(id);
-            }
+//            }
           }
         }
 
         // Add flows not observed to dormant list:
         {
           std::set<flow_id_t> diff;
-          KeyIterator tracked_begin(flowRecords.begin());
-          KeyIterator tracked_end(flowRecords.begin());
-
-          std::set_difference(tracked_begin, tracked_end,
-                              touchedFlows.begin(), touchedFlows.end(),
-                              std::inserter(diff, diff.end()) );
+          std::set_difference(
+                KeyIterator(flowRecords.begin()), KeyIterator(flowRecords.end()),
+                touchedFlows.begin(), touchedFlows.end(),
+                std::inserter(diff, diff.end()) );
           for (flow_id_t id : diff) {
             dormantFlows.insert(id);
           }
         }
 
         touchedFlows.clear();
+        // TODO: is there really a need to persist dormant flows?
 
         // Scan flows which have signaled FIN/RST:
         for (auto i = dormantFlows.begin(); i != dormantFlows.end(); ) {
