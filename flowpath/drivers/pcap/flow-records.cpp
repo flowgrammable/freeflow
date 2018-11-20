@@ -282,7 +282,7 @@ main(int argc, const char* argv[])
   flow_id_t nextFlowID = 1; // flowID 0 is reserved for 'flow not found'
   absl::flat_hash_map<FlowKeyTuple, flow_id_t> flowIDs;
   std::map<flow_id_t, FlowRecord> flowRecords;
-  std::unordered_set<flow_id_t> dormantFlows;
+//  std::unordered_set<flow_id_t> dormantFlows;
   std::set<flow_id_t> touchedFlows;
   std::unordered_set<flow_id_t> blacklistFlows;
 
@@ -368,14 +368,6 @@ main(int argc, const char* argv[])
         FlowRecord& flowR = status->second;
         flowR.update(evalCxt);
         touchedFlows.insert(flowID);
-
-        // Check if observed a termination flag:
-//        if (!flowR.isAlive()) {
-//          debugLog << "Flow " << flowID
-//                   << " saw " << (flowR.sawFIN()?"FIN":"RST")
-//                   << " at " << flowR.packets() << " packets." << endl;
-//          dormantFlows.insert(flowID);
-//        }
       }
       else {
         // Flow was seen before but no longer tracked:
@@ -384,7 +376,8 @@ main(int argc, const char* argv[])
           serialize(scanFlowTrace, make_flags_bitset(k));
         }
         else {
-          debugLog << "FlowID " << flowID << " is no longer being tracked." << endl;
+          debugLog << "FlowID " << flowID << " is no longer being tracked; "
+                   << print_flow_key_string(k) << endl;
         }
       }
     }
@@ -397,23 +390,27 @@ main(int argc, const char* argv[])
       flowID = nextFlowID++;
 
       // Filter out TCP scans (first packet observed has RST):
+//      if (evalCxt.fields.fProto & ProtoFlags::isTCP &&
+//          evalCxt.fields.fTCP & TCPFlags::RST &&
+//          evalCxt.fields.fTCP & TCPFlags::ACK ) {
+//        serialize(scanFlowTrace, fkt);
+//        serialize(scanFlowTrace, make_flags_bitset(k));
+//        blacklistFlows.insert(flowID);
+////        debugLog << "Blacklisting FlowID " << flowID << " (RST+ACK on first packet)." << endl;
+//      }
       if (evalCxt.fields.fProto & ProtoFlags::isTCP &&
-          evalCxt.fields.fTCP & TCPFlags::RST &&
-          evalCxt.fields.fTCP & TCPFlags::ACK ) {
-        serialize(scanFlowTrace, fkt);
-        serialize(scanFlowTrace, make_flags_bitset(k));
-        blacklistFlows.insert(flowID);
-//        debugLog << "Blacklisting FlowID " << flowID << " (RST+ACK on first packet)." << endl;
-      }
-      else if (evalCxt.fields.fProto & ProtoFlags::isTCP &&
           (evalCxt.fields.fTCP & TCPFlags::RST ||
            evalCxt.fields.fTCP & TCPFlags::FIN) ) {
         serialize(scanFlowTrace, fkt);
         serialize(scanFlowTrace, make_flags_bitset(k));
         blacklistFlows.insert(flowID);
-//        debugLog << "Deferring FlowID " << flowID << " (RST|FIN on first packet)." << endl;
+//        debugLog << "Blacklisting TCP flow " << flowID
+//                 << "; first packet observed was "
+//                 << ((evalCxt.fields.fTCP & TCPFlags::FIN)?"FIN":"RST")
+//                 << endl;
       }
       else {
+        // Follow new flow:
         auto newFlowRecord = flowRecords.emplace(std::piecewise_construct,
                               std::forward_as_tuple(flowID),
                               std::forward_as_tuple(flowID, time));
@@ -428,54 +425,61 @@ main(int argc, const char* argv[])
         cout << touchedFlows.size() << "/" << flowRecords.size()
              << " flows touched since last epoch." << endl;
 
-        // Remove flows observed from dormant list:
-        {
-          // TODO: touched is observed...
-          std::set<flow_id_t> observed;
-          std::set_intersection(
-                KeyIterator(flowRecords.begin()), KeyIterator(flowRecords.end()),
-                touchedFlows.begin(), touchedFlows.end(),
-                std::inserter(observed, observed.end()) );
-          for (flow_id_t id : observed) {
-            // TODO: timeout mechanism? vs. RST/FIN?
-//            if (flowRecords.at(id).isAlive()) {
-              dormantFlows.erase(id);
-//            }
-          }
-        }
-
         // Add flows not observed to dormant list:
-        {
-          std::set<flow_id_t> diff;
-          std::set_difference(
-                KeyIterator(flowRecords.begin()), KeyIterator(flowRecords.end()),
-                touchedFlows.begin(), touchedFlows.end(),
-                std::inserter(diff, diff.end()) );
-          for (flow_id_t id : diff) {
-            dormantFlows.insert(id);
-          }
-        }
+        std::set<flow_id_t> dormantFlows;
+        std::set_difference(
+              KeyIterator(flowRecords.begin()), KeyIterator(flowRecords.end()),
+              touchedFlows.begin(), touchedFlows.end(),
+              std::inserter(dormantFlows, dormantFlows.end()) );
 
         touchedFlows.clear();
-        // TODO: is there really a need to persist dormant flows?
 
         // Scan flows which have signaled FIN/RST:
-        for (auto i = dormantFlows.begin(); i != dormantFlows.end(); ) {
-          auto flowR_i = flowRecords.find(*i);
+        for (auto i : dormantFlows) {
+          constexpr uint64_t RST_TIMEOUT = 10;
+          constexpr uint64_t FIN_TIMEOUT = 60;
+          constexpr uint64_t TCP_TIMEOUT = 600;
+          constexpr uint64_t LONG_TIMEOUT = 120;
+
+          auto flowR_i = flowRecords.find(i);
           const FlowRecord& flowR = flowR_i->second;
 
           timespec sinceLast = time - flowR.last();
-          if (sinceLast.tv_sec >= 10) {
-            debugLog << "Flow " << *i
-                     << " considered dormant after " << flowR.packets()
-                     << " packets and 10 seconds of inactivity." << endl;
+          if (flowR.sawRST() && sinceLast.tv_sec >= RST_TIMEOUT) {
+            debugLog << (flowR.isTCP()?"TCP":"???") << " flow " << i
+                     << " considered terminated after RST, "
+//                     << (flowR.sawFIN()?"FIN, ":"RST, ")
+                     << flowR.packets()
+                     << " packets, and " << sinceLast.tv_sec
+                     << " seconds of inactivity." << endl;
             flowStats << print_flow(flowR).str();
-
             flowRecords.erase(flowR_i);
-            i = dormantFlows.erase(i);  // returns iterator following erased elements
           }
-          else {
-            i++;  // advance iterator when not erasing element...
+          else if (flowR.sawFIN() && sinceLast.tv_sec >= FIN_TIMEOUT) {
+            debugLog << (flowR.isTCP()?"TCP":"???") << " flow " << i
+                     << " considered terminated after FIN, "
+//                     << (flowR.sawFIN()?"FIN, ":"RST, ")
+                     << flowR.packets()
+                     << " packets, and " << sinceLast.tv_sec
+                     << " seconds of inactivity." << endl;
+            flowStats << print_flow(flowR).str();
+            flowRecords.erase(flowR_i);
+          }
+          else if (flowR.isTCP() && sinceLast.tv_sec >= TCP_TIMEOUT) {
+            debugLog << (flowR.isTCP()?"TCP":"???") << " flow " << i
+                     << " considered dormant after " << flowR.packets()
+                     << " packets, and " << sinceLast.tv_sec
+                     << " seconds of inactivity." << endl;
+            flowStats << print_flow(flowR).str();
+            flowRecords.erase(flowR_i);
+          }
+          else if (sinceLast.tv_sec >= LONG_TIMEOUT) {
+            debugLog << (flowR.isUDP()?"UDP":"???") << " flow " << i
+                     << " considered dormant after " << flowR.packets()
+                     << " packets, and " << sinceLast.tv_sec
+                     << " seconds of inactivity." << endl;
+            flowStats << print_flow(flowR).str();
+            flowRecords.erase(flowR_i);
           }
         }
       }

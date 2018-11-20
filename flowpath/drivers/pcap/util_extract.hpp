@@ -113,6 +113,8 @@ struct Fields {
   u16 dstPort;
 };
 
+std::string print_ip(uint32_t);
+std::string print_flow_key_string(const Fields&);
 std::string make_flow_key_string(const Fields&);
 FlowKeyTuple make_flow_key_tuple(const Fields&);
 Flags make_flags_bitset(const Fields&);
@@ -255,6 +257,8 @@ public:
 
   // generic flow questions:
   bool isAlive() const { return !(saw_close_ || saw_reset_); }
+  bool isTCP() const { return (protoFlags_ & ProtoFlags::isTCP) == ProtoFlags::isTCP; }
+  bool isUDP() const { return (protoFlags_ & ProtoFlags::isUDP) == ProtoFlags::isUDP; }
   bool sawSYN() const { return saw_open_; }
   bool sawFIN() const { return saw_close_; }
   bool sawRST() const { return saw_reset_; }

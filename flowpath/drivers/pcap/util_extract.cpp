@@ -97,6 +97,27 @@ operator-(const timespec& lhs, const timespec& rhs) {
   return result;
 }
 
+std::string print_ip(uint32_t ip) {
+  const std::string SEP(".");
+  std::string ips = std::to_string(ip >> 24);
+  ip &= 0x00FFFFFF;
+  ips.append( SEP + std::to_string(ip >> 16) );
+  ip &= 0x0000FFFF;
+  ips.append( SEP + std::to_string(ip >> 8) );
+  ip &= 0x000000FF;
+  ips.append( SEP + std::to_string(ip) );
+  return ips;
+}
+
+std::string print_flow_key_string(const Fields& k) {
+  const std::string SEP(",");
+  std::string fks = print_ip(k.ipv4Src);
+  fks.append( SEP + print_ip(k.ipv4Dst) );
+  fks.append( SEP + std::to_string(k.srcPort) );
+  fks.append( SEP + std::to_string(k.dstPort) );
+  fks.append( SEP + std::to_string(uint16_t(k.ipProto)) );
+  return fks;
+}
 
 std::string make_flow_key_string(const Fields& k) {
   struct __attribute__((packed)) FlowKeyStruct{
