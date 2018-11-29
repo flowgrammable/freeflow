@@ -157,6 +157,11 @@ u64 FlowRecord::update(const EvalContext& e) {
   const int payloadBytes = static_cast<int>(e.origBytes) - e.v.committedBytes<int>();
   // Committed bytes is insufficient...
 
+  // First Update
+  if (arrival_ns_.size() == 0) {
+    protoFlags_ = protoFlags;
+  }
+
   // Track TCP state:
   if (protoFlags & ProtoFlags::isTCP) {
     // TCP Session Changes:

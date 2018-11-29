@@ -88,7 +88,7 @@ private:
   std::map<int, std::queue<std::string>> pcap_files_;
 
   //// FlowID to stream translation ////
-  std::map<int, uint64_t> pkt_pos_;
+//  std::map<int, uint64_t> pkt_pos_;
 };
 
 

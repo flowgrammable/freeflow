@@ -233,6 +233,9 @@ public:
   int open();
   int close();
 
+  // Non-standard info query functions:
+  std::string name() const { return handle_.filename(); }
+
 private:
   // Data members.
 //  odp_pktio_t pktio_; // ODP pktio device id (handle)

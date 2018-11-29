@@ -282,19 +282,19 @@ main(int argc, const char* argv[])
   flow_id_t nextFlowID = 1; // flowID 0 is reserved for 'flow not found'
   absl::flat_hash_map<FlowKeyTuple, flow_id_t> flowIDs;
   std::map<flow_id_t, FlowRecord> flowRecords;
-//  std::unordered_set<flow_id_t> dormantFlows;
-  std::set<flow_id_t> touchedFlows;
   std::unordered_set<flow_id_t> blacklistFlows;
+  std::set<flow_id_t> touchedFlows;
 
   // Global Stats:
   u16 maxPacketSize = std::numeric_limits<u16>::lowest();
   u16 minPacketSize = std::numeric_limits<u16>::max();
-  u64 totalPackets = 0, totalBytes = 0;
-
+  u64 totalPackets = 0, totalBytes = 0, \
+      blacklistPackets = 0, malformedPackets = 0, timeoutPackets = 0;
 
   // PCAP file read loop:
   s64 count = 0;
   fp::Context cxt = caida.recv();
+  timespec last_epoc = cxt.packet().timestamp();
   while (running && cxt.packet_ != nullptr) {
     fp::Packet* p = cxt.packet_;
     EvalContext evalCxt(p);
@@ -315,6 +315,7 @@ main(int argc, const char* argv[])
       print_eval(ss, evalCxt);
       ss << "> Exception occured during extract: " << e.what();
       cerr << ss.str() << endl;
+      malformedPackets++;
     }
 
     // Associate packet with flow:
@@ -374,10 +375,12 @@ main(int argc, const char* argv[])
         if (blacklistFlows.find(flowID) != blacklistFlows.end()) {
           serialize(scanFlowTrace, fkt);
           serialize(scanFlowTrace, make_flags_bitset(k));
+          blacklistPackets++;
         }
         else {
           debugLog << "FlowID " << flowID << " is no longer being tracked; "
                    << print_flow_key_string(k) << endl;
+          timeoutPackets++;
         }
       }
     }
@@ -422,8 +425,13 @@ main(int argc, const char* argv[])
       // Clean up dormant flows every new 128k new flows:
       if (flowID % (128*1024) == 0) {
 //        cout << caida.next_cxt_.top()->packet_.ts_;
+        timespec diff = p->timestamp() - last_epoc;
+        last_epoc = p->timestamp();
         cout << touchedFlows.size() << "/" << flowRecords.size()
-             << " flows touched since last epoch." << endl;
+             << " flows touched since last epoch spanning "
+             << diff.tv_sec + double(diff.tv_nsec)/double(1000000000.0)
+             << " seconds."
+             << endl;
 
         // Add flows not observed to dormant list:
         std::set<flow_id_t> dormantFlows;
@@ -450,8 +458,9 @@ main(int argc, const char* argv[])
                      << " considered terminated after RST, "
 //                     << (flowR.sawFIN()?"FIN, ":"RST, ")
                      << flowR.packets()
-                     << " packets, and " << sinceLast.tv_sec
-                     << " seconds of inactivity." << endl;
+                     << " packets and " << sinceLast.tv_sec
+                     << " seconds of inactivity; "
+                     << print_flow_key_string(k) << endl;
             flowStats << print_flow(flowR).str();
             flowRecords.erase(flowR_i);
           }
@@ -460,24 +469,27 @@ main(int argc, const char* argv[])
                      << " considered terminated after FIN, "
 //                     << (flowR.sawFIN()?"FIN, ":"RST, ")
                      << flowR.packets()
-                     << " packets, and " << sinceLast.tv_sec
-                     << " seconds of inactivity." << endl;
+                     << " packets and " << sinceLast.tv_sec
+                     << " seconds of inactivity; "
+                     << print_flow_key_string(k) << endl;
             flowStats << print_flow(flowR).str();
             flowRecords.erase(flowR_i);
           }
           else if (flowR.isTCP() && sinceLast.tv_sec >= TCP_TIMEOUT) {
             debugLog << (flowR.isTCP()?"TCP":"???") << " flow " << i
                      << " considered dormant after " << flowR.packets()
-                     << " packets, and " << sinceLast.tv_sec
-                     << " seconds of inactivity." << endl;
+                     << " packets and " << sinceLast.tv_sec
+                     << " seconds of inactivity; "
+                     << print_flow_key_string(k) << endl;
             flowStats << print_flow(flowR).str();
             flowRecords.erase(flowR_i);
           }
           else if (sinceLast.tv_sec >= LONG_TIMEOUT) {
             debugLog << (flowR.isUDP()?"UDP":"???") << " flow " << i
                      << " considered dormant after " << flowR.packets()
-                     << " packets, and " << sinceLast.tv_sec
-                     << " seconds of inactivity." << endl;
+                     << " packets and " << sinceLast.tv_sec
+                     << " seconds of inactivity; "
+                     << print_flow_key_string(k) << endl;
             flowStats << print_flow(flowR).str();
             flowRecords.erase(flowR_i);
           }
@@ -508,6 +520,10 @@ main(int argc, const char* argv[])
   debugLog << "Total bytes: " << totalBytes << '\n';
   debugLog << "Total packets: " << totalPackets << '\n';
   debugLog << "Total flows: " << flowIDs.size() << '\n';
+  debugLog << "Blacklisted flows: " << blacklistFlows.size() << '\n';
+  debugLog << "Blacklisted packets: " << blacklistPackets << '\n';
+  debugLog << "Timeout packets: " << timeoutPackets << '\n';
+  debugLog << "Malformed packets: " << malformedPackets << '\n';
 
   chrono::system_clock::time_point end_time = chrono::system_clock::now();
   auto msec = chrono::duration_cast<chrono::milliseconds>(end_time - start_time).count();
