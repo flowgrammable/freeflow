@@ -1,48 +1,6 @@
 #ifndef UTIL_VIEW_HPP
 #define UTIL_VIEW_HPP
 
-//#include "system.hpp"
-//#include "dataplane.hpp"
-//#include "application.hpp"
-//#include "port_table.hpp"
-//#include "port.hpp"
-//#include "port_pcap.hpp"
-//#include "context.hpp"
-/////#include "packet.hpp" // temporary for sizeof packet
-/////#include "context.hpp" // temporary for sizeof context
-//#include "util_bitmask.hpp"
-
-//#include <string>
-//#include <iostream>
-//#include <stdexcept>
-//#include <iomanip>
-//#include <ctime>
-//#include <signal.h>
-//#include <type_traits>
-//#include <bitset>
-//#include <map>
-//#include <tuple>
-//#include <functional>
-//#include <algorithm>
-//#include <numeric>
-//#include <unordered_map>
-//#include <unordered_set>
-//#include <vector>
-//#include <queue>
-//#include <chrono>
-
-//#include <net/ethernet.h>
-//#include <netinet/ip.h>
-//#include <netinet/in.h>
-//#include <netinet/tcp.h>
-//#include <arpa/inet.h>
-//#ifdef __APPLE__
-//#include <machine/endian.h>
-//#else
-//#include <endian.h>
-//#endif
-
-//#include <typeinfo>
 
 namespace util_view {
 
@@ -83,19 +41,24 @@ bytemask(const size_t byteCount)
 // Keeps track of safe range of access within packet.
 class View {
 public:
-  View(uint8_t* ptr, size_t bytes) :
+  using vPtr = const void*;
+  using const_vPtr = vPtr const;
+  using bPtr = const u8*;
+  using const_bPtr = bPtr const;
+
+  View(bPtr ptr, size_t bytes) :
     begin_(ptr), end_(ptr+bytes),
     beginCP_(begin_), endCP_(end_),
     beginAbs_(begin_), endAbs_(end_) {
   }
-  View(uint8_t* ptr, size_t bytes, size_t orig) :
+  View(bPtr ptr, size_t bytes, size_t orig) :
     begin_(ptr), end_(ptr+bytes),
     beginCP_(begin_), endCP_(end_),
     beginAbs_(begin_), endAbs_(ptr+orig) {
   }
 
   bool sufficient(size_t bytes) const {
-    u8* end = static_cast<u8*>(begin_) + bytes;
+    bPtr end = static_cast<bPtr>(begin_) + bytes;
     return end <= end_;
   }
   template<typename R, size_t bytes = sizeof(R)>
@@ -159,7 +122,7 @@ public:
   template<typename R>
   typename std::enable_if< std::is_integral<R>::value, R >::type
   bytes() const {
-    R bytes = static_cast<u8*>(end_) - static_cast<u8*>(begin_);
+    R bytes = static_cast<bPtr>(end_) - static_cast<bPtr>(begin_);
     return bytes;
   }
 
@@ -167,7 +130,7 @@ public:
   template<typename R>
   typename std::enable_if< std::is_integral<R>::value, R >::type
   committedBytes() const {
-    R bytes = static_cast<u8*>(endCP_) - static_cast<u8*>(beginCP_);
+    R bytes = static_cast<bPtr>(endCP_) - static_cast<bPtr>(beginCP_);
     return bytes;
   }
 
@@ -175,7 +138,7 @@ public:
   template<typename R>
   typename std::enable_if< std::is_integral<R>::value, R >::type
   absoluteBytes() const {
-    R bytes = static_cast<const u8*>(endAbs_) - static_cast<const u8*>(beginAbs_);
+    R bytes = static_cast<const_bPtr>(endAbs_) - static_cast<const_bPtr>(beginAbs_);
     return bytes;
   }
 
@@ -204,19 +167,19 @@ public:
 
 private:
   void constrain(size_t bytes) {
-    u8* pos = static_cast<u8*>(begin_) + bytes;
+    bPtr pos = static_cast<bPtr>(begin_) + bytes;
     begin_ = pos;
   }
 
   void constrainEnd(size_t bytes) {
-    u8* pos = static_cast<u8*>(end_) - bytes;
+    bPtr pos = static_cast<bPtr>(end_) - bytes;
     end_ = pos;
   }
 
   template<typename R, size_t bytes = sizeof(R)>
   typename std::enable_if< std::is_integral<R>::value, R >::type
   read() const {
-    R* ptr = static_cast<R*>(begin_);
+    const R* ptr = static_cast<const R*>(begin_);
     R val = *ptr & bytemask<R>(bytes);
     return val;
   }
@@ -224,7 +187,7 @@ private:
   template<typename R, size_t bytes = sizeof(R)>
   typename std::enable_if< std::is_compound<R>::value, R >::type
   read() const {
-    R* ptr = static_cast<R*>(begin_);
+    const R* ptr = static_cast<const R*>(begin_);
     R val = *ptr;
     return val;
   }
@@ -232,7 +195,7 @@ private:
   template<typename R, size_t bytes = sizeof(R)>
   typename std::enable_if< std::is_integral<R>::value, R >::type
   readEnd() const {
-    R* ptr = static_cast<R*>(end_) - 1; // read one element (R) back from end...
+    const R* ptr = static_cast<const R*>(end_) - 1; // read one element (R) back from end...
     R val = *ptr & bytemask<R>(bytes);
     return val;
   }
@@ -240,21 +203,21 @@ private:
   template<typename R, size_t bytes = sizeof(R)>
   typename std::enable_if< std::is_compound<R>::value, R >::type
   readEnd() const {
-    R* ptr = static_cast<R*>(end_) - 1; // read one element (R) back from end...
+    const R* ptr = static_cast<const R*>(end_) - 1; // read one element (R) back from end...
     R val = *ptr;
     return val;
   }
 
 private:
   // Current View:
-  void* begin_;
-  void* end_; // one past end
+  vPtr begin_;
+  vPtr end_; // one past end
   // Checkpoint View:
-  void* beginCP_;
-  void* endCP_; // one past end
+  vPtr beginCP_;
+  vPtr endCP_; // one past end
   // Absolute View:
-  void *const beginAbs_;
-  void *const endAbs_;  // one past end
+  const_vPtr beginAbs_;
+  const_vPtr endAbs_;  // one past end
 };
 
 } // namespace util_view
