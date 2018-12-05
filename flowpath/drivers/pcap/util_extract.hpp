@@ -111,10 +111,15 @@ struct Fields {
   u8  ipProto;
   u16 srcPort;
   u16 dstPort;
+
+  // TCP Sequence:
+  u32 tcpSeqNum;
+  u32 tcpAckNum;
 };
 
 std::string print_ip(uint32_t);
 std::string print_flow_key_string(const Fields&);
+std::string print_flow_key_string(const FlowKeyTuple&);
 std::string make_flow_key_string(const Fields&);
 FlowKeyTuple make_flow_key_tuple(const Fields&);
 Flags make_flags_bitset(const Fields&);
@@ -255,13 +260,16 @@ public:
   const std::vector<u64>& getArrivalV() const { return arrival_ns_; }
   const std::vector<u16>& getByteV() const { return bytes_; }
 
-  // generic flow questions:
-  bool isAlive() const { return !(saw_close_ || saw_reset_); }
+  // Generic flow questions:
   bool isTCP() const { return (protoFlags_ & ProtoFlags::isTCP) == ProtoFlags::isTCP; }
   bool isUDP() const { return (protoFlags_ & ProtoFlags::isUDP) == ProtoFlags::isUDP; }
+
+  // TCP flow questions:
   bool sawSYN() const { return saw_open_; }
   bool sawFIN() const { return saw_close_; }
   bool sawRST() const { return saw_reset_; }
+  bool isAlive() const { return !(saw_close_ || saw_reset_); }
+  u32 lastSeq() const { return last_seq_; }
 
 private:
   // Flow Identification:
@@ -281,10 +289,22 @@ private:
   u64 fragments_;
   u64 retransmits_;
   s64 directionality_; // counter: pure ACKs (dec), non-zero payload (inc)
+  // - TCP Specific Characteristics:
+  u32 syn_seq_;
+  u32 fin_seq_;
+  u32 rst_seq_;
+
+  u32 first_seq_;
+  u32 last_seq_;
+  u32 first_ack;
+  u32 last_ack;
+  u32 seq_rollover;
+  u32 ack_rollover;
 
   // - Session Characteristics:
   // e.g. directional initator and directional terminator/finisher?
   //      retransmits
+  // todo: repalce bool with sequence numbers...
   bool saw_open_;
   bool saw_close_;
   bool saw_reset_;
@@ -308,6 +328,7 @@ public:
 #endif
 
   EvalContext(fp::Packet* const p);
+  EvalContext(const fp::Packet& p);
   const fp::Packet& packet() const {return pkt_;}
 
 private:

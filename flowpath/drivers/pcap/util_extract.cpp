@@ -119,6 +119,20 @@ std::string print_flow_key_string(const Fields& k) {
   return fks;
 }
 
+std::string print_flow_key_string(const FlowKeyTuple& k) {
+  const std::string SEP(",");
+
+  const Ipv4Tuple& addrTuple = std::get<0>(k);
+  const PortTuple& portTuple = std::get<1>(k);
+
+  std::string fks = print_ip(std::get<0>(addrTuple));
+  fks.append( SEP + print_ip(std::get<1>(addrTuple)) );
+  fks.append( SEP + std::to_string(std::get<0>(portTuple)) );
+  fks.append( SEP + std::to_string(std::get<1>(portTuple)) );
+  fks.append( SEP + std::to_string(uint16_t(std::get<2>(k))) );
+  return fks;
+}
+
 std::string make_flow_key_string(const Fields& k) {
   struct __attribute__((packed)) FlowKeyStruct{
     u32 ipv4Src;
@@ -205,6 +219,9 @@ u64 FlowRecord::update(const EvalContext& e) {
 
     // TCP Congestion Control Information:
     // e.g. NS, CWR, ECE
+
+    // TCP Flow State Update:
+    last_seq_ = e.fields.tcpSeqNum;
   }
 
   // Update flow processing log:
@@ -238,6 +255,17 @@ EvalContext::EvalContext(fp::Packet* const p) :
   // Replace View with observed bytes
   if (p->type() == fp::Buffer::FP_BUF_PCAP) {
     const auto& buf = static_cast<const fp::Buffer::Pcap&>( p->buf_object() );
+//      v = View(p->data(), p->size(), buf->wire_bytes_);
+    origBytes = buf.wire_bytes_;
+  }
+}
+
+EvalContext::EvalContext(const fp::Packet& p) :
+  v(p.data(), p.size()), fields{}, pkt_(p)
+{
+  // Replace View with observed bytes
+  if (p.type() == fp::Buffer::FP_BUF_PCAP) {
+    const auto& buf = static_cast<const fp::Buffer::Pcap&>( p.buf_object() );
 //      v = View(p->data(), p->size(), buf->wire_bytes_);
     origBytes = buf.wire_bytes_;
   }
@@ -653,11 +681,8 @@ extract_tcp(EvalContext& cxt) {
   gKey.srcPort = betoh16(view.get<u16>());
   gKey.dstPort = betoh16(view.get<u16>());
 
-  //uint32_t seq_num = bs32(*(uint32_t*)v.get());
-  view.discard(4);
-
-  //uint32_t ack_num = bs32(*(uint32_t*)v.get());
-  view.discard(4);
+  gKey.tcpSeqNum = betoh32(view.get<u32>());
+  gKey.tcpAckNum = betoh32(view.get<u32>());
 
   // {offset, flags}
   u16 tmp = view.get<u8>();
