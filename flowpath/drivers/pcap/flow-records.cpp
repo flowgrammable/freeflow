@@ -31,6 +31,7 @@
 // Google's Abseil C++ library:
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/container/inlined_vector.h"
 
 
 using namespace std;
@@ -85,13 +86,13 @@ static void print_hex(const string& s) {
 }
 
 
-static stringstream dump_packet(fp::Packet* p) {
-  return hexdump(p->data(), p->size());
+static stringstream dump_packet(const fp::Packet& p) {
+  return hexdump(p.data(), p.size());
 }
 
 
-static void print_packet(fp::Packet* p) {
-  cerr << p->timestamp().tv_sec << ':' << p->timestamp().tv_nsec << '\n'
+static void print_packet(const fp::Packet& p) {
+  cerr << p.timestamp().tv_sec << ':' << p.timestamp().tv_nsec << '\n'
        << dump_packet(p).str() << endl;
 }
 
@@ -162,7 +163,7 @@ main(int argc, const char* argv[])
   po::options_description nonpos_desc("Available options");
   po::options_description pos_desc("Positional options");
   po::options_description cmdline_desc("All options");
-  po::positional_options_description p;
+  po::positional_options_description boostPO;
   po::variables_map vm;
 
   nonpos_desc.add_options()
@@ -183,15 +184,15 @@ main(int argc, const char* argv[])
       ("directionB", po::value<std::string>(&inputBfilename), "The name of the pcap input file")
       ;
 
-  p.add("directionA", 1);
-  p.add("directionB", 1);
+  boostPO.add("directionA", 1);
+  boostPO.add("directionB", 1);
 
   cmdline_desc.add(nonpos_desc).add(pos_desc);
 
   try {
     po::store(po::command_line_parser(argc, argv)
               .options(cmdline_desc)
-              .positional(p)
+              .positional(boostPO)
               .run()
               , vm);
 
@@ -280,7 +281,8 @@ main(int argc, const char* argv[])
 
   // Metadata structures:
   flow_id_t nextFlowID = 1; // flowID 0 is reserved for 'flow not found'
-  absl::flat_hash_map<FlowKeyTuple, flow_id_t> flowIDs;
+  absl::flat_hash_map<FlowKeyTuple, absl::InlinedVector<flow_id_t,1>> flowIDs;
+    // maps flows to vector (from most-recent to least-recent) of flowIDs
   std::map<flow_id_t, FlowRecord> flowRecords;
   std::unordered_set<flow_id_t> blacklistFlows;
   std::set<flow_id_t> touchedFlows;
@@ -289,213 +291,282 @@ main(int argc, const char* argv[])
   u16 maxPacketSize = std::numeric_limits<u16>::lowest();
   u16 minPacketSize = std::numeric_limits<u16>::max();
   u64 totalPackets = 0, totalBytes = 0, \
-      blacklistPackets = 0, malformedPackets = 0, timeoutPackets = 0;
+      blacklistPackets = 0, malformedPackets = 0, timeoutPackets = 0, \
+      flowPortReuse = 0;
 
+  ///////////////////////
   // PCAP file read loop:
   s64 count = 0;
   fp::Context cxt = caida.recv();
   timespec last_epoc = cxt.packet().timestamp();
   while (running && cxt.packet_ != nullptr) {
-    fp::Packet* p = cxt.packet_;
-    EvalContext evalCxt(p);
-    const auto& time = p->timestamp();
-
-    // Attempt to parse packet headers:
-    count++;
-    try {
-      int status = extract(evalCxt, IP);
-    }
-    catch (std::exception& e) {
-      stringstream ss;
-      ss << count << " (" << p->size() << "B): ";
-      ss << evalCxt.v.absoluteBytes<int>() << ", "
-         << evalCxt.v.committedBytes<int>() << ", "
-         << evalCxt.v.pendingBytes<int>() << '\n';
-      ss << dump_packet(p).str() << '\n';
-      print_eval(ss, evalCxt);
-      ss << "> Exception occured during extract: " << e.what();
-      cerr << ss.str() << endl;
-      malformedPackets++;
-    }
-
-    // Associate packet with flow:
-    const Fields& k = evalCxt.fields;
-    const FlowKeyTuple fkt = make_flow_key_tuple(k);
-
-    u16 wireBytes = evalCxt.origBytes;
-    maxPacketSize = std::max(maxPacketSize, wireBytes);
-    minPacketSize = std::min(minPacketSize, wireBytes);
-    totalBytes += wireBytes;
-    totalPackets++;
-
-    // Perform initial flowID lookup:
     flow_id_t flowID;
-    {
-      auto status = flowIDs.find(fkt);
-      flowID = (status != flowIDs.end()) ? status->second : 0;
-    }
+    const timespec& pktTime = cxt.packet().timestamp();
 
-    ////////////////////////////////////
-    // Trace output generation lambda:
-    auto tracePoint = [&]() {
-      const auto& fields = evalCxt.fields;
-      const auto& proto = fields.fProto;
+    { // per-packet processing
+      const fp::Packet& p = cxt.packet();
+      EvalContext evalCxt(p);
 
-      // if flow is established?...
-      // TODO: how to punt suspected scans to seperate trace file?
-
-      if (proto & ProtoFlags::isTCP) {
-        serialize(tcpFlowTrace, fkt);
-        serialize(tcpFlowTrace, make_flags_bitset(k));
+      // Attempt to parse packet headers:
+      count++;
+      try {
+        int status = extract(evalCxt, IP);
       }
-      else if (proto & ProtoFlags::isUDP) {
-        serialize(udpFlowTrace, fkt);
+      catch (std::exception& e) {
+        stringstream ss;
+        ss << count << " (" << p.size() << "B): ";
+        ss << evalCxt.v.absoluteBytes<int>() << ", "
+           << evalCxt.v.committedBytes<int>() << ", "
+           << evalCxt.v.pendingBytes<int>() << '\n';
+        ss << dump_packet(p).str() << '\n';
+        print_eval(ss, evalCxt);
+        ss << "> Exception occured during extract: " << e.what();
+        cerr << ss.str() << endl;
+        malformedPackets++;
       }
-      else {
-        serialize(otherFlowTrace, fkt);
-      }
-      serialize(flowTrace, fkt);
-    };
 
-    tracePoint();
+      // Associate packet with flow:
+      const Fields& k = evalCxt.fields;
+      const FlowKeyTuple fkt = make_flow_key_tuple(k);
 
-    // If flow exists:
-    if (flowID != 0) {
-      // Known Flow:      
-      auto status = flowRecords.find(flowID); // iterator to {key, value}
+      // Update global stats:
+      u16 wireBytes = evalCxt.origBytes;
+      maxPacketSize = std::max(maxPacketSize, wireBytes);
+      minPacketSize = std::min(minPacketSize, wireBytes);
+      totalBytes += wireBytes;
+      totalPackets++;
 
-      if (status != flowRecords.end()) {
-        // Flow is currently tracked:
-        FlowRecord& flowR = status->second;
-        flowR.update(evalCxt);
-        touchedFlows.insert(flowID);
-      }
-      else {
-        // Flow was seen before but no longer tracked:
-        if (blacklistFlows.find(flowID) != blacklistFlows.end()) {
-          serialize(scanFlowTrace, fkt);
-          serialize(scanFlowTrace, make_flags_bitset(k));
-          blacklistPackets++;
+
+      // Perform initial flowID lookup:
+      auto flowID_status = flowIDs.find(fkt);
+      flowID = (flowID_status != flowIDs.end()) ? flowID_status->second.front() : 0;
+
+      ////////////////////////////////////
+      // Trace output generation lambda:
+      auto tracePoint = [&]() {
+        const auto& fields = evalCxt.fields;
+        const auto& proto = fields.fProto;
+
+        // if flow is established?...
+        // TODO: how to punt suspected scans to seperate trace file?
+
+        if (proto & ProtoFlags::isTCP) {
+          serialize(tcpFlowTrace, fkt);
+          serialize(tcpFlowTrace, make_flags_bitset(k));
+        }
+        else if (proto & ProtoFlags::isUDP) {
+          serialize(udpFlowTrace, fkt);
         }
         else {
-          debugLog << "FlowID " << flowID << " is no longer being tracked; "
-                   << print_flow_key_string(k) << endl;
-          timeoutPackets++;
+          serialize(otherFlowTrace, fkt);
         }
-      }
-    }
-    else {
-      // Unkown Flow:
-      auto newFlowID = flowIDs.emplace(std::piecewise_construct,
-                            std::forward_as_tuple(fkt),
-                            std::forward_as_tuple(nextFlowID));
-      assert(newFlowID.second); // sanity check
-      flowID = nextFlowID++;
+        serialize(flowTrace, fkt);
+      };
+      ////////////////////////////////////
 
-      // Filter out TCP scans (first packet observed has RST):
-//      if (evalCxt.fields.fProto & ProtoFlags::isTCP &&
-//          evalCxt.fields.fTCP & TCPFlags::RST &&
-//          evalCxt.fields.fTCP & TCPFlags::ACK ) {
-//        serialize(scanFlowTrace, fkt);
-//        serialize(scanFlowTrace, make_flags_bitset(k));
-//        blacklistFlows.insert(flowID);
-////        debugLog << "Blacklisting FlowID " << flowID << " (RST+ACK on first packet)." << endl;
-//      }
-      if (evalCxt.fields.fProto & ProtoFlags::isTCP &&
-          (evalCxt.fields.fTCP & TCPFlags::RST ||
-           evalCxt.fields.fTCP & TCPFlags::FIN) ) {
-        serialize(scanFlowTrace, fkt);
-        serialize(scanFlowTrace, make_flags_bitset(k));
-        blacklistFlows.insert(flowID);
-//        debugLog << "Blacklisting TCP flow " << flowID
-//                 << "; first packet observed was "
-//                 << ((evalCxt.fields.fTCP & TCPFlags::FIN)?"FIN":"RST")
-//                 << endl;
+      tracePoint();
+
+
+      // If flow exists:
+      if (flowID != 0) {
+        // Known Flow:
+        auto flowRecord_status = flowRecords.find(flowID); // iterator to {key, value}
+        if (flowRecord_status != flowRecords.end()) {
+          std::reference_wrapper<FlowRecord> flowR = flowRecord_status->second;
+
+          // TODO: ignore syn retransmits...?
+          // Ensure packet doesn't correspond to a new flow (port-reuse):
+          if ( evalCxt.fields.fProto & ProtoFlags::isTCP &&
+               (evalCxt.fields.fTCP & TCPFlags::SYN) == TCPFlags::SYN &&
+               evalCxt.fields.tcpSeqNum != flowR.get().lastSeq() ) {
+            // Packet indicates new flow:
+            timespec sinceLast = pktTime - flowR.get().last();
+            debugLog << (flowR.get().isTCP()?"TCP":"???") << " flow " << flowID
+                     << " considered terminated after new SYN, "
+                     << flowR.get().packets()
+                     << " packets and " << sinceLast.tv_sec
+                     << " seconds before port reuse; "
+                     << print_flow_key_string(k) << endl;
+
+            // Retire old record:
+            flowStats << print_flow(flowR).str();
+            flowRecords.erase(flowRecord_status);
+
+            // Create new record for new flow:
+            flowID = nextFlowID++;
+            auto& flowID_vector = flowID_status->second;
+            flowID_vector.insert(flowID_vector.begin(), flowID);
+
+            auto newFlowRecord = flowRecords.emplace(std::piecewise_construct,
+                                  std::forward_as_tuple(flowID),
+                                  std::forward_as_tuple(flowID, pktTime));
+            assert(newFlowRecord.second); // sanity check
+            flowR = newFlowRecord.first->second;
+            flowPortReuse++;
+          }
+
+          // Flow is currently tracked:
+          flowR.get().update(evalCxt);
+          touchedFlows.insert(flowID);
+        }
+        else {
+          // Flow was seen before but no longer tracked:
+          if (blacklistFlows.find(flowID) != blacklistFlows.end()) {
+            serialize(scanFlowTrace, fkt);
+            serialize(scanFlowTrace, make_flags_bitset(k));
+            blacklistPackets++;
+          }
+          else {
+            // FIXME: properly seperate new flow record creation!
+            // Ensure packet doesn't correspond to a new flow (port-reuse):
+            if ( evalCxt.fields.fProto & ProtoFlags::isTCP &&
+                 (evalCxt.fields.fTCP & TCPFlags::SYN) == TCPFlags::SYN ) {
+              // Packet indicates new flow:
+//              timespec sinceLast = pktTime - flowR.get().last();
+//              debugLog << (flowR.get().isTCP()?"TCP":"???") << " flow " << flowID
+//                       << " considered terminated after new SYN, "
+//                       << flowR.get().packets()
+//                       << " packets and " << sinceLast.tv_sec
+//                       << " seconds before port reuse; "
+//                       << print_flow_key_string(k) << endl;
+
+              // Create new record for new flow:
+              flowID = nextFlowID++;
+              auto& flowID_vector = flowID_status->second;
+              flowID_vector.insert(flowID_vector.begin(), flowID);
+
+              auto newFlowRecord = flowRecords.emplace(std::piecewise_construct,
+                                    std::forward_as_tuple(flowID),
+                                    std::forward_as_tuple(flowID, pktTime));
+              assert(newFlowRecord.second); // sanity check
+              std::reference_wrapper<FlowRecord> flowR = newFlowRecord.first->second;
+              flowPortReuse++;
+
+              flowR.get().update(evalCxt);
+              touchedFlows.insert(flowID);
+            }
+            else {
+              debugLog << "FlowID " << flowID << " is no longer being tracked; "
+                       << print_flow_key_string(k) << endl;
+              timeoutPackets++;
+            }
+          }
+        }
       }
       else {
-        // Follow new flow:
-        auto newFlowRecord = flowRecords.emplace(std::piecewise_construct,
-                              std::forward_as_tuple(flowID),
-                              std::forward_as_tuple(flowID, time));
-        assert(newFlowRecord.second); // sanity check
-        newFlowRecord.first->second.update(evalCxt);
-      }
+        // Unkown Flow:
+        auto newFlowID = flowIDs.emplace(std::piecewise_construct,
+            std::forward_as_tuple(fkt),
+            std::forward_as_tuple(std::initializer_list<flow_id_t>({nextFlowID})) );
+        assert(newFlowID.second); // sanity check
+        flowID = nextFlowID++;
 
-
-      // Clean up dormant flows every new 128k new flows:
-      if (flowID % (128*1024) == 0) {
-//        cout << caida.next_cxt_.top()->packet_.ts_;
-        timespec diff = p->timestamp() - last_epoc;
-        last_epoc = p->timestamp();
-        cout << touchedFlows.size() << "/" << flowRecords.size()
-             << " flows touched since last epoch spanning "
-             << diff.tv_sec + double(diff.tv_nsec)/double(1000000000.0)
-             << " seconds."
-             << endl;
-
-        // Add flows not observed to dormant list:
-        std::set<flow_id_t> dormantFlows;
-        std::set_difference(
-              KeyIterator(flowRecords.begin()), KeyIterator(flowRecords.end()),
-              touchedFlows.begin(), touchedFlows.end(),
-              std::inserter(dormantFlows, dormantFlows.end()) );
-
-        touchedFlows.clear();
-
-        // Scan flows which have signaled FIN/RST:
-        for (auto i : dormantFlows) {
-          constexpr uint64_t RST_TIMEOUT = 10;
-          constexpr uint64_t FIN_TIMEOUT = 60;
-          constexpr uint64_t TCP_TIMEOUT = 600;
-          constexpr uint64_t LONG_TIMEOUT = 120;
-
-          auto flowR_i = flowRecords.find(i);
-          const FlowRecord& flowR = flowR_i->second;
-
-          timespec sinceLast = time - flowR.last();
-          if (flowR.sawRST() && sinceLast.tv_sec >= RST_TIMEOUT) {
-            debugLog << (flowR.isTCP()?"TCP":"???") << " flow " << i
-                     << " considered terminated after RST, "
-//                     << (flowR.sawFIN()?"FIN, ":"RST, ")
-                     << flowR.packets()
-                     << " packets and " << sinceLast.tv_sec
-                     << " seconds of inactivity; "
-                     << print_flow_key_string(k) << endl;
-            flowStats << print_flow(flowR).str();
-            flowRecords.erase(flowR_i);
-          }
-          else if (flowR.sawFIN() && sinceLast.tv_sec >= FIN_TIMEOUT) {
-            debugLog << (flowR.isTCP()?"TCP":"???") << " flow " << i
-                     << " considered terminated after FIN, "
-//                     << (flowR.sawFIN()?"FIN, ":"RST, ")
-                     << flowR.packets()
-                     << " packets and " << sinceLast.tv_sec
-                     << " seconds of inactivity; "
-                     << print_flow_key_string(k) << endl;
-            flowStats << print_flow(flowR).str();
-            flowRecords.erase(flowR_i);
-          }
-          else if (flowR.isTCP() && sinceLast.tv_sec >= TCP_TIMEOUT) {
-            debugLog << (flowR.isTCP()?"TCP":"???") << " flow " << i
-                     << " considered dormant after " << flowR.packets()
-                     << " packets and " << sinceLast.tv_sec
-                     << " seconds of inactivity; "
-                     << print_flow_key_string(k) << endl;
-            flowStats << print_flow(flowR).str();
-            flowRecords.erase(flowR_i);
-          }
-          else if (sinceLast.tv_sec >= LONG_TIMEOUT) {
-            debugLog << (flowR.isUDP()?"UDP":"???") << " flow " << i
-                     << " considered dormant after " << flowR.packets()
-                     << " packets and " << sinceLast.tv_sec
-                     << " seconds of inactivity; "
-                     << print_flow_key_string(k) << endl;
-            flowStats << print_flow(flowR).str();
-            flowRecords.erase(flowR_i);
-          }
+        // Filter out TCP scans (first packet observed has RST):
+        if (evalCxt.fields.fProto & ProtoFlags::isTCP &&
+            (evalCxt.fields.fTCP & TCPFlags::RST ||
+             evalCxt.fields.fTCP & TCPFlags::FIN) ) {
+          serialize(scanFlowTrace, fkt);
+          serialize(scanFlowTrace, make_flags_bitset(k));
+          blacklistFlows.insert(flowID);
+  //        debugLog << "Blacklisting TCP flow " << flowID
+  //                 << "; first packet observed was "
+  //                 << ((evalCxt.fields.fTCP & TCPFlags::FIN)?"FIN":"RST")
+  //                 << endl;
         }
+        else {
+          // Follow new flow:
+          auto newFlowRecord = flowRecords.emplace(std::piecewise_construct,
+                                std::forward_as_tuple(flowID),
+                                std::forward_as_tuple(flowID, pktTime));
+          assert(newFlowRecord.second); // sanity check
+          newFlowRecord.first->second.update(evalCxt);
+        }
+
+        ///////////////////////////////////////////////////
+        // Clean up dormant flows every new 128k new flows:
+        if (flowID % (128*1024) == 0) {
+          timespec diff = pktTime - last_epoc;
+          last_epoc = pktTime;
+          cout << touchedFlows.size() << "/" << flowRecords.size()
+               << " flows touched since last epoch spanning "
+               << diff.tv_sec + double(diff.tv_nsec)/double(1000000000.0)
+               << " seconds."
+               << endl;
+
+          // Add flows not observed to dormant list:
+          std::set<flow_id_t> dormantFlows;
+          std::set_difference(
+                KeyIterator(flowRecords.begin()), KeyIterator(flowRecords.end()),
+                touchedFlows.begin(), touchedFlows.end(),
+                std::inserter(dormantFlows, dormantFlows.end()) );
+
+          touchedFlows.clear();
+
+          // Scan flows which have signaled FIN/RST:
+          for (auto i : dormantFlows) {
+            constexpr uint64_t RST_TIMEOUT = 10;
+            constexpr uint64_t FIN_TIMEOUT = 60;
+            constexpr uint64_t TCP_TIMEOUT = 600;
+            constexpr uint64_t LONG_TIMEOUT = 120;
+
+            // FlowID reverse search lambda (linear):
+            // FIXME: avoid linear search!
+            auto find_key = [&flowIDs](flow_id_t id) -> const FlowKeyTuple& {
+              for (const auto& fid : flowIDs) {
+                if (fid.second.front() == id) {
+                  return fid.first;
+                }
+              }
+            };
+
+            auto flowR_i = flowRecords.find(i);
+            const FlowRecord& flowR = flowR_i->second;
+
+            timespec sinceLast = pktTime - flowR.last();
+            if (flowR.sawRST() && sinceLast.tv_sec >= RST_TIMEOUT) {
+              debugLog << (flowR.isTCP()?"TCP":"???") << " flow " << i
+                       << " considered terminated after RST, "
+    //                     << (flowR.sawFIN()?"FIN, ":"RST, ")
+                       << flowR.packets()
+                       << " packets and " << sinceLast.tv_sec
+                       << " seconds of inactivity; "
+                       << print_flow_key_string( find_key(i) ) << endl;
+              flowStats << print_flow(flowR).str();
+              flowRecords.erase(flowR_i);
+            }
+            else if (flowR.sawFIN() && sinceLast.tv_sec >= FIN_TIMEOUT) {
+              debugLog << (flowR.isTCP()?"TCP":"???") << " flow " << i
+                       << " considered terminated after FIN, "
+    //                     << (flowR.sawFIN()?"FIN, ":"RST, ")
+                       << flowR.packets()
+                       << " packets and " << sinceLast.tv_sec
+                       << " seconds of inactivity; "
+                       << print_flow_key_string( find_key(i) ) << endl;
+              flowStats << print_flow(flowR).str();
+              flowRecords.erase(flowR_i);
+            }
+            else if (flowR.isTCP() && sinceLast.tv_sec >= TCP_TIMEOUT) {
+              debugLog << (flowR.isTCP()?"TCP":"???") << " flow " << i
+                       << " considered dormant after " << flowR.packets()
+                       << " packets and " << sinceLast.tv_sec
+                       << " seconds of inactivity; "
+                       << print_flow_key_string( find_key(i) ) << endl;
+              flowStats << print_flow(flowR).str();
+              flowRecords.erase(flowR_i);
+            }
+            else if (sinceLast.tv_sec >= LONG_TIMEOUT) {
+              debugLog << (flowR.isUDP()?"UDP":"???") << " flow " << i
+                       << " considered dormant after " << flowR.packets()
+                       << " packets and " << sinceLast.tv_sec
+                       << " seconds of inactivity; "
+                       << print_flow_key_string( find_key(i) ) << endl;
+              flowStats << print_flow(flowR).str();
+              flowRecords.erase(flowR_i);
+            }
+          }
+        } // end flow cleanup
       }
-    }
+    } // end per-packet processing
 
     // Release resources and retrieve another packet:
     caida.rebound(&cxt);
@@ -503,15 +574,16 @@ main(int argc, const char* argv[])
   }
 
   // Print flow tuples:
-//  for (const auto& flow : flowRecords) {
-//    const auto& fk = flow.first;
-//    const FlowRecord& fr = flow.second;
+  for (const auto& flow : flowRecords) {
+    const auto& key = flow.first;
+    const FlowRecord& record = flow.second;
 
-//    serialize(flowStats, fk);
-//    serialize(flowStats, fr.getFlowID());
-//    serialize(flowStats, fr.packets());
-//    // output other flow statistics?
-//  }
+    flowStats << print_flow(record).str();
+//    serialize(flowStats, key);
+//    serialize(flowStats, record.getFlowID());
+//    serialize(flowStats, record.packets());
+    // output other flow statistics?
+  }
 
 
   // Print global stats:
@@ -524,6 +596,7 @@ main(int argc, const char* argv[])
   debugLog << "Blacklisted packets: " << blacklistPackets << '\n';
   debugLog << "Timeout packets: " << timeoutPackets << '\n';
   debugLog << "Malformed packets: " << malformedPackets << '\n';
+  debugLog << "Flow port reuse: " << flowPortReuse << '\n';
 
   chrono::system_clock::time_point end_time = chrono::system_clock::now();
   auto msec = chrono::duration_cast<chrono::milliseconds>(end_time - start_time).count();
