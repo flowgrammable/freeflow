@@ -16,7 +16,7 @@ class KeyIterator : public Iterator {
 
 public:
     KeyIterator() : Iterator() {};
-    KeyIterator(Iterator it_) : Iterator(it_) {};
+    KeyIterator(Iterator it) : Iterator(it) {};
 
     Key* operator->() {
       Pair& item = Iterator::operator*();
@@ -25,6 +25,10 @@ public:
     Key& operator*() {
       Pair& item = Iterator::operator*();
       return item.first;
+    }
+    Value& getValue() {
+      Pair& item = Iterator::operator*();
+      return item.second;
     }
 };
 
@@ -37,13 +41,17 @@ class ValueIterator : public Iterator {
 
 public:
     ValueIterator() : Iterator() {};
-    ValueIterator(Iterator it_) : Iterator(it_) {};
+    ValueIterator(Iterator it) : Iterator(it) {};
 
     Value* operator->() {
       Pair& item = Iterator::operator*();
-      return &(item.first);
+      return &(item.second);
     }
     Value& operator*() {
+      Pair& item = Iterator::operator*();
+      return item.second;
+    }
+    Key& getKey() {
       Pair& item = Iterator::operator*();
       return item.first;
     }
