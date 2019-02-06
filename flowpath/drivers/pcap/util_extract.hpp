@@ -329,6 +329,9 @@ public:
 
   EvalContext(fp::Packet* const p);
   EvalContext(const fp::Packet& p);
+  EvalContext(const EvalContext& cxt) = default;
+  EvalContext(EvalContext&& cxt) = default;
+
   const fp::Packet& packet() const {return pkt_;}
 
 private:

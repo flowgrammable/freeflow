@@ -4,6 +4,7 @@
 #include "util_extract.hpp"
 #include "util_bitmask.hpp"
 #include "util_io.hpp"
+#include "sim_min.hpp"
 
 #include <string>
 #include <iostream>
@@ -287,6 +288,9 @@ main(int argc, const char* argv[])
   std::unordered_set<flow_id_t> blacklistFlows;
   std::set<flow_id_t> touchedFlows;
 
+  // Simulation Eval structures:
+  SimMin<flow_id_t> simMIN(32);
+
   // Global Stats:
   u16 maxPacketSize = std::numeric_limits<u16>::lowest();
   u16 minPacketSize = std::numeric_limits<u16>::max();
@@ -305,6 +309,8 @@ main(int argc, const char* argv[])
 
     { // per-packet processing
       const fp::Packet& p = cxt.packet();
+//      evalQueue.emplace(p);
+//      EvalContext& evalCxt = evalQueue.back();
       EvalContext evalCxt(p);
 
       // Attempt to parse packet headers:
@@ -403,6 +409,10 @@ main(int argc, const char* argv[])
             assert(newFlowRecord.second); // sanity check
             flowR = newFlowRecord.first->second;
             flowPortReuse++;
+            simMIN.insert(flowID, pktTime);
+          }
+          else {
+            simMIN.update(flowID, pktTime);
           }
 
           // Flow is currently tracked:
@@ -444,11 +454,13 @@ main(int argc, const char* argv[])
 
               flowR.get().update(evalCxt);
               touchedFlows.insert(flowID);
+              simMIN.insert(flowID, pktTime);
             }
             else {
               debugLog << "FlowID " << flowID << " is no longer being tracked; "
                        << print_flow_key_string(k) << endl;
               timeoutPackets++;
+              simMIN.update(flowID, pktTime); // TODO, is this broken?
             }
           }
         }
@@ -480,6 +492,7 @@ main(int argc, const char* argv[])
                                 std::forward_as_tuple(flowID, pktTime));
           assert(newFlowRecord.second); // sanity check
           newFlowRecord.first->second.update(evalCxt);
+          simMIN.insert(flowID, pktTime);
         }
 
         ///////////////////////////////////////////////////
