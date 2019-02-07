@@ -572,7 +572,7 @@ main(int argc, const char* argv[])
             }
             else if (sinceLast.tv_sec >= LONG_TIMEOUT) {
               debugLog << (flowR.isUDP()?"UDP":"???") << " flow " << i
-                       << " considered dormant after " << flowR.packets()
+                       << " considered dormant afer " << flowR.packets()
                        << " packets and " << sinceLast.tv_sec
                        << " seconds of inactivity; "
                        << print_flow_key_string( find_key(i) ) << endl;
