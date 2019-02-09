@@ -5,6 +5,7 @@
 #include "util_bitmask.hpp"
 #include "util_io.hpp"
 #include "sim_min.hpp"
+#include "sim_lru.hpp"
 
 #include <string>
 #include <iostream>
@@ -289,7 +290,8 @@ main(int argc, const char* argv[])
   std::set<flow_id_t> touchedFlows;
 
   // Simulation Eval structures:
-  SimMin<flow_id_t> simMIN(32);
+  SimMIN<flow_id_t> simMIN(1<<16);  // 64k
+  SimLRU<flow_id_t> simLRU(1<<16);
 
   // Global Stats:
   u16 maxPacketSize = std::numeric_limits<u16>::lowest();
@@ -410,9 +412,11 @@ main(int argc, const char* argv[])
             flowR = newFlowRecord.first->second;
             flowPortReuse++;
             simMIN.insert(flowID, pktTime);
+            simLRU.insert(flowID, pktTime);
           }
           else {
             simMIN.update(flowID, pktTime);
+            simLRU.update(flowID, pktTime);
           }
 
           // Flow is currently tracked:
@@ -455,12 +459,14 @@ main(int argc, const char* argv[])
               flowR.get().update(evalCxt);
               touchedFlows.insert(flowID);
               simMIN.insert(flowID, pktTime);
+              simLRU.insert(flowID, pktTime);
             }
             else {
               debugLog << "FlowID " << flowID << " is no longer being tracked; "
                        << print_flow_key_string(k) << endl;
               timeoutPackets++;
               simMIN.update(flowID, pktTime); // TODO, is this broken?
+              simLRU.update(flowID, pktTime);
             }
           }
         }
@@ -493,6 +499,7 @@ main(int argc, const char* argv[])
           assert(newFlowRecord.second); // sanity check
           newFlowRecord.first->second.update(evalCxt);
           simMIN.insert(flowID, pktTime);
+          simLRU.insert(flowID, pktTime);
         }
 
         ///////////////////////////////////////////////////
@@ -614,14 +621,34 @@ main(int argc, const char* argv[])
   debugLog << "Malformed packets: " << malformedPackets << '\n';
   debugLog << "Flow port reuse: " << flowPortReuse << '\n';
 
+  // Print Locality Simulation:
+  debugLog << "SimMIN Cache Size: " << simMIN.get_size() << '\n';
+  debugLog << " - Miss (Compulsory): " << simMIN.get_compulsory_miss() << '\n';
+  debugLog << " - Hits: " << simMIN.get_hits() << '\n';
+  debugLog << " - Miss (Capacity): " << simMIN.get_capacity_miss() << '\n';
+  debugLog << " - Max elements between barrier: " << simMIN.get_max_elements() << '\n';
+  debugLog << "SimLRU Cache Size: " << simLRU.get_size() << '\n';
+  debugLog << " - Miss (Compulsory): " << simLRU.get_compulsory_miss() << '\n';
+  debugLog << " - Hits: " << simLRU.get_hits() << '\n';
+  debugLog << " - Miss (Capacity): " << simLRU.get_capacity_miss() << '\n';
+
+
   chrono::system_clock::time_point end_time = chrono::system_clock::now();
   auto msec = chrono::duration_cast<chrono::milliseconds>(end_time - start_time).count();
   auto sec  = msec/1000;
   auto min  = sec/60;
   auto hrs  = min/60;
+  debugLog << "Run took "
+           << hrs << "h:" << min%60 << "m:"
+           << sec%60 << "s:" << msec%1000 << "ms" << endl;
+//  debugLog << "Capture Start: " << packet_time << '\n'
+//           << "Capture End: " << packet_time2 << '\n'
+//           << "Capture Duration: " << packet_time2-packet_time << endl;
   cout << "Run took "
        << hrs << "h:" << min%60 << "m:"
-       << sec%60 << "s:" << msec%1000 << "ms" << endl;
+       << sec%60 << "s:" << msec%1000 << "ms\n";
+  cout << "Processed " << totalPackets << " packets ("
+       << flowIDs.size() << " flows)." << endl;
 
   return 0;
 }

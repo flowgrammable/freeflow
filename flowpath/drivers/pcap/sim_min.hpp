@@ -2,6 +2,7 @@
 #define SIM_MIN_HPP
 
 #include <vector>
+#include <iostream>
 
 #include "types.hpp"
 #include "util_container.hpp"
@@ -13,16 +14,16 @@
 
 
 template<typename Key>
-class SimMin {
+class SimMIN {
   using Count = uint32_t;
   using Time = timespec;  // maybe throw out?
-  using Point = std::pair<size_t,Time>;  // miss-index, real-time
+//  using Point = std::pair<size_t,Time>;  // miss-index, real-time
 //  using Reservation = std::pair<Point,Point>;
   using Reservation = std::pair<size_t,size_t>;
   using History = absl::InlinedVector<Reservation,1>;
 
 public:
-  SimMin(size_t entries);
+  SimMIN(size_t entries);
 
 private:
   void trim_to_barrier();
@@ -31,6 +32,12 @@ public:
   void insert(const Key& k, const Time& t);
   bool update(const Key& k, const Time& t);
   void remove(const Key& k);
+
+  size_t get_size() const {return MAX_;}
+  uint64_t get_hits() const {return hits_;}
+  uint64_t get_capacity_miss() const {return capacityMiss_;}
+  uint64_t get_compulsory_miss() const {return compulsoryMiss_;}
+  size_t get_max_elements() const {return max_elements_;}
 
 private:
   const size_t MAX_;
@@ -53,7 +60,7 @@ private:
 /////////////////////////////
 
 template<typename Key>
-SimMin<Key>::SimMin(size_t entries) : MAX_(entries) {
+SimMIN<Key>::SimMIN(size_t entries) : MAX_(entries) {
   reserved_.reserve(entries*16);  // prepare for roughly 10:1 flow:active ratio
 }
 
@@ -61,7 +68,7 @@ SimMin<Key>::SimMin(size_t entries) : MAX_(entries) {
 // Key has been created (first occurance)
 // - Pull:  Mark 1 at (k, t).
 template<typename Key>
-void SimMin<Key>::insert(const Key& k, const Time& t) {
+void SimMIN<Key>::insert(const Key& k, const Time& t) {
   size_t column = compulsoryMiss_ + capacityMiss_;  // t
   compulsoryMiss_++;
 
@@ -79,7 +86,7 @@ void SimMin<Key>::insert(const Key& k, const Time& t) {
 // If !present, generate pull & advance set.
 // - Pull:  Mark 1 at (k, t)
 template<typename Key>
-bool SimMin<Key>::update(const Key& k, const Time& t) {
+bool SimMIN<Key>::update(const Key& k, const Time& t) {
   History& hist = reserved_[k];
   if (hist.size() > 0 && barrier_ <= hist.back().second) {
     hits_++;
@@ -120,7 +127,7 @@ bool SimMin<Key>::update(const Key& k, const Time& t) {
 // Even if touched within Epoc, mark invalidated.
 // - Evict: Mark 0 at (k, t-1)??
 //template<typename Key>
-//void SimMin<Key>::remove(const Key& k) {
+//void SimMIN<Key>::remove(const Key& k) {
 //  //
 //}
 
@@ -131,7 +138,7 @@ bool SimMin<Key>::update(const Key& k, const Time& t) {
 // - Update trim offset to number of columns 'deleted'
 // -- 'time' moves on, but capacity vector's index is adjusted back to 0
 template<typename Key>
-void SimMin<Key>::trim_to_barrier() {
+void SimMIN<Key>::trim_to_barrier() {
   size_t advance = barrier_ - trim_offset_;
   if (advance == 0) {
     return;
@@ -169,6 +176,9 @@ void SimMin<Key>::trim_to_barrier() {
   auto cut = capacity_.begin() + advance;   // one past range to cut
   capacity_.erase(capacity_.begin(), cut);  // removes [begin, cut)
   trim_offset_ += advance;
+
+  std::cout << "MIN: Barrier hit at " << trim_offset_
+            << ", advanced by " << advance << " demands." << std::endl;
 }
 
 
