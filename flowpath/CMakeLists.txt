@@ -23,6 +23,7 @@ include_directories(${Boost_INCLUDE_DIRS})
 find_package(ZLIB REQUIRED)
 
 # Find OpenSSL for crypto library.
+#  cmake -DOPENSSL_ROOT_DIR=/usr/local/opt/openssl -DOPENSSL_LIBRARIES=/usr/local/opt/openssl/lib .
 find_package(OpenSSL REQUIRED)
 
 # Find system Open Data Plane (ODP) Libraries.
