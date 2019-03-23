@@ -31,7 +31,7 @@ private:
 public:
   void insert(const Key& k, const Time& t);
   bool update(const Key& k, const Time& t);
-  void remove(const Key& k);
+  void remove(const Key& k);  // does nothing...
 
   size_t get_size() const {return MAX_;}
   uint64_t get_hits() const {return hits_;}
@@ -99,14 +99,20 @@ bool SimMIN<Key>::update(const Key& k, const Time& t) {
 //      hist.back().second.second = t;
     res.second = column;
 
-    // determine if barrier changed...
+    // Determine if barrier moved:
     size_t last = barrier_;
     for (size_t i = column_begin+1; i <= column; i++ ) {
       const size_t idx = i - trim_offset_;
       assert(idx < capacity_.size());
+      // Update count (scoreboard):
       if (++capacity_[idx] >= MAX_) {
+        // Take note if barrier moved:
         last = i;
       }
+    }
+
+    if (last < barrier_) {
+      std::cerr << "WARNING: SIM_MIN's index rolled over size_t!" << std::endl;
     }
     barrier_ = last;
     trim_to_barrier();
@@ -121,15 +127,6 @@ bool SimMIN<Key>::update(const Key& k, const Time& t) {
     return false;
   }
 }
-
-
-// Key has been invalidated (never to be seen again)
-// Even if touched within Epoc, mark invalidated.
-// - Evict: Mark 0 at (k, t-1)??
-//template<typename Key>
-//void SimMIN<Key>::remove(const Key& k) {
-//  //
-//}
 
 
 // Delete uneeded metadata:
@@ -177,8 +174,10 @@ void SimMIN<Key>::trim_to_barrier() {
   capacity_.erase(capacity_.begin(), cut);  // removes [begin, cut)
   trim_offset_ += advance;
 
+#ifdef DEBUG_LOG
   std::cout << "MIN: Barrier hit at " << trim_offset_
             << ", advanced by " << advance << " demands." << std::endl;
+#endif
 }
 
 

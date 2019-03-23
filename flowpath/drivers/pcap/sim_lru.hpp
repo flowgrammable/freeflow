@@ -26,7 +26,7 @@ public:
   SimLRU(size_t entries);
   void insert(const Key& k, const Time& t);
   bool update(const Key& k, const Time& t);
-  void remove(const Key& k);
+  bool demote(const Key& k);
 
   size_t get_size() const {return MAX_;}
   uint64_t get_hits() const {return hits_;}
@@ -103,7 +103,7 @@ bool SimLRU<Key>::update(const Key& k, const Time& t) {
     hits_++;
     lru_stack_it it = status->second;
     if (it != stack_.begin()) {
-      // Move element from current position to front of list:
+      // Move element from current position to front of list (MSP):
       stack_.splice(stack_.begin(), stack_, it, std::next(it));
     }
     return true;
@@ -119,10 +119,21 @@ bool SimLRU<Key>::update(const Key& k, const Time& t) {
 // Key has been invalidated (never to be seen again)
 // Even if touched within Epoc, mark invalidated.
 // - Evict: Mark 0 at (k, t-1)??
-//template<typename Key>
-//void SimLRU<Key>::remove(const Key& k) {
-//  //
-//}
+template<typename Key>
+bool SimLRU<Key>::demote(const Key& k) {
+  // TODO: Consider demoting to a lower position, but not end-of-stack?
+  auto status = lookup_.find(k);
+  if (status != lookup_.end()) {
+//    hits_++;
+    lru_stack_it it = status->second;
+    if (it != stack_.begin()) {
+      // Move element from current position to end of list (LSP):
+      stack_.splice(stack_.end(), stack_, it, std::next(it));
+    }
+    return true;
+  }
+  return false;
+}
 
 
 #endif // SIM_LRU_HPP
