@@ -219,18 +219,21 @@ class EvalContext;  // forward declaration
 
 class FlowRecord {
 public:
-//  FlowRecord(u64 flowID, const EvalContext& e) :
-//    flowID_(flowID), start_(e.packet().timestamp()),
-//    arrival_ns_({0}), bytes_({e.origBytes}),
-//    saw_open_(false), saw_close_(false), saw_reset_(false),
-//    fragments_(0), retransmits_(0), directionality_(0) {
-//  }
+  const enum MODE_EN {NORMAL, TIMESERIES} MODE;
 
-  FlowRecord(u64 flowID, const timespec& ts) :
-    flowID_(flowID), start_(ts),
-    arrival_ns_{}, bytes_{}, protoFlags_{},
+  FlowRecord(u64 flowID, const timespec& ts, MODE_EN m = NORMAL) :
+    MODE(m), flowID_(flowID), flowTuple_{}, start_(ts),
+    arrival_ns_ts_{}, byte_ts_{}, protoFlags_{},
     saw_open_(false), saw_close_(false), saw_reset_(false),
-    fragments_(0), retransmits_(0), directionality_(0),
+    pkts_(0), bytes_(0), fragments_(0), retransmits_(0), directionality_(0),
+    ACK_count_(0), PSH_count_(0), URG_count_(0) {
+  }
+
+  FlowRecord(u64 flowID, const FlowKeyTuple& flowTuple, const timespec& ts, MODE_EN m = NORMAL) :
+    MODE(m), flowID_(flowID), flowTuple_(flowTuple), start_(ts),
+    arrival_ns_ts_{}, byte_ts_{}, protoFlags_{},
+    saw_open_(false), saw_close_(false), saw_reset_(false),
+    pkts_(0), bytes_(0), fragments_(0), retransmits_(0), directionality_(0),
     ACK_count_(0), PSH_count_(0), URG_count_(0) {
   }
 
@@ -238,8 +241,9 @@ public:
   u64 update(const u16 bytes, const timespec& ts);
 
   u64 getFlowID() const { return flowID_; }
-  size_t packets() const { return arrival_ns_.size(); }
-  u64 bytes() const;
+  FlowKeyTuple getFlowTuple() const { return flowTuple_; }
+  size_t packets() const { return pkts_; }
+  u64 bytes() const {return bytes_; }
   const std::string& getLog() const { return log_; }
 
   timespec last() const {
@@ -247,7 +251,7 @@ public:
 
     // TODO: replace this with chrono duration...
     timespec t = start_;
-    auto dif = arrival_ns_.back();
+    auto dif = arrival_ns_ts_.back();
     t.tv_nsec += dif % NS_IN_SEC;
     t.tv_sec += dif / NS_IN_SEC;
     if (t.tv_nsec >= NS_IN_SEC) {
@@ -257,8 +261,8 @@ public:
     return t;
   }
 
-  const std::vector<u64>& getArrivalV() const { return arrival_ns_; }
-  const std::vector<u16>& getByteV() const { return bytes_; }
+  const std::vector<u64>& getArrivalV() const { return arrival_ns_ts_; }
+  const std::vector<u16>& getByteV() const { return byte_ts_; }
 
   // Generic flow questions:
   bool isTCP() const { return (protoFlags_ & ProtoFlags::isTCP) == ProtoFlags::isTCP; }
@@ -273,14 +277,17 @@ public:
 
 private:
   // Flow Identification:
-  u64 flowID_;
+  const u64 flowID_;
+  const FlowKeyTuple flowTuple_;
   ProtoFlags protoFlags_;
   // also useful to have IPFlags?
 
   // Time-series:
   timespec start_;
-  std::vector<u64> arrival_ns_;
-  std::vector<u16> bytes_;
+  u64 pkts_;
+  u64 bytes_;
+  std::vector<u64> arrival_ns_ts_;
+  std::vector<u16> byte_ts_;
 
   // Flow State:
   // - Frame Characteristics:

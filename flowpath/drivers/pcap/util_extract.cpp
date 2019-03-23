@@ -172,7 +172,7 @@ u64 FlowRecord::update(const EvalContext& e) {
   // Committed bytes is insufficient...
 
   // First Update
-  if (arrival_ns_.size() == 0) {
+  if (arrival_ns_ts_.size() == 0) {
     protoFlags_ = protoFlags;
   }
 
@@ -235,17 +235,22 @@ u64 FlowRecord::update(const EvalContext& e) {
 
 u64 FlowRecord::update(const u16 bytes, const timespec& ts) {
   constexpr auto NS_IN_SEC = 1000000000LL;
-  bytes_.push_back(bytes);
+  pkts_++;
+  bytes_ += bytes;
 
   timespec diff = ts - start_; // NEED TO VERIFY
   u64 diff_ns = diff.tv_sec * NS_IN_SEC + diff.tv_nsec;
-  arrival_ns_.push_back(diff_ns);
 
+  if (MODE == MODE_EN::TIMESERIES) {
+    // Keep timeseries of all packets:
+    byte_ts_.push_back(bytes);
+    arrival_ns_ts_.push_back(diff_ns);
+  }
+  else {
+    // Only keep time of last packet:
+    arrival_ns_ts_.assign(size_t(1), diff_ns);
+  }
   return flowID_;
-}
-
-u64 FlowRecord::bytes() const {
-  return std::accumulate(bytes_.begin(), bytes_.end(), u64(0));
 }
 
 
