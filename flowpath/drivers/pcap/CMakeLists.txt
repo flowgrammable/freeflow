@@ -16,7 +16,7 @@ target_link_libraries(caida-pcap flowpath-rt flowpath-applib ${PCAP_LIBRARY} ${C
 target_link_libraries(flow-count flowpath-rt flowpath-applib absl::container ${PCAP_LIBRARY} ${CMAKE_DL_LIBS})
 target_link_libraries(flow-records flowpath-rt flowpath-applib absl::container ${PCAP_LIBRARY} ${CMAKE_DL_LIBS})
 target_link_libraries(flow-min flowpath-rt flowpath-applib absl::container ${PCAP_LIBRARY} ${CMAKE_DL_LIBS})
-target_link_libraries(flow-link flowpath-rt flowpath-applib absl::container ${PCAP_LIBRARY} ${CMAKE_DL_LIBS})
+target_link_libraries(flow-link flowpath-rt flowpath-applib wstp-link  absl::container ${PCAP_LIBRARY} ${CMAKE_DL_LIBS})
 
 #if (ENABLE_ODP)
 #  add_definitions(-DFP_ENABLE_ODP)
@@ -33,3 +33,17 @@ target_link_libraries(flow-records ${Boost_LIBRARIES})
 target_link_libraries(flow-min ${Boost_LIBRARIES})
 target_link_libraries(flow-link ${Boost_LIBRARIES})
 
+# Set runtime library search path:
+#set_target_properties(flow-link PROPERTIES INSTALL_RPATH "${Mathematica_RUNTIME_LIBRARY_DIRS}")
+#set_target_properties(flow-link PROPERTIES FOLDER "WSTP")
+
+# Fix WSTP shared library references under Mac OS X
+#Mathematica_ABSOLUTIZE_LIBRARY_DEPENDENCIES(flow-link)
+#if (DEFINED Mathematica_USERBASE_DIR)
+#  foreach (_systemID ${Mathematica_SYSTEM_IDS})
+#    install(TARGETS ${_Targets}
+#      RUNTIME DESTINATION
+#        "${Mathematica_USERBASE_DIR}/SystemFiles/Kernel/Binaries/${_systemID}"
+#      CONFIGURATIONS "Release")
+#  endforeach()
+#endif()

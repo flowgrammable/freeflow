@@ -47,6 +47,8 @@ endif()
 include_directories(.)
 include_directories(..)
 
+include_directories(${Mathematica_INCLUDE_DIRS})
+
 # Applications.
 #add_subdirectory(apps)
 add_subdirectory(app-lib)
@@ -76,6 +78,10 @@ add_library(flowpath-rt SHARED
     table.cpp
     thread.cpp
     types.cpp
+)
+
+add_library(wstp-link SHARED
+	wstp_link.cpp
 )
 
 # Add C-Define to enable compilation of port_odp.cpp
@@ -121,4 +127,14 @@ else ()
     pcap
   )
 endif()
+
+#set(MACOSX_RPATH TRUE)
+set(CMAKE_MACOSX_RPATH TRUE)
+set(CMAKE_SKIP_BUILD_RPATH FALSE)
+set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_RPATH};${Mathematica_WSTP_LIBRARY}")
+set(CMAKE_BUILD_RPATH "${CMAKE_INSTALL_RPATH};${Mathematica_WSTP_LIBRARY}")
+
+target_link_libraries(wstp-link	${Mathematica_WSTP_LIBRARIES})
 

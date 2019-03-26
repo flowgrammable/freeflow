@@ -35,6 +35,8 @@
 #include "absl/container/flat_hash_set.h"
 #include "absl/container/inlined_vector.h"
 
+// Wolfram Symbolic Transfer Protocol (WSTP):
+#include "wstp_link.hpp"
 
 using namespace std;
 //using namespace util_view;
@@ -299,6 +301,12 @@ main(int argc, const char* argv[])
   u64 totalPackets = 0, totalBytes = 0, \
       blacklistPackets = 0, malformedPackets = 0, timeoutPackets = 0, \
       flowPortReuse = 0;
+
+  // Instantiate Mathematica Link:
+  wstp_link wstp;
+  wstp.factor_test();
+  wstp.factor_test(112);
+  exit(EXIT_SUCCESS);
 
   ///////////////////////
   // PCAP file read loop:
@@ -652,4 +660,3 @@ main(int argc, const char* argv[])
 
   return 0;
 }
-

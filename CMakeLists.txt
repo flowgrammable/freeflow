@@ -36,6 +36,8 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
 # PCAP C Library.
 find_package(PCAP REQUIRED)
+find_package(Mathematica)
+
 include_directories(${PCAP_INCLUDE_DIR})
 
 # Include Abseil-CPP Library.
