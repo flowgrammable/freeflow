@@ -246,7 +246,7 @@ main(int argc, const char* argv[])
   debugLog << "Tracing to: " << traceFilename << '\n';
   debugLog << "Stats dumping to: " << flowsFilename << '\n';
 
-  constexpr auto FKT_SIZE = sizeof_tuple(FlowKeyTuple{});
+  constexpr auto FKT_SIZE = std::tuple_size<FlowKeyTuple>::value;
   debugLog << "File: " << flowsFilename << "\n"
            << "- Flow Key String: " << FKT_SIZE << "B\n"
            << "- FlowID: " << sizeof(flow_id_t) << "B\n";
@@ -305,7 +305,7 @@ main(int argc, const char* argv[])
   // Instantiate Mathematica Link:
   wstp_link wstp;
   wstp.factor_test();
-  wstp.factor_test(112);
+  wstp.factor_test2(112);
   exit(EXIT_SUCCESS);
 
   ///////////////////////
