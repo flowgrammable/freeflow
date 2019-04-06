@@ -12,13 +12,23 @@ extern "C" {
 #include <wstp.h>   // Wolfram Symbolic Transfer Protocol (WSTP)
 }
 
-
 class wstp_link {
 public:
+  // Types:
   using pkt_id_t = int;
 
-  wstp_link();
-  wstp_link(int argc, char* argv[]);
+  // Constants:
+#ifdef __APPLE__
+  static constexpr char LAUNCH_KERNEL[] = "-linkmode launch -linkname /Applications/Mathematica.app/Contents/MacOS/WolframKernel -wstp";
+  static constexpr char CONNECT_TCPIP[] = "-linkmode connect -linkprotocol tcpip -linkname ";
+  static constexpr char LISTEN_TCPIP[] = "-linkmode listen -linkprotocol tcpip -linkname ";
+#else
+  constexpr char LAUNCH_KERNEL[] = "-linkmode launch -linkname /Applications/Mathematica.app/Contents/MacOS/WolframKernel -wstp";
+#endif
+
+  // Constructors
+  wstp_link(std::string args = LAUNCH_KERNEL);
+  wstp_link(int argc, const char* argv[]);
   ~wstp_link();
 
   // Error Handling:
@@ -26,9 +36,10 @@ public:
   std::string get_error() const;
   std::string print_error() const;
   int reset() const;  // Attempt to recover from error.
+  bool log(std::string filename) const;
 
   // Public send/receive interface:
-  int flush() const;  // Attempt to send any queued messages.
+  int flush() const;    // Attempt to send any queued messages.
   template< typename Tuple, typename=std::enable_if_t<is_tuple<Tuple>::value> >
     std::vector<Tuple> receive_list() const;
 
@@ -36,16 +47,21 @@ public:
   int factor_test(int = ((1<<10) * (7*7*7) * 11)) const;
   int factor_test2(int = ((1<<10) * (7*7*7) * 11)) const;
 
-private:
+//private:
   // Packet type handlers:
   pkt_id_t receive() const;
   pkt_id_t receive(pkt_id_t id) const;
+
+  // Package / External Definitions:
+  int install();
 
   // Library call generation to get/recv data from link:
   template<typename T> T get() const;
   template<typename T> int put(T) const;
   template<typename T> int put_function(T, int args = 1) const;
-  int put_end() const;
+  template<typename T> int put_return(T, int args = 1) const;
+  template<typename T> int put_symbol(T) const;
+  int put_end() const;  // Mark end of packet.
 
   void closelink();
   void deinit();
@@ -82,7 +98,7 @@ template<typename Tuple> int wstp_link::put(Tuple t) const {
 // Generates appropriate put function calls for std::tuple:
 template<typename Tuple> int wstp_link::put_function(Tuple t, int args) const {
   int count = 0;
-  count += put_function("EvaluatePacket");  // assume 1 function for now...
+  count += put_function("EvaluatePacket", 1);  // assume 1 function for now...
   count += index_apply<std::tuple_size<Tuple>{}>(
     [&](auto... Is) {
       int count = 0;
@@ -91,6 +107,24 @@ template<typename Tuple> int wstp_link::put_function(Tuple t, int args) const {
     }
   );
   count += put_end();
+  flush();
+  return count; // number of library calls made
+}
+
+
+// Generates appropriate put ReturnPacket for std::tuple:
+template<typename Tuple> int wstp_link::put_return(Tuple t, int args) const {
+  int count = 0;
+  count += put_function("ReturnPacket", args);  // assume 1 function for now...
+  count += index_apply<std::tuple_size<Tuple>{}>(
+    [&](auto... Is) {
+      int count = 0;
+      count += (put(std::get<Is>(t)), ...);
+      return count;
+    }
+  );
+  count += put_end();
+  flush();
   return count; // number of library calls made
 }
 

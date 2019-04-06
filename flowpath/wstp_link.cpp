@@ -40,12 +40,6 @@
 #include <iostream>
 #include <sstream>
 
-#ifdef __APPLE__
-constexpr char ARGS[] = "-linkmode launch -linkname /Applications/Mathematica.app/Contents/MacOS/WolframKernel -wstp";
-#else
-constexpr char ARGS[] = "-linkmode launch -linkname /Applications/Mathematica.app/Contents/MacOS/WolframKernel -wstp";
-#endif
-
 using pkt_id_t = wstp_link::pkt_id_t;
 
 // Forward declarations of get/put specilizations:
@@ -55,36 +49,82 @@ template<> std::string wstp_link::get<std::string>() const;
 template<> int wstp_link::put<int64_t>(int64_t) const;
 template<> int wstp_link::put<double>(double) const;
 template<> int wstp_link::put<std::string>(std::string) const;
+template<> int wstp_link::put_function<std::string>(std::string, int) const;
+template<> int wstp_link::put_function<const char*>(const char*, int) const;
+template<> int wstp_link::put_function<int64_t>(int64_t, int) const;
+template<> int wstp_link::put_symbol<std::string>(std::string) const;
+template<> int wstp_link::put_symbol<const char*>(const char*) const;
 
-wstp_link::wstp_link() : env_(nullptr), link_(nullptr) {
+
+wstp_link::wstp_link(std::string args) : env_(nullptr), link_(nullptr) {
   env_ = WSInitialize(nullptr);
   if (!env_)
     throw std::string("Failed WSInitialize.");
 
   int err = 0;
-  link_ = WSOpenString(env_, ARGS, &err);
+  link_ = WSOpenString(env_, args.c_str(), &err);
   if(!link_ || err != WSEOK) {
-    std::cerr << "WSOpenArgcArgv Error: " << err << std::endl;
-    throw std::string("Failed WSOpenArgv.");
+    std::cerr << "WSOpenString Error: " << err << std::endl;
+    throw std::string("Failed WSOpenString.");
+  }
+
+  if (!(err = WSActivate(link_))) {
+    std::cerr << "WSActivate Error: " << err << std::endl;
+    throw print_error();
   }
 }
 
-wstp_link::wstp_link(int argc, char* argv[]) : env_(nullptr), link_(nullptr) {
+wstp_link::wstp_link(int argc, const char* argv[]) : env_(nullptr), link_(nullptr) {
   env_ = WSInitialize(nullptr);
   if (!env_)
     throw std::string("Failed WSInitialize.");
 
   int err = 0;
-  link_ = WSOpenArgcArgv(env_, argc, argv, &err);
+  link_ = WSOpenArgcArgv(env_, argc, const_cast<char**>(argv), &err);
   if(!link_ || err != WSEOK) {
     std::cerr << "WSOpenArgcArgv Error: " << err << std::endl;
-    throw std::string("Failed WSOpenArgv.");
+    throw std::string("Failed WSOpenArgcArgv.");
+  }
+
+  if (!(err = WSActivate(link_))) {
+    std::cerr << "WSActivate Error: " << err << std::endl;
+    throw print_error();
   }
 }
 
 wstp_link::~wstp_link() {
   deinit();
   closelink();
+}
+
+int wstp_link::install() {
+  // Send Mathematica command to define external function:
+  auto pattern = std::make_tuple("FlowSample[ id:_Integer ]", "{ id }", 0);
+//  put_function(factorCMD);
+  int count = 0;
+  count += put_function("DefineExternal", 3);
+  count += put(pattern);
+  count += put_symbol("End");
+
+
+//  int WSInstall( WSLINK wslp)
+//  {
+//    int _res;
+//    _res = WSConnect(wslp);
+//    if (_res) _res = _definepattern(wslp, "FlowSample[ id:_Integer ]", "{ id }", 0);
+//    if (_res) _res = WSPutSymbol( wslp, "End");
+//    if (_res) _res = WSFlush( wslp);
+//  return _res;
+//} /* WSInstall */
+
+//  static int  _definepattern( WSLINK wslp, char* patt, char* args, int func_n) {
+//    WSPutFunction( wslp, "DefineExternal", (long)3);
+//    WSPutString( wslp, patt);
+//    WSPutString( wslp, args);
+//    WSPutInteger( wslp, func_n);
+//    return !WSError(wslp);
+//  } /* _definepattern */
+  return count;
 }
 
 void wstp_link::closelink(void) {
@@ -97,6 +137,13 @@ void wstp_link::deinit(void) {
   if (env_)
     WSDeinitialize(env_);
   env_ = nullptr;
+}
+
+int wstp_link::flush() const {
+  if (!WSFlush(link_)) {
+    print_error();
+  }
+  return 0;
 }
 
 int wstp_link::reset() const {
@@ -134,6 +181,14 @@ std::string wstp_link::print_error() const {
   return std::string();
 }
 
+bool wstp_link::log(std::string filename) const {
+  if (!WSLogStreamToFile(link_, filename.c_str())) {
+    print_error();
+    return false;
+  }
+  return true;
+}
+
 pkt_id_t wstp_link::receive() const {
   // Skip any unconsumed data if needed:
 begin:
@@ -141,11 +196,19 @@ begin:
     print_error();
     reset();
   }
+
+  int funcID;
+  std::vector list({69,77});
+
   // Get ID of next packet:
   pkt_id_t pkt_id = WSNextPacket(link_);
   switch (pkt_id) {
   case CALLPKT:
     std::cerr << "Call WSTP Packet type." << std::endl;
+//    funcID = get<int>();
+    factor_test2(get<int>());
+//    put_return(std::make_tuple(69,70));
+    WSPutIntegerList(link_, list.data(), list.size());
     break;
   case EVALUATEPKT:
     std::cerr << "Evaluate WSTP Packet type." << std::endl;
@@ -226,7 +289,6 @@ int wstp_link::factor_test2(int n) const {
   // Send Mathematica command to Factor integer:
   auto factorCMD = std::make_tuple("FactorInteger", int64_t(n));
   put_function(factorCMD);
-//  WSEndPacket(link_);
 
   using prime_t = int64_t;
   using expt_t = int64_t;
@@ -254,33 +316,51 @@ void replace_all(std::string& str, std::string match, std::string replace) {
 template<>
 int64_t wstp_link::get<int64_t>() const {
   static_assert(sizeof(wsint64) == sizeof(int64_t), "wsint64 is not 64-bits!");
-  std::cerr << "DEBUG: Called get<int64_t>()" << std::endl;
+  std::cerr << "DEBUG: Called get<int64_t>()";
   wsint64 i;
   if (!WSGetInteger64(link_, &i)) {
+    std::cerr << std::endl;
     print_error();
     reset();
   }
+  std::cerr << " = " << i << std::endl;
+  return i;
+}
+
+template<>
+int wstp_link::get<int>() const {
+  std::cerr << "DEBUG: Called get<int>()";
+  int i;
+  if (!WSGetInteger(link_, &i)) {
+    std::cerr << std::endl;
+    print_error();
+    reset();
+  }
+  std::cerr << " = " << i << std::endl;
   return i;
 }
 
 // Real elements:
 template<>
 double wstp_link::get<double>() const {
-  std::cerr << "DEBUG: Called get<double>()" << std::endl;
+  std::cerr << "DEBUG: Called get<double>()";
   double r;
   if (!WSGetReal64(link_, &r)) {
+    std::cerr << std::endl;
     print_error();
     reset();
   }
+  std::cerr << " = " << r << std::endl;
   return r;
 }
 
 // String elements:
 template<>
 std::string wstp_link::get<std::string>() const {
-  std::cerr << "DEBUG: Called get<std::string>()" << std::endl;
+  std::cerr << "DEBUG: Called get<std::string>()";
   const char* cstr;
   if (!WSGetString(link_, &cstr)) {
+    std::cerr << std::endl;
     print_error();
     reset();
   }
@@ -288,6 +368,7 @@ std::string wstp_link::get<std::string>() const {
   WSReleaseString(link_, cstr);
 
   replace_all(s, "\\\\", "\\");  // Mathematica requires all '\' to be escaped.
+  std::cerr << " = " << s << std::endl;
   return s;
 }
 
@@ -297,7 +378,7 @@ std::string wstp_link::get<std::string>() const {
 template<>
 int wstp_link::put<int64_t>(int64_t i) const {
   static_assert(sizeof(wsint64) == sizeof(int64_t), "wsint64 is not 64-bits!");
-  std::cerr << "DEBUG: Called put<int64_t>()" << std::endl;
+  std::cerr << "DEBUG: Called put<int64_t>(" << i << ")" << std::endl;
   if (!WSPutInteger64(link_, i)) {
     print_error();
     reset();
@@ -305,11 +386,33 @@ int wstp_link::put<int64_t>(int64_t i) const {
   }
   return 1;
 }
+//WSPutInteger
+template<>
+int wstp_link::put<int>(int i) const {
+  std::cerr << "DEBUG: Called put<int>(" << i << ")" << std::endl;
+  if (!WSPutInteger(link_, i)) {
+    print_error();
+    reset();
+    return 0;
+  }
+  return 1;
+}
+//template<>
+//int wstp_link::put<std::vector<int64_t>>(std::vector<int64_t> list) const {
+//  static_assert(sizeof(wsint64) == sizeof(int64_t), "wsint64 is not 64-bits!");
+//  std::cerr << "DEBUG: Called put<std::vector<int64_t>>(length(" << list.size() << "))" << std::endl;
+//  if (!WSPutInteger64(link_, i)) {
+//    print_error();
+//    reset();
+//    return 0;
+//  }
+//  return 1;
+//}
 
 // Real elements:
 template<>
 int wstp_link::put<double>(double r) const {
-  std::cerr << "DEBUG: Called put<double>()" << std::endl;
+  std::cerr << "DEBUG: Called put<double>(" << r << ")" << std::endl;
   if (!WSPutReal64(link_, r)) {
     print_error();
     reset();
@@ -321,7 +424,7 @@ int wstp_link::put<double>(double r) const {
 // String elements:
 template<>
 int wstp_link::put<std::string>(std::string s) const {
-  std::cerr << "DEBUG: Called put<string>()" << std::endl;
+  std::cerr << "DEBUG: Called put<string>(" << s << ")" << std::endl;
   replace_all(s, "\\", "\\\\");  // Mathematica requires all '\' to be escaped.
   if (!WSPutString(link_, s.c_str())) {
     print_error();
@@ -330,11 +433,16 @@ int wstp_link::put<std::string>(std::string s) const {
   }
   return 1;
 }
+template<>
+int wstp_link::put<const char*>(const char* cstr) const {
+  return put(std::string(cstr));
+}
+
 
 // Function:
 template<>
 int wstp_link::put_function<std::string>(std::string s, int args) const {
-  std::cerr << "DEBUG: Called put_function<string>()" << std::endl;
+  std::cerr << "DEBUG: Called put_function<string>(" << s << ")" << std::endl;
   if (!WSPutFunction(link_, s.c_str(), args)) {
     print_error();
     reset();
@@ -342,19 +450,35 @@ int wstp_link::put_function<std::string>(std::string s, int args) const {
   }
   return 1;
 }
-
 template<>
 int wstp_link::put_function<const char*>(const char* cstr, int args) const {
   return put_function(std::string(cstr), args);
 }
 
+// Symbol:
+template<>
+int wstp_link::put_symbol<std::string>(std::string s) const {
+  std::cerr << "DEBUG: Called put_symbol<string>(" << s << ")" << std::endl;
+  if (!WSPutSymbol(link_, s.c_str())) {
+    print_error();
+    reset();
+    return 0;
+  }
+  return 1;
+}
+template<>
+int wstp_link::put_symbol<const char*>(const char* cstr) const {
+  return put_symbol(std::string(cstr));
+}
+
+// TODO: this seems like a hack and should be factored out?
 template<>
 int wstp_link::put_function<int64_t>(int64_t i, int) const {
   return put(i);
 }
 
 int wstp_link::put_end() const {
-  std::cerr << "DEBUG: Called put_function<string>()" << std::endl;
+  std::cerr << "DEBUG: Called put_end()" << std::endl;
   if (!WSEndPacket(link_)) {
     print_error();
     reset();

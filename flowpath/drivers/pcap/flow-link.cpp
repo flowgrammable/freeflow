@@ -302,10 +302,23 @@ main(int argc, const char* argv[])
       blacklistPackets = 0, malformedPackets = 0, timeoutPackets = 0, \
       flowPortReuse = 0;
 
+  // Quick hack to get connection args for now...
+//  std::string wstpARGS(wstp_link::CONNECT_TCPIP);
+//  std::string tcpARGS;
+//  std::cout << "WSTP Connection:" << std::endl;
+//  std::cin >> tcpARGS;
+//  wstpARGS.append(tcpARGS);
+//  std::cout << wstpARGS << std::endl;
+
   // Instantiate Mathematica Link:
-  wstp_link wstp;
-  wstp.factor_test();
-  wstp.factor_test2(112);
+  wstp_link wstp(1, argv);
+  wstp.log( now_ss.str().append(".wstp.log") );
+  wstp.install();
+//  wstp.factor_test();
+//  wstp.factor_test2(112);
+  for (;;) {
+    wstp.receive();
+  }
   exit(EXIT_SUCCESS);
 
   ///////////////////////
