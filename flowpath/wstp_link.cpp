@@ -43,6 +43,7 @@
 using pkt_id_t = wstp_link::pkt_id_t;
 
 // Forward declarations of get/put specilizations:
+template<> int wstp_link::get<int>() const;
 template<> int64_t wstp_link::get<int64_t>() const;
 template<> double wstp_link::get<double>() const;
 template<> std::string wstp_link::get<std::string>() const;
@@ -99,14 +100,15 @@ wstp_link::~wstp_link() {
 
 int wstp_link::install() {
   // Send Mathematica command to define external function:
-  auto pattern = std::make_tuple("FlowSample[ id:_Integer ]", "{ id }", 0);
-//  put_function(factorCMD);
+  auto pattern = std::make_tuple("FlowSample[id_Integer]", "id", 0);
   int count = 0;
   count += put_function("DefineExternal", 3);
   count += put(pattern);
   count += put_symbol("End");
-
-
+  flush();
+  if (error()) {
+    print_error();
+  }
 //  int WSInstall( WSLINK wslp)
 //  {
 //    int _res;
@@ -205,7 +207,7 @@ begin:
   switch (pkt_id) {
   case CALLPKT:
     std::cerr << "Call WSTP Packet type." << std::endl;
-//    funcID = get<int>();
+    funcID = get<int>();
     factor_test2(get<int>());
 //    put_return(std::make_tuple(69,70));
     WSPutIntegerList(link_, list.data(), list.size());
