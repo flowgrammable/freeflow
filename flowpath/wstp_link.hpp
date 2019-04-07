@@ -16,6 +16,8 @@ class wstp_link {
 public:
   // Types:
   using pkt_id_t = int;
+  using ts_t = std::vector<wsint64>;
+  using fn_t = std::function<ts_t()>;
 
   // Constants:
 #ifdef __APPLE__
@@ -39,6 +41,7 @@ public:
   bool log(std::string filename) const;
 
   // Public send/receive interface:
+  int ready() const;    // Indicates if data is ready to receive.
   int flush() const;    // Attempt to send any queued messages.
   template< typename Tuple, typename=std::enable_if_t<is_tuple<Tuple>::value> >
     std::vector<Tuple> receive_list() const;
@@ -47,13 +50,16 @@ public:
   int factor_test(int = ((1<<10) * (7*7*7) * 11)) const;
   int factor_test2(int = ((1<<10) * (7*7*7) * 11)) const;
 
+  void wait();
+
 //private:
   // Packet type handlers:
   pkt_id_t receive() const;
   pkt_id_t receive(pkt_id_t id) const;
+  void receive_worker() const;
 
   // Package / External Definitions:
-  int install();
+  int install(fn_t func);
 
   // Library call generation to get/recv data from link:
   template<typename T> T get() const;
@@ -70,7 +76,9 @@ public:
   WSLINK link_;
 
   // Asyncronous Worker:
+  std::vector<fn_t> worker_fTable_;
   std::thread worker_;
+  bool worker_stop_;
 };
 
 

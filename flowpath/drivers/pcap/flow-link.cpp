@@ -291,9 +291,28 @@ main(int argc, const char* argv[])
   std::unordered_set<flow_id_t> blacklistFlows;
   std::set<flow_id_t> touchedFlows;
 
-  // Simulation Eval structures:
+  // Simulation bookeeping structures:
+//#define ENABLE_SIM
+#ifdef ENABLE_SIM
   SimMIN<flow_id_t> simMIN(1<<16);  // 64k
   SimLRU<flow_id_t> simLRU(1<<16);
+#endif
+
+  // Define functions to interact with replacement:
+  std::function<void(flow_id_t, const timespec&)> f_sim_insert =
+      [&](flow_id_t flowID, const timespec& pktTime) {
+#ifdef ENABLE_SIM
+    simMIN.insert(flowID, pktTime);
+    simLRU.insert(flowID, pktTime);
+#endif
+  };
+  std::function<void(flow_id_t, const timespec&)> f_sim_update =
+      [&](flow_id_t flowID, const timespec& pktTime) {
+#ifdef ENABLE_SIM
+    simMIN.update(flowID, pktTime);
+    simLRU.update(flowID, pktTime);
+#endif
+  };
 
   // Global Stats:
   u16 maxPacketSize = std::numeric_limits<u16>::lowest();
@@ -302,24 +321,44 @@ main(int argc, const char* argv[])
       blacklistPackets = 0, malformedPackets = 0, timeoutPackets = 0, \
       flowPortReuse = 0;
 
-  // Quick hack to get connection args for now...
-//  std::string wstpARGS(wstp_link::CONNECT_TCPIP);
-//  std::string tcpARGS;
-//  std::cout << "WSTP Connection:" << std::endl;
-//  std::cin >> tcpARGS;
-//  wstpARGS.append(tcpARGS);
-//  std::cout << wstpARGS << std::endl;
+  // Sampling of retired flows:
+//  std::multimap<flow_id_t, FlowRecord> retiredRecords;
+  std::map<flow_id_t, FlowRecord> retiredRecords;
+  std::mutex retiredMTX;
+  wstp_link::fn_t f_get_arrival = [&retiredRecords, &retiredMTX]() {
+    while (retiredRecords.size() <= 0) {
+      std::cerr << "Waiting for flow sample..." << std::endl;
+      std::this_thread::sleep_for(10s);
+    }
+
+    // Lock and pop:
+    std::unique_lock lck(retiredMTX);
+    auto record = retiredRecords.extract(retiredRecords.begin());
+    lck.unlock();
+
+    // Calculate deltas and return:
+    auto& ts = record.mapped().getArrivalV();
+    wstp_link::ts_t deltas(ts.size());
+    std::adjacent_difference(ts.begin(), ts.end(), deltas.begin());
+    return deltas;
+  };
+  std::function<void(FlowRecord&&)> f_sample = [&retiredRecords, &retiredMTX](FlowRecord&& r) {
+    // Only consider semi-large flows:
+    if (r.packets() > 128) {
+      // Lock and decide to insert vs. replace:
+      std::lock_guard lock(retiredMTX);
+      if (retiredRecords.size() >= 1024) {
+        retiredRecords.erase(retiredRecords.begin());
+      }
+      retiredRecords.emplace(std::make_pair(r.getFlowID(), r));
+    }
+  };
 
   // Instantiate Mathematica Link:
   wstp_link wstp(1, argv);
   wstp.log( now_ss.str().append(".wstp.log") );
-  wstp.install();
-//  wstp.factor_test();
-//  wstp.factor_test2(112);
-  for (;;) {
-    wstp.receive();
-  }
-  exit(EXIT_SUCCESS);
+  wstp.install(f_get_arrival);
+
 
   ///////////////////////
   // PCAP file read loop:
@@ -428,16 +467,14 @@ main(int argc, const char* argv[])
 
             auto newFlowRecord = flowRecords.emplace(std::piecewise_construct,
                                   std::forward_as_tuple(flowID),
-                                  std::forward_as_tuple(flowID, pktTime));
+                                  std::forward_as_tuple(flowID, pktTime, FlowRecord::TIMESERIES));
             assert(newFlowRecord.second); // sanity check
             flowR = newFlowRecord.first->second;
             flowPortReuse++;
-            simMIN.insert(flowID, pktTime);
-            simLRU.insert(flowID, pktTime);
+            f_sim_insert(flowID, pktTime);
           }
           else {
-            simMIN.update(flowID, pktTime);
-            simLRU.update(flowID, pktTime);
+            f_sim_update(flowID, pktTime);
           }
 
           // Flow is currently tracked:
@@ -472,22 +509,20 @@ main(int argc, const char* argv[])
 
               auto newFlowRecord = flowRecords.emplace(std::piecewise_construct,
                                     std::forward_as_tuple(flowID),
-                                    std::forward_as_tuple(flowID, pktTime));
+                                    std::forward_as_tuple(flowID, pktTime, FlowRecord::TIMESERIES));
               assert(newFlowRecord.second); // sanity check
               std::reference_wrapper<FlowRecord> flowR = newFlowRecord.first->second;
               flowPortReuse++;
 
               flowR.get().update(evalCxt);
               touchedFlows.insert(flowID);
-              simMIN.insert(flowID, pktTime);
-              simLRU.insert(flowID, pktTime);
+              f_sim_insert(flowID, pktTime);
             }
             else {
               debugLog << "FlowID " << flowID << " is no longer being tracked; "
                        << print_flow_key_string(k) << endl;
               timeoutPackets++;
-              simMIN.update(flowID, pktTime); // TODO, is this broken?
-              simLRU.update(flowID, pktTime);
+              f_sim_update(flowID, pktTime);
             }
           }
         }
@@ -516,11 +551,10 @@ main(int argc, const char* argv[])
           // Follow new flow:
           auto newFlowRecord = flowRecords.emplace(std::piecewise_construct,
                                 std::forward_as_tuple(flowID),
-                                std::forward_as_tuple(flowID, pktTime));
+                                std::forward_as_tuple(flowID, pktTime, FlowRecord::TIMESERIES));
           assert(newFlowRecord.second); // sanity check
           newFlowRecord.first->second.update(evalCxt);
-          simMIN.insert(flowID, pktTime);
-          simLRU.insert(flowID, pktTime);
+          f_sim_insert(flowID, pktTime);
         }
 
         ///////////////////////////////////////////////////
@@ -563,6 +597,10 @@ main(int argc, const char* argv[])
               }
             };
 
+            auto delete_flow = [&flowRecords, &f_sample](decltype(flowRecords)::iterator flowR_i) {
+              f_sample( std::move(flowRecords.extract(flowR_i).mapped()) );
+            };
+
             auto flowR_i = flowRecords.find(i);
             const FlowRecord& flowR = flowR_i->second;
 
@@ -576,7 +614,8 @@ main(int argc, const char* argv[])
                        << " seconds of inactivity; "
                        << print_flow_key_string( find_key(i) ) << endl;
               flowStats << print_flow(flowR).str();
-              flowRecords.erase(flowR_i);
+//              flowRecords.erase(flowR_i);
+              delete_flow(flowR_i);
             }
             else if (flowR.sawFIN() && sinceLast.tv_sec >= FIN_TIMEOUT) {
               debugLog << (flowR.isTCP()?"TCP":"???") << " flow " << i
@@ -587,7 +626,8 @@ main(int argc, const char* argv[])
                        << " seconds of inactivity; "
                        << print_flow_key_string( find_key(i) ) << endl;
               flowStats << print_flow(flowR).str();
-              flowRecords.erase(flowR_i);
+//              flowRecords.erase(flowR_i);
+              delete_flow(flowR_i);
             }
             else if (flowR.isTCP() && sinceLast.tv_sec >= TCP_TIMEOUT) {
               debugLog << (flowR.isTCP()?"TCP":"???") << " flow " << i
@@ -596,7 +636,8 @@ main(int argc, const char* argv[])
                        << " seconds of inactivity; "
                        << print_flow_key_string( find_key(i) ) << endl;
               flowStats << print_flow(flowR).str();
-              flowRecords.erase(flowR_i);
+//              flowRecords.erase(flowR_i);
+              delete_flow(flowR_i);
             }
             else if (sinceLast.tv_sec >= LONG_TIMEOUT) {
               debugLog << (flowR.isUDP()?"UDP":"???") << " flow " << i
@@ -605,7 +646,8 @@ main(int argc, const char* argv[])
                        << " seconds of inactivity; "
                        << print_flow_key_string( find_key(i) ) << endl;
               flowStats << print_flow(flowR).str();
-              flowRecords.erase(flowR_i);
+//              flowRecords.erase(flowR_i);
+              delete_flow(flowR_i);
             }
           }
         } // end flow cleanup
@@ -629,7 +671,6 @@ main(int argc, const char* argv[])
     // output other flow statistics?
   }
 
-
   // Print global stats:
   debugLog << "Max packet size: " << maxPacketSize << '\n';
   debugLog << "Min packet size: " << minPacketSize << '\n';
@@ -643,6 +684,7 @@ main(int argc, const char* argv[])
   debugLog << "Flow port reuse: " << flowPortReuse << '\n';
 
   // Print Locality Simulation:
+#ifdef ENABLE_SIM
   debugLog << "SimMIN Cache Size: " << simMIN.get_size() << '\n';
   debugLog << " - Miss (Compulsory): " << simMIN.get_compulsory_miss() << '\n';
   debugLog << " - Hits: " << simMIN.get_hits() << '\n';
@@ -652,7 +694,7 @@ main(int argc, const char* argv[])
   debugLog << " - Miss (Compulsory): " << simLRU.get_compulsory_miss() << '\n';
   debugLog << " - Hits: " << simLRU.get_hits() << '\n';
   debugLog << " - Miss (Capacity): " << simLRU.get_capacity_miss() << '\n';
-
+#endif
 
   chrono::system_clock::time_point end_time = chrono::system_clock::now();
   auto msec = chrono::duration_cast<chrono::milliseconds>(end_time - start_time).count();
@@ -671,5 +713,23 @@ main(int argc, const char* argv[])
   cout << "Processed " << totalPackets << " packets ("
        << flowIDs.size() << " flows)." << endl;
 
+  // Simulation finished, wait for uninstall from WSTP:
+  {
+    std::lock_guard lock(retiredMTX);
+//    retiredRecords.merge( std::move(flowRecords) );
+//    decltype(retiredRecords) temp;
+//    std::merge(flowRecords.begin(), flowRecords.end(),
+//               retiredRecords.begin(), retiredRecords.end(), temp.begin());
+//    retiredRecords = temp;
+    for (auto&& flow : flowRecords) {
+//      retiredRecords.emplace( std::move(flow) );
+      f_sample(std::move(flow.second));
+    }
+//    retiredRecords = std::move(flowRecords);
+//    std::for_each(std::move_iterator(flowRecords.begin()),
+//                  std::move_iterator(flowRecords.end()), f_sample);
+  }
+
+  wstp.wait();
   return 0;
 }

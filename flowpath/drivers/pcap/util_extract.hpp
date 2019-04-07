@@ -154,6 +154,10 @@ public:
     ACK_count_(0), PSH_count_(0), URG_count_(0) {
   }
 
+//  FlowRecord(FlowRecord&&) = default;
+//  FlowRecord(const FlowRecord&) = default;
+//  FlowRecord& operator=(const FlowRecord&) = default;
+
   u64 update(const EvalContext& e);
   u64 update(const u16 bytes, const timespec& ts);
 

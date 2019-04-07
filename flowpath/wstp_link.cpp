@@ -57,7 +57,8 @@ template<> int wstp_link::put_symbol<std::string>(std::string) const;
 template<> int wstp_link::put_symbol<const char*>(const char*) const;
 
 
-wstp_link::wstp_link(std::string args) : env_(nullptr), link_(nullptr) {
+wstp_link::wstp_link(std::string args) : env_(nullptr), link_(nullptr),
+  worker_stop_(false) {
   env_ = WSInitialize(nullptr);
   if (!env_)
     throw std::string("Failed WSInitialize.");
@@ -75,7 +76,7 @@ wstp_link::wstp_link(std::string args) : env_(nullptr), link_(nullptr) {
   }
 }
 
-wstp_link::wstp_link(int argc, const char* argv[]) : env_(nullptr), link_(nullptr) {
+wstp_link::wstp_link(int argc, const char* argv[]) : env_(nullptr), link_(nullptr), worker_stop_(false) {
   env_ = WSInitialize(nullptr);
   if (!env_)
     throw std::string("Failed WSInitialize.");
@@ -94,39 +95,58 @@ wstp_link::wstp_link(int argc, const char* argv[]) : env_(nullptr), link_(nullpt
 }
 
 wstp_link::~wstp_link() {
+  worker_stop_ = true;
   deinit();
   closelink();
+  worker_.join();
 }
 
-int wstp_link::install() {
+int wstp_link::install(fn_t func) {
   // Send Mathematica command to define external function:
-  auto pattern = std::make_tuple("FlowSample[id_Integer]", "id", 0);
+  constexpr auto sample = std::make_tuple("FlowSample[id_Integer]", "id", 0);
+  constexpr auto wakeup = std::make_tuple("Wakeup[]", "", 1);
   int count = 0;
   count += put_function("DefineExternal", 3);
-  count += put(pattern);
+  count += put(sample);
+  count += put_function("DefineExternal", 3);
+  count += put(wakeup);
   count += put_symbol("End");
   flush();
   if (error()) {
     print_error();
   }
-//  int WSInstall( WSLINK wslp)
-//  {
-//    int _res;
-//    _res = WSConnect(wslp);
-//    if (_res) _res = _definepattern(wslp, "FlowSample[ id:_Integer ]", "{ id }", 0);
-//    if (_res) _res = WSPutSymbol( wslp, "End");
-//    if (_res) _res = WSFlush( wslp);
-//  return _res;
-//} /* WSInstall */
 
-//  static int  _definepattern( WSLINK wslp, char* patt, char* args, int func_n) {
-//    WSPutFunction( wslp, "DefineExternal", (long)3);
-//    WSPutString( wslp, patt);
-//    WSPutString( wslp, args);
-//    WSPutInteger( wslp, func_n);
-//    return !WSError(wslp);
-//  } /* _definepattern */
+  worker_fTable_.emplace_back(func);
+  worker_fTable_.emplace_back(std::move(func));
+
+  // start thread to serve as function handler:
+  worker_ = std::thread(&wstp_link::receive_worker, this);
+
   return count;
+}
+
+void wstp_link::receive_worker() const {
+  std::cout << "WSTP worker thread started." << std::endl;
+  while (!worker_stop_) {
+    std::cerr << "DEBUG: worker waiting on receive()" << std::endl;
+    if (ready()) {
+      receive();
+      if (error()) {
+        print_error();
+        break;
+      }
+    }
+    else {
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+  }
+  std::cout << "WSTP worker thread terminated." << std::endl;
+}
+
+void wstp_link::wait() {
+  while(!worker_stop_) {
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+  }
 }
 
 void wstp_link::closelink(void) {
@@ -141,11 +161,21 @@ void wstp_link::deinit(void) {
   env_ = nullptr;
 }
 
-int wstp_link::flush() const {
-  if (!WSFlush(link_)) {
+int wstp_link::ready() const {
+  flush();
+  int i;
+  if (!(i=WSReady(link_))) {
     print_error();
   }
-  return 0;
+  return i;
+}
+
+int wstp_link::flush() const {
+  int i;
+  if (!(i=WSFlush(link_))) {
+    print_error();
+  }
+  return i;
 }
 
 int wstp_link::reset() const {
@@ -199,18 +229,27 @@ begin:
     reset();
   }
 
-  int funcID;
-  std::vector list({69,77});
-
   // Get ID of next packet:
+  size_t funcID;
+  ts_t differences;
   pkt_id_t pkt_id = WSNextPacket(link_);
   switch (pkt_id) {
   case CALLPKT:
     std::cerr << "Call WSTP Packet type." << std::endl;
-    funcID = get<int>();
-    factor_test2(get<int>());
-//    put_return(std::make_tuple(69,70));
-    WSPutIntegerList(link_, list.data(), list.size());
+    funcID = static_cast<size_t>(get<int>());
+    if (funcID == 0) {
+      put_function("ReturnPacket", 1);
+      differences = worker_fTable_[funcID]();
+      std::cerr << "Returning list of size: " << differences.size() << std::endl;
+      WSPutInteger64List(link_, differences.data(), differences.size());
+      put_end();
+    }
+    else {
+      factor_test2(get<int>());
+      put_function("ReturnPacket", 1);
+//      WSPutInteger(link_, 6969);
+      put_end();
+    }
     break;
   case EVALUATEPKT:
     std::cerr << "Evaluate WSTP Packet type." << std::endl;
@@ -225,6 +264,10 @@ begin:
   default:
     std::cerr << "Unsupported WSTP Packet type; ignoring..." << std::endl;
     goto begin;
+  }
+
+  if (error()) {
+    print_error();
   }
   return pkt_id;  // TODO: repeat until packet is fully received?
 }
