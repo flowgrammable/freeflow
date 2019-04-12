@@ -317,7 +317,7 @@ main(int argc, const char* argv[])
           auto fri = flowRecords.find(*i);
           const FlowRecord& fr = fri->second;
 
-          timespec sinceLast = time - fr.last();
+          timespec sinceLast = time - fr.last().second;
           if (sinceLast.tv_sec >= 10) {
 ////            debugLog << flow.getLog();
             debugLog << "Flow " << *i

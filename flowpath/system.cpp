@@ -111,9 +111,8 @@ Port_table       port_table;            // Flowpath port table.
 // to be able to call at runtime.
 
 
-extern "C"
-{
-
+//extern "C"
+//{
 
 // -------------------------------------------------------------------------- //
 // Control instructions
@@ -365,4 +364,4 @@ fp_bind_field(fp::Context* cxt, int id, std::uint16_t off, std::uint16_t len)
 
 
 
-} // extern "C"
+//} // extern "C"

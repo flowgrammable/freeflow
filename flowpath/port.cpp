@@ -89,6 +89,7 @@ int
 Port::send(Context* cxt)
 {
   tx_queue_.push(cxt);
+  return 1;
 }
 
 

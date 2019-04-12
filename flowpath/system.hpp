@@ -5,9 +5,8 @@
 #include "table.hpp"
 #include "app-lib/action.hpp"
 
-extern "C"
-{
-
+//extern "C"
+//{
 // Apply actions.
 void           fp_drop(fp::Context*);
 void           fp_flood(fp::Context*);
@@ -43,9 +42,7 @@ void           fp_remove_flow(fp::Table*, void*);
 void           fp_advance_header(fp::Context*, std::uint16_t);
 void           fp_bind_header(fp::Context*, int);
 fp::Byte*      fp_bind_field(fp::Context*, int, std::uint16_t, std::uint16_t);
-
-
-} // extern "C"
+//} // extern "C"
 
 
 namespace fp

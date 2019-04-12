@@ -20,7 +20,7 @@ endif()
 # C/C++ build flags.
 # - Use CMAKE_BUILD_TYPE={Debug, Release, RelWithDebInfo} to set optimization.
 set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -g -Wall")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -std=c++17 -Wall -pthread")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -std=c++17 -Wall -Werror=return-type -pthread")
 
 
 # Extra build flags for profiling.

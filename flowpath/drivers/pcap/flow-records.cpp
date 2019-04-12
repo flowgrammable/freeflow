@@ -380,7 +380,7 @@ main(int argc, const char* argv[])
                (evalCxt.fields.fTCP & TCPFlags::SYN) == TCPFlags::SYN &&
                evalCxt.fields.tcpSeqNum != flowR.get().lastSeq() ) {
             // Packet indicates new flow:
-            timespec sinceLast = pktTime - flowR.get().last();
+            timespec sinceLast = pktTime - flowR.get().last().second;
             debugLog << (flowR.get().isTCP()?"TCP":"???") << " flow " << flowID
                      << " considered terminated after new SYN, "
                      << flowR.get().packets()
@@ -514,18 +514,19 @@ main(int argc, const char* argv[])
 
             // FlowID reverse search lambda (linear):
             // FIXME: avoid linear search!
-            auto find_key = [&flowIDs](flow_id_t id) -> const FlowKeyTuple& {
-              for (const auto& fid : flowIDs) {
-                if (fid.second.front() == id) {
-                  return fid.first;
+            auto find_key = [&flowIDs](flow_id_t id) -> const FlowKeyTuple {
+              for (const auto& [fkt, fid_v] : flowIDs) {
+                if (fid_v.front() == id) {
+                  return fkt;
                 }
               }
+              return FlowKeyTuple();
             };
 
             auto flowR_i = flowRecords.find(i);
             const FlowRecord& flowR = flowR_i->second;
 
-            timespec sinceLast = pktTime - flowR.last();
+            timespec sinceLast = pktTime - flowR.last().second;
             if (flowR.sawRST() && sinceLast.tv_sec >= RST_TIMEOUT) {
               debugLog << (flowR.isTCP()?"TCP":"???") << " flow " << i
                        << " considered terminated after RST, "
