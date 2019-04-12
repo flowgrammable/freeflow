@@ -167,19 +167,19 @@ public:
   u64 bytes() const {return bytes_; }
   const std::string& getLog() const { return log_; }
 
-  timespec last() const {
+  std::pair<u64, timespec> last() const {
     constexpr auto NS_IN_SEC = 1000000000LL;
 
     // TODO: replace this with chrono duration...
     timespec t = start_;
-    auto dif = arrival_ns_ts_.back();
+    u64 dif = arrival_ns_ts_.back();
     t.tv_nsec += dif % NS_IN_SEC;
     t.tv_sec += dif / NS_IN_SEC;
     if (t.tv_nsec >= NS_IN_SEC) {
       t.tv_sec += t.tv_nsec / NS_IN_SEC;
       t.tv_nsec %= NS_IN_SEC;
     }
-    return t;
+    return std::make_pair(dif, t);
   }
 
   const std::vector<u64>& getArrivalV() const { return arrival_ns_ts_; }

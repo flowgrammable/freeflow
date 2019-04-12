@@ -292,25 +292,33 @@ main(int argc, const char* argv[])
   std::set<flow_id_t> touchedFlows;
 
   // Simulation bookeeping structures:
-//#define ENABLE_SIM
+#define ENABLE_SIM
 #ifdef ENABLE_SIM
   SimMIN<flow_id_t> simMIN(1<<16);  // 64k
   SimLRU<flow_id_t> simLRU(1<<16);
+  std::map<flow_id_t, std::vector<uint64_t>> missesMIN;
+  std::map<flow_id_t, std::vector<uint64_t>> missesLRU;
 #endif
 
   // Define functions to interact with replacement:
-  std::function<void(flow_id_t, const timespec&)> f_sim_insert =
-      [&](flow_id_t flowID, const timespec& pktTime) {
+  std::function<void(flow_id_t, const std::pair<uint64_t,timespec>&&)> f_sim_insert =
+      [&](flow_id_t flowID, const std::pair<uint64_t,timespec>&& pktTime) {
 #ifdef ENABLE_SIM
-    simMIN.insert(flowID, pktTime);
-    simLRU.insert(flowID, pktTime);
+    auto [ns, ts] = pktTime;
+    simMIN.insert(flowID, ts);
+    simLRU.insert(flowID, ts);
 #endif
   };
-  std::function<void(flow_id_t, const timespec&)> f_sim_update =
-      [&](flow_id_t flowID, const timespec& pktTime) {
+  std::function<void(flow_id_t, const std::pair<uint64_t,timespec>&&)> f_sim_update =
+      [&](flow_id_t flowID, const std::pair<uint64_t,timespec>&& pktTime) {
 #ifdef ENABLE_SIM
-    simMIN.update(flowID, pktTime);
-    simLRU.update(flowID, pktTime);
+    auto [ns, ts] = pktTime;
+    if (!simMIN.update(flowID, ts)) {
+      missesMIN[flowID].emplace_back(ns);
+    }
+    if (!simLRU.update(flowID, ts)) {
+      missesLRU[flowID].emplace_back(ns);
+    }
 #endif
   };
 
@@ -326,9 +334,9 @@ main(int argc, const char* argv[])
   std::map<flow_id_t, FlowRecord> retiredRecords;
   std::mutex retiredMTX;
   wstp_link::fn_t f_get_arrival = [&retiredRecords, &retiredMTX]() {
-    while (retiredRecords.size() <= 0) {
+    for (int i = 0; retiredRecords.size() <= 0 && i < 10; i++) {
       std::cerr << "Waiting for flow sample..." << std::endl;
-      std::this_thread::sleep_for(10s);
+      std::this_thread::sleep_for(60s);
     }
 
     // Lock and pop:
@@ -357,7 +365,10 @@ main(int argc, const char* argv[])
   // Instantiate Mathematica Link:
   wstp_link wstp(1, argv);
   wstp.log( now_ss.str().append(".wstp.log") );
-  wstp.install(f_get_arrival);
+  vector<wstp_link::def_t> definitions = {
+    make_tuple(f_get_arrival, "FFSampleFlow[]", "")
+  };
+  wstp.install(definitions);
 
 
   ///////////////////////
@@ -448,7 +459,7 @@ main(int argc, const char* argv[])
                (evalCxt.fields.fTCP & TCPFlags::SYN) == TCPFlags::SYN &&
                evalCxt.fields.tcpSeqNum != flowR.get().lastSeq() ) {
             // Packet indicates new flow:
-            timespec sinceLast = pktTime - flowR.get().last();
+            timespec sinceLast = pktTime - flowR.get().last().second;
             debugLog << (flowR.get().isTCP()?"TCP":"???") << " flow " << flowID
                      << " considered terminated after new SYN, "
                      << flowR.get().packets()
@@ -471,15 +482,15 @@ main(int argc, const char* argv[])
             assert(newFlowRecord.second); // sanity check
             flowR = newFlowRecord.first->second;
             flowPortReuse++;
-            f_sim_insert(flowID, pktTime);
+            flowR.get().update(evalCxt);
+            touchedFlows.insert(flowID);
+            f_sim_insert(flowID, flowR.get().last());
           }
           else {
-            f_sim_update(flowID, pktTime);
+            flowR.get().update(evalCxt);
+            touchedFlows.insert(flowID);
+            f_sim_update(flowID, flowR.get().last());
           }
-
-          // Flow is currently tracked:
-          flowR.get().update(evalCxt);
-          touchedFlows.insert(flowID);
         }
         else {
           // Flow was seen before but no longer tracked:
@@ -516,13 +527,13 @@ main(int argc, const char* argv[])
 
               flowR.get().update(evalCxt);
               touchedFlows.insert(flowID);
-              f_sim_insert(flowID, pktTime);
+              f_sim_insert(flowID, flowR.get().last());
             }
             else {
               debugLog << "FlowID " << flowID << " is no longer being tracked; "
                        << print_flow_key_string(k) << endl;
               timeoutPackets++;
-              f_sim_update(flowID, pktTime);
+              f_sim_update(flowID, std::make_pair(0, pktTime)); // FlowRecord was reclaimed!...
             }
           }
         }
@@ -553,8 +564,9 @@ main(int argc, const char* argv[])
                                 std::forward_as_tuple(flowID),
                                 std::forward_as_tuple(flowID, pktTime, FlowRecord::TIMESERIES));
           assert(newFlowRecord.second); // sanity check
-          newFlowRecord.first->second.update(evalCxt);
-          f_sim_insert(flowID, pktTime);
+          auto& FlowR = newFlowRecord.first->second;
+          FlowR.update(evalCxt);
+          f_sim_insert(flowID, FlowR.last());
         }
 
         ///////////////////////////////////////////////////
@@ -589,12 +601,13 @@ main(int argc, const char* argv[])
 
             // FlowID reverse search lambda (linear):
             // FIXME: avoid linear search!
-            auto find_key = [&flowIDs](flow_id_t id) -> const FlowKeyTuple& {
-              for (const auto& fid : flowIDs) {
-                if (fid.second.front() == id) {
-                  return fid.first;
+            auto find_key = [&flowIDs](flow_id_t id) -> const FlowKeyTuple {
+              for (const auto& [fkt, fid_v] : flowIDs) {
+                if (fid_v.front() == id) {
+                  return fkt;
                 }
               }
+              return FlowKeyTuple();
             };
 
             auto delete_flow = [&flowRecords, &f_sample](decltype(flowRecords)::iterator flowR_i) {
@@ -604,7 +617,7 @@ main(int argc, const char* argv[])
             auto flowR_i = flowRecords.find(i);
             const FlowRecord& flowR = flowR_i->second;
 
-            timespec sinceLast = pktTime - flowR.last();
+            timespec sinceLast = pktTime - flowR.last().second;
             if (flowR.sawRST() && sinceLast.tv_sec >= RST_TIMEOUT) {
               debugLog << (flowR.isTCP()?"TCP":"???") << " flow " << i
                        << " considered terminated after RST, "

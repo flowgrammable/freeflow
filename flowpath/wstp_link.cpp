@@ -43,18 +43,19 @@
 using pkt_id_t = wstp_link::pkt_id_t;
 
 // Forward declarations of get/put specilizations:
-template<> int wstp_link::get<int>() const;
-template<> int64_t wstp_link::get<int64_t>() const;
-template<> double wstp_link::get<double>() const;
-template<> std::string wstp_link::get<std::string>() const;
-template<> int wstp_link::put<int64_t>(int64_t) const;
-template<> int wstp_link::put<double>(double) const;
-template<> int wstp_link::put<std::string>(std::string) const;
-template<> int wstp_link::put_function<std::string>(std::string, int) const;
-template<> int wstp_link::put_function<const char*>(const char*, int) const;
-template<> int wstp_link::put_function<int64_t>(int64_t, int) const;
-template<> int wstp_link::put_symbol<std::string>(std::string) const;
-template<> int wstp_link::put_symbol<const char*>(const char*) const;
+template<> int wstp_link::get<int>();
+template<> int64_t wstp_link::get<int64_t>();
+template<> double wstp_link::get<double>();
+template<> std::string wstp_link::get<std::string>();
+template<> int wstp_link::put<int64_t>(int64_t);
+template<> int wstp_link::put<double>(double);
+template<> int wstp_link::put<std::string>(std::string);
+template<> int wstp_link::put<const char*>(const char*);
+template<> int wstp_link::put_function<std::string>(std::string, int);
+template<> int wstp_link::put_function<const char*>(const char*, int);
+template<> int wstp_link::put_function<int64_t>(int64_t, int);
+template<> int wstp_link::put_symbol<std::string>(std::string);
+template<> int wstp_link::put_symbol<const char*>(const char*);
 
 
 wstp_link::wstp_link(std::string args) : env_(nullptr), link_(nullptr),
@@ -74,6 +75,11 @@ wstp_link::wstp_link(std::string args) : env_(nullptr), link_(nullptr),
     std::cerr << "WSActivate Error: " << err << std::endl;
     throw print_error();
   }
+
+  log("wstp.log");
+//  install();
+//  if (error())
+//    print_error();
 }
 
 wstp_link::wstp_link(int argc, const char* argv[]) : env_(nullptr), link_(nullptr), worker_stop_(false) {
@@ -92,6 +98,11 @@ wstp_link::wstp_link(int argc, const char* argv[]) : env_(nullptr), link_(nullpt
     std::cerr << "WSActivate Error: " << err << std::endl;
     throw print_error();
   }
+
+  log("wstp.log");
+//  install();
+//  if (error())
+//    print_error();
 }
 
 wstp_link::~wstp_link() {
@@ -101,23 +112,42 @@ wstp_link::~wstp_link() {
   worker_.join();
 }
 
-int wstp_link::install(fn_t func) {
-  // Send Mathematica command to define external function:
-  constexpr auto sample = std::make_tuple("FlowSample[id_Integer]", "id", 0);
-  constexpr auto wakeup = std::make_tuple("Wakeup[]", "", 1);
+wstp_link::ts_t wstp_link::close_fn() {
+  worker_stop_ = true;
+  return ts_t();
+}
+
+wstp_link::ts_t wstp_link::wakeup_fn() {
+  // check for any compute jobs, then return...
+  return ts_t();
+}
+
+int wstp_link::install(std::vector<def_t>& definitions) {
+  // Send Mathematica definitions to external function:
   int count = 0;
+  constexpr auto close = std::make_tuple("FFClose[]", "", 0);
+  worker_fTable_.emplace_back( std::bind(&wstp_link::close_fn, this) );
   count += put_function("DefineExternal", 3);
-  count += put(sample);
+  count += put(close);
+
+  constexpr auto wakeup = std::make_tuple("FFWakeup[]", "", 1);
+  worker_fTable_.emplace_back( std::bind(&wstp_link::wakeup_fn, this) );
   count += put_function("DefineExternal", 3);
   count += put(wakeup);
+
+  for (auto& d : definitions) {
+    auto pattern = std::make_tuple(std::get<1>(d), std::get<2>(d),
+                                   static_cast<int>(worker_fTable_.size()));
+    worker_fTable_.emplace_back(std::get<0>(d));
+    count += put_function("DefineExternal", 3);
+    count += put(pattern);
+  }
+
   count += put_symbol("End");
   flush();
   if (error()) {
     print_error();
   }
-
-  worker_fTable_.emplace_back(func);
-  worker_fTable_.emplace_back(std::move(func));
 
   // start thread to serve as function handler:
   worker_ = std::thread(&wstp_link::receive_worker, this);
@@ -125,12 +155,12 @@ int wstp_link::install(fn_t func) {
   return count;
 }
 
-void wstp_link::receive_worker() const {
+void wstp_link::receive_worker() {
   std::cout << "WSTP worker thread started." << std::endl;
   while (!worker_stop_) {
-    std::cerr << "DEBUG: worker waiting on receive()" << std::endl;
+//    std::cerr << "DEBUG: worker waiting on receive()" << std::endl;
     if (ready()) {
-      receive();
+      pkt_id_t id = receive();
       if (error()) {
         print_error();
         break;
@@ -150,6 +180,7 @@ void wstp_link::wait() {
 }
 
 void wstp_link::closelink(void) {
+  worker_stop_ = true;
   if (link_)
     WSClose(link_);
   link_ = nullptr;
@@ -161,7 +192,7 @@ void wstp_link::deinit(void) {
   env_ = nullptr;
 }
 
-int wstp_link::ready() const {
+int wstp_link::ready() {
   flush();
   int i;
   if (!(i=WSReady(link_))) {
@@ -170,7 +201,7 @@ int wstp_link::ready() const {
   return i;
 }
 
-int wstp_link::flush() const {
+int wstp_link::flush() {
   int i;
   if (!(i=WSFlush(link_))) {
     print_error();
@@ -178,7 +209,7 @@ int wstp_link::flush() const {
   return i;
 }
 
-int wstp_link::reset() const {
+int wstp_link::reset() {
   if (!WSClearError(link_)) {
     throw print_error();
   }
@@ -188,7 +219,7 @@ int wstp_link::reset() const {
   return 0;
 }
 
-bool wstp_link::error() const {
+int wstp_link::error() const {
   return WSError(link_);
 }
 
@@ -213,7 +244,7 @@ std::string wstp_link::print_error() const {
   return std::string();
 }
 
-bool wstp_link::log(std::string filename) const {
+bool wstp_link::log(std::string filename) {
   if (!WSLogStreamToFile(link_, filename.c_str())) {
     print_error();
     return false;
@@ -221,7 +252,41 @@ bool wstp_link::log(std::string filename) const {
   return true;
 }
 
-pkt_id_t wstp_link::receive() const {
+int wstp_link::decode_call() {
+  int funcID = get<int>();
+  if (funcID < 0 || funcID >= worker_fTable_.size()) {
+    std::cerr << "Unrecognized Function ID: " << funcID << std::endl;
+    return 0;
+  }
+
+  ts_t differences = worker_fTable_[funcID]();
+
+  put_function("ReturnPacket", 1);
+  // TODO: Need a way of returning multiple types...
+  if (differences.size() > 0) {
+    std::cerr << "Returning list of size: " << differences.size() << std::endl;
+    WSPutInteger64List(link_, differences.data(), static_cast<int>(differences.size()));
+  }
+  put_end();
+  flush();
+
+  // TODO: Find a clean way of returning items to Mathematica...
+//  if (funcID == 0) {
+//    put_function("ReturnPacket", 1);
+//    ts_t differences = worker_fTable_[funcID]();
+//    std::cerr << "Returning list of size: " << differences.size() << std::endl;
+//    WSPutInteger64List(link_, differences.data(), static_cast<int>(differences.size()));
+//    put_end();
+//  }
+//  else {
+//    factor_test2(get<int>());
+//    put_function("ReturnPacket", 1);
+//    put_end();
+//  }
+  return funcID;
+}
+
+pkt_id_t wstp_link::receive() {
   // Skip any unconsumed data if needed:
 begin:
   if (!WSNewPacket(link_)) {
@@ -230,26 +295,11 @@ begin:
   }
 
   // Get ID of next packet:
-  size_t funcID;
-  ts_t differences;
   pkt_id_t pkt_id = WSNextPacket(link_);
   switch (pkt_id) {
   case CALLPKT:
     std::cerr << "Call WSTP Packet type." << std::endl;
-    funcID = static_cast<size_t>(get<int>());
-    if (funcID == 0) {
-      put_function("ReturnPacket", 1);
-      differences = worker_fTable_[funcID]();
-      std::cerr << "Returning list of size: " << differences.size() << std::endl;
-      WSPutInteger64List(link_, differences.data(), differences.size());
-      put_end();
-    }
-    else {
-      factor_test2(get<int>());
-      put_function("ReturnPacket", 1);
-//      WSPutInteger(link_, 6969);
-      put_end();
-    }
+    decode_call();
     break;
   case EVALUATEPKT:
     std::cerr << "Evaluate WSTP Packet type." << std::endl;
@@ -258,9 +308,13 @@ begin:
     std::cerr << "Return WSTP Packet type." << std::endl;
     break;
   case ILLEGALPKT:
+    if (error() == 11) {
+      worker_stop_ = true;
+    }
     print_error();
     reset();
-    goto begin; // break
+//    goto begin; // break
+    return pkt_id;
   default:
     std::cerr << "Unsupported WSTP Packet type; ignoring..." << std::endl;
     goto begin;
@@ -272,7 +326,7 @@ begin:
   return pkt_id;  // TODO: repeat until packet is fully received?
 }
 
-pkt_id_t wstp_link::receive(const pkt_id_t id) const {
+pkt_id_t wstp_link::receive(const pkt_id_t id) {
   pkt_id_t rid;
   while((rid = receive()) != id) {
     std::cerr << "Skipping Packet with ID " << rid
@@ -282,7 +336,7 @@ pkt_id_t wstp_link::receive(const pkt_id_t id) const {
 }
 
 // Example Test Functions:
-int wstp_link::factor_test(int n) const {
+int wstp_link::factor_test(int n) {
   std::cout << "Factors of " << n << ":\n";
 
   // Send actual Mathematica command:
@@ -328,7 +382,7 @@ int wstp_link::factor_test(int n) const {
   return EXIT_SUCCESS;
 }
 
-int wstp_link::factor_test2(int n) const {
+int wstp_link::factor_test2(int n) {
   std::cout << "Factors of " << n << ":\n";
 
   // Send Mathematica command to Factor integer:
@@ -359,7 +413,7 @@ void replace_all(std::string& str, std::string match, std::string replace) {
 
 // Integer elements:
 template<>
-int64_t wstp_link::get<int64_t>() const {
+int64_t wstp_link::get<int64_t>() {
   static_assert(sizeof(wsint64) == sizeof(int64_t), "wsint64 is not 64-bits!");
   std::cerr << "DEBUG: Called get<int64_t>()";
   wsint64 i;
@@ -373,7 +427,7 @@ int64_t wstp_link::get<int64_t>() const {
 }
 
 template<>
-int wstp_link::get<int>() const {
+int wstp_link::get<int>() {
   std::cerr << "DEBUG: Called get<int>()";
   int i;
   if (!WSGetInteger(link_, &i)) {
@@ -387,7 +441,7 @@ int wstp_link::get<int>() const {
 
 // Real elements:
 template<>
-double wstp_link::get<double>() const {
+double wstp_link::get<double>() {
   std::cerr << "DEBUG: Called get<double>()";
   double r;
   if (!WSGetReal64(link_, &r)) {
@@ -401,7 +455,7 @@ double wstp_link::get<double>() const {
 
 // String elements:
 template<>
-std::string wstp_link::get<std::string>() const {
+std::string wstp_link::get<std::string>() {
   std::cerr << "DEBUG: Called get<std::string>()";
   const char* cstr;
   if (!WSGetString(link_, &cstr)) {
@@ -421,7 +475,7 @@ std::string wstp_link::get<std::string>() const {
 /// Push item to link specilizations ///
 // Integer elements:
 template<>
-int wstp_link::put<int64_t>(int64_t i) const {
+int wstp_link::put<int64_t>(int64_t i) {
   static_assert(sizeof(wsint64) == sizeof(int64_t), "wsint64 is not 64-bits!");
   std::cerr << "DEBUG: Called put<int64_t>(" << i << ")" << std::endl;
   if (!WSPutInteger64(link_, i)) {
@@ -433,7 +487,7 @@ int wstp_link::put<int64_t>(int64_t i) const {
 }
 //WSPutInteger
 template<>
-int wstp_link::put<int>(int i) const {
+int wstp_link::put<int>(int i) {
   std::cerr << "DEBUG: Called put<int>(" << i << ")" << std::endl;
   if (!WSPutInteger(link_, i)) {
     print_error();
@@ -456,7 +510,7 @@ int wstp_link::put<int>(int i) const {
 
 // Real elements:
 template<>
-int wstp_link::put<double>(double r) const {
+int wstp_link::put<double>(double r) {
   std::cerr << "DEBUG: Called put<double>(" << r << ")" << std::endl;
   if (!WSPutReal64(link_, r)) {
     print_error();
@@ -468,7 +522,7 @@ int wstp_link::put<double>(double r) const {
 
 // String elements:
 template<>
-int wstp_link::put<std::string>(std::string s) const {
+int wstp_link::put<std::string>(std::string s) {
   std::cerr << "DEBUG: Called put<string>(" << s << ")" << std::endl;
   replace_all(s, "\\", "\\\\");  // Mathematica requires all '\' to be escaped.
   if (!WSPutString(link_, s.c_str())) {
@@ -479,14 +533,14 @@ int wstp_link::put<std::string>(std::string s) const {
   return 1;
 }
 template<>
-int wstp_link::put<const char*>(const char* cstr) const {
+int wstp_link::put<const char*>(const char* cstr) {
   return put(std::string(cstr));
 }
 
 
 // Function:
 template<>
-int wstp_link::put_function<std::string>(std::string s, int args) const {
+int wstp_link::put_function<std::string>(std::string s, int args) {
   std::cerr << "DEBUG: Called put_function<string>(" << s << ")" << std::endl;
   if (!WSPutFunction(link_, s.c_str(), args)) {
     print_error();
@@ -496,13 +550,13 @@ int wstp_link::put_function<std::string>(std::string s, int args) const {
   return 1;
 }
 template<>
-int wstp_link::put_function<const char*>(const char* cstr, int args) const {
+int wstp_link::put_function<const char*>(const char* cstr, int args) {
   return put_function(std::string(cstr), args);
 }
 
 // Symbol:
 template<>
-int wstp_link::put_symbol<std::string>(std::string s) const {
+int wstp_link::put_symbol<std::string>(std::string s) {
   std::cerr << "DEBUG: Called put_symbol<string>(" << s << ")" << std::endl;
   if (!WSPutSymbol(link_, s.c_str())) {
     print_error();
@@ -512,17 +566,17 @@ int wstp_link::put_symbol<std::string>(std::string s) const {
   return 1;
 }
 template<>
-int wstp_link::put_symbol<const char*>(const char* cstr) const {
+int wstp_link::put_symbol<const char*>(const char* cstr) {
   return put_symbol(std::string(cstr));
 }
 
 // TODO: this seems like a hack and should be factored out?
 template<>
-int wstp_link::put_function<int64_t>(int64_t i, int) const {
+int wstp_link::put_function<int64_t>(int64_t i, int) {
   return put(i);
 }
 
-int wstp_link::put_end() const {
+int wstp_link::put_end() {
   std::cerr << "DEBUG: Called put_end()" << std::endl;
   if (!WSEndPacket(link_)) {
     print_error();

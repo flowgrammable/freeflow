@@ -116,7 +116,7 @@ bool SimMIN<Key>::update(const Key& k, const Time& t) {
     }
     barrier_ = last;
     trim_to_barrier();
-    return true;
+    return true;  // hit
   }
   else {
     size_t column = compulsoryMiss_ + capacityMiss_;  // t
@@ -124,7 +124,7 @@ bool SimMIN<Key>::update(const Key& k, const Time& t) {
     hist.emplace_back(std::make_pair(column,column));
     capacity_.emplace_back(1);
     assert(capacity_.size() == compulsoryMiss_ + capacityMiss_ - trim_offset_);
-    return false;
+    return false; // miss
   }
 }
 

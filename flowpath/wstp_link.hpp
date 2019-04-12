@@ -16,8 +16,9 @@ class wstp_link {
 public:
   // Types:
   using pkt_id_t = int;
-  using ts_t = std::vector<wsint64>;
+  using ts_t = std::vector<wsint64>;  // WSTP's 64-bit integer type
   using fn_t = std::function<ts_t()>;
+  using def_t = std::tuple<fn_t, const char*, const char*>;
 
   // Constants:
 #ifdef __APPLE__
@@ -34,40 +35,44 @@ public:
   ~wstp_link();
 
   // Error Handling:
-  bool error() const;
+  int error() const;
   std::string get_error() const;
   std::string print_error() const;
-  int reset() const;  // Attempt to recover from error.
-  bool log(std::string filename) const;
+  int reset();  // Attempt to recover from error.
+  bool log(std::string filename);
 
   // Public send/receive interface:
-  int ready() const;    // Indicates if data is ready to receive.
-  int flush() const;    // Attempt to send any queued messages.
+  int ready();    // Indicates if data is ready to receive.
+  int flush();    // Attempt to send any queued messages.
   template< typename Tuple, typename=std::enable_if_t<is_tuple<Tuple>::value> >
-    std::vector<Tuple> receive_list() const;
+    std::vector<Tuple> receive_list();
 
   // Simple built-in test scenarios:
-  int factor_test(int = ((1<<10) * (7*7*7) * 11)) const;
-  int factor_test2(int = ((1<<10) * (7*7*7) * 11)) const;
+  int factor_test(int = ((1<<10) * (7*7*7) * 11));
+  int factor_test2(int = ((1<<10) * (7*7*7) * 11));
 
+  // Dynamic function handlers:
+  int install(std::vector<def_t>&);
   void wait();
 
 //private:
   // Packet type handlers:
-  pkt_id_t receive() const;
-  pkt_id_t receive(pkt_id_t id) const;
-  void receive_worker() const;
+  pkt_id_t receive();
+  pkt_id_t receive(pkt_id_t id);
+  void receive_worker();
 
-  // Package / External Definitions:
-  int install(fn_t func);
+  // Dispatch Table Definitions:
+  int decode_call();
+  ts_t close_fn();
+  ts_t wakeup_fn();
 
   // Library call generation to get/recv data from link:
-  template<typename T> T get() const;
-  template<typename T> int put(T) const;
-  template<typename T> int put_function(T, int args = 1) const;
-  template<typename T> int put_return(T, int args = 1) const;
-  template<typename T> int put_symbol(T) const;
-  int put_end() const;  // Mark end of packet.
+  template<typename T> T get();
+  template<typename T> int put(T);
+  template<typename T> int put_function(T, int args = 1);
+  template<typename T> int put_return(T, int args = 1);
+  template<typename T> int put_symbol(T);
+  int put_end();  // Mark end of packet.
 
   void closelink();
   void deinit();
@@ -77,13 +82,14 @@ public:
 
   // Asyncronous Worker:
   std::vector<fn_t> worker_fTable_;
+//  std::vector<std::tuple<fn_t, std::string, std::string>> definitions_;
   std::thread worker_;
   bool worker_stop_;
 };
 
 
 // Generates appropriate get data calls for std::tuple:
-template<typename Tuple> Tuple wstp_link::get() const {
+template<typename Tuple> Tuple wstp_link::get() {
   return index_apply<std::tuple_size<Tuple>{}>(
     [&](auto... Is) {
       return Tuple(get<typename std::tuple_element<Is, Tuple>::type>()...);
@@ -92,7 +98,7 @@ template<typename Tuple> Tuple wstp_link::get() const {
 }
 
 // Generates appropriate put data calls for std::tuple:
-template<typename Tuple> int wstp_link::put(Tuple t) const {
+template<typename Tuple> int wstp_link::put(Tuple t) {
   return index_apply<std::tuple_size<Tuple>{}>(
     [&](auto... Is) {
       int count = 0;
@@ -104,7 +110,7 @@ template<typename Tuple> int wstp_link::put(Tuple t) const {
 
 
 // Generates appropriate put function calls for std::tuple:
-template<typename Tuple> int wstp_link::put_function(Tuple t, int args) const {
+template<typename Tuple> int wstp_link::put_function(Tuple t, int args) {
   int count = 0;
   count += put_function("EvaluatePacket", 1);  // assume 1 function for now...
   count += index_apply<std::tuple_size<Tuple>{}>(
@@ -121,7 +127,7 @@ template<typename Tuple> int wstp_link::put_function(Tuple t, int args) const {
 
 
 // Generates appropriate put ReturnPacket for std::tuple:
-template<typename Tuple> int wstp_link::put_return(Tuple t, int args) const {
+template<typename Tuple> int wstp_link::put_return(Tuple t, int args) {
   int count = 0;
   count += put_function("ReturnPacket", args);  // assume 1 function for now...
   count += index_apply<std::tuple_size<Tuple>{}>(
@@ -141,7 +147,7 @@ template<typename Tuple> int wstp_link::put_return(Tuple t, int args) const {
 // - Expands based on types of elements in Tuple parameter.
 // - Anonomous typename ensures Tuple is indeed a std::tuple
 template<typename Tuple, typename>
-std::vector<Tuple> wstp_link::receive_list() const {
+std::vector<Tuple> wstp_link::receive_list() {
   constexpr int ELEMENTS = static_cast<int>(std::tuple_size<Tuple>::value);
   std::vector<Tuple> v;
 

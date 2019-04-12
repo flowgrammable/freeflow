@@ -106,12 +106,12 @@ bool SimLRU<Key>::update(const Key& k, const Time& t) {
       // Move element from current position to front of list (MSP):
       stack_.splice(stack_.begin(), stack_, it, std::next(it));
     }
-    return true;
+    return true;  // hit
   }
   else {
     capacityMiss_++;
     auto evicted = internal_insert(k, t);
-    return false;
+    return false; // miss
   }
 }
 
