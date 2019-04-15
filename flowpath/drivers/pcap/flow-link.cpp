@@ -262,20 +262,16 @@ main(int argc, const char* argv[])
   auto& flowTrace = open_gzip(traceFilename + ".gz");
   debugLog << "File: " << traceFilename + ".gz" << "\n"
            << "- Flow Key String: " << FKT_SIZE << "B\n";
-
   auto& tcpFlowTrace = open_gzip(traceFilename + ".tcp.gz");
   debugLog << "File: " << traceFilename + ".tcp.gz" << "\n"
            << "- Flow Key String: " << FKT_SIZE << "B\n"
            << "- Flags: " << sizeof(Flags) << "B\n";
-
   auto& udpFlowTrace = open_gzip(traceFilename + ".udp.gz");
   debugLog << "File: " << traceFilename + ".udp.gz" << "\n"
            << "- Flow Key String: " << FKT_SIZE << "B\n";
-
   auto& otherFlowTrace = open_gzip(traceFilename + ".other.gz");
   debugLog << "File: " << traceFilename + ".other.gz" << "\n"
            << "- Flow Key String: " << FKT_SIZE << "B\n";
-
   auto& scanFlowTrace = open_gzip(traceFilename + ".scans.gz");
   debugLog << "File: " << traceFilename + ".scans.gz" << "\n"
            << "- Flow Key String: " << FKT_SIZE << "B\n"
@@ -291,11 +287,16 @@ main(int argc, const char* argv[])
   std::unordered_set<flow_id_t> blacklistFlows;
   std::set<flow_id_t> touchedFlows;
 
+  // Retired Records:
+  std::map<flow_id_t, const FlowRecord> retiredRecords;
+  std::mutex mtx_RetiredFlows;
+
   // Simulation bookeeping structures:
 #define ENABLE_SIM
 #ifdef ENABLE_SIM
   SimMIN<flow_id_t> simMIN(1<<16);  // 64k
   SimLRU<flow_id_t> simLRU(1<<16);
+  std::mutex mtx_Misses; // covers both missesMIN and missesLRU
   std::map<flow_id_t, std::vector<uint64_t>> missesMIN;
   std::map<flow_id_t, std::vector<uint64_t>> missesLRU;
 #endif
@@ -307,19 +308,64 @@ main(int argc, const char* argv[])
     auto [ns, ts] = pktTime;
     simMIN.insert(flowID, ts);
     simLRU.insert(flowID, ts);
+    {
+      std::lock_guard lock(mtx_Misses);
+      missesMIN.erase(flowID);
+      missesLRU.erase(flowID);
+    }
+
 #endif
   };
+
   std::function<void(flow_id_t, const std::pair<uint64_t,timespec>&&)> f_sim_update =
       [&](flow_id_t flowID, const std::pair<uint64_t,timespec>&& pktTime) {
 #ifdef ENABLE_SIM
     auto [ns, ts] = pktTime;
     if (!simMIN.update(flowID, ts)) {
+      std::lock_guard lock(mtx_Misses);
       missesMIN[flowID].emplace_back(ns);
     }
     if (!simLRU.update(flowID, ts)) {
+      std::lock_guard lock(mtx_Misses);
       missesLRU[flowID].emplace_back(ns);
     }
 #endif
+  };
+
+  wstp_link::fn_t f_get_misses_MIN = [&](flow_id_t) {
+    // Lock and pop a sample:
+    if (retiredRecords.size() == 0) {
+      return wstp_link::return_t();
+    }
+
+    std::unique_lock lck(mtx_RetiredFlows);
+    auto record = retiredRecords.extract(retiredRecords.begin());
+    lck.unlock();
+    if (record.empty()) {
+      return wstp_link::return_t();
+    }
+
+    // Calculate event deltas deltas:
+    const FlowRecord& flowR = record.mapped();
+    auto& ts = flowR.getArrivalV();
+    wstp_link::ts_t deltas(ts.size());
+    std::adjacent_difference(ts.begin(), ts.end(), deltas.begin());
+
+    // Lock and search for miss vector:
+    flow_id_t fid = flowR.getFlowID();
+    std::unique_lock lck2(mtx_Misses);
+    auto miss_ts = missesMIN.extract(fid);
+    lck2.unlock();
+    if (miss_ts.empty()) {
+      return wstp_link::return_t(deltas);
+    }
+
+    // Mark miss by returning netagive distances:
+    for (auto miss : miss_ts.mapped()) {
+      auto x = std::find(ts.begin(), ts.end(), miss);
+      deltas[std::distance(ts.begin(), x)] *= -1;
+    }
+    return wstp_link::return_t(deltas);
   };
 
   // Global Stats:
@@ -330,35 +376,44 @@ main(int argc, const char* argv[])
       flowPortReuse = 0;
 
   // Sampling of retired flows:
-//  std::multimap<flow_id_t, FlowRecord> retiredRecords;
-  std::map<flow_id_t, FlowRecord> retiredRecords;
-  std::mutex retiredMTX;
-  wstp_link::fn_t f_get_arrival = [&retiredRecords, &retiredMTX]() {
+  wstp_link::fn_t f_get_arrival = [&](uint64_t) {
     for (int i = 0; retiredRecords.size() <= 0 && i < 10; i++) {
       std::cerr << "Waiting for flow sample..." << std::endl;
+      // TODO: need to check WSAbort somehow...
       std::this_thread::sleep_for(60s);
     }
-
     // Lock and pop:
-    std::unique_lock lck(retiredMTX);
+    std::unique_lock lck(mtx_RetiredFlows);
     auto record = retiredRecords.extract(retiredRecords.begin());
     lck.unlock();
-
     // Calculate deltas and return:
     auto& ts = record.mapped().getArrivalV();
     wstp_link::ts_t deltas(ts.size());
     std::adjacent_difference(ts.begin(), ts.end(), deltas.begin());
     return deltas;
   };
-  std::function<void(FlowRecord&&)> f_sample = [&retiredRecords, &retiredMTX](FlowRecord&& r) {
+  wstp_link::fn_t f_num_flows = [&](uint64_t) {
+    return retiredRecords.size();
+  };
+
+  std::function<void(FlowRecord&&)> f_sample = [&](FlowRecord&& r) {
     // Only consider semi-large flows:
     if (r.packets() > 128) {
-      // Lock and decide to insert vs. replace:
-      std::lock_guard lock(retiredMTX);
-      if (retiredRecords.size() >= 1024) {
-        retiredRecords.erase(retiredRecords.begin());
+//      auto lru_it = missesLRU.find(r.getFlowID());
+      auto min_it = missesMIN.find(r.getFlowID());
+      const auto& min_ts = min_it->second;
+      // Only record multiple misses within MIN:
+      if ( min_it != missesLRU.end() && min_ts.size() > 1 ) {
+        // Flow looks interesting, add to retiredRecords:
+        std::lock_guard lock(mtx_RetiredFlows);
+        retiredRecords.emplace(std::make_pair(r.getFlowID(), r));
       }
-      retiredRecords.emplace(std::make_pair(r.getFlowID(), r));
+      else {
+        // Flow behaved unremarkibly, delete metadata:
+        std::lock_guard lck(mtx_Misses);
+        missesLRU.erase(r.getFlowID());
+        missesMIN.erase(r.getFlowID());
+      }
     }
   };
 
@@ -366,7 +421,9 @@ main(int argc, const char* argv[])
   wstp_link wstp(1, argv);
   wstp.log( now_ss.str().append(".wstp.log") );
   vector<wstp_link::def_t> definitions = {
-    make_tuple(f_get_arrival, "FFSampleFlow[]", "")
+    make_tuple(f_get_arrival, "FFSampleFlow[]", ""),
+    make_tuple(f_get_misses_MIN, "FFGetMisses[]", ""),
+    make_tuple(f_num_flows, "FFNumFlows[]", "")
   };
   wstp.install(definitions);
 
@@ -728,19 +785,12 @@ main(int argc, const char* argv[])
 
   // Simulation finished, wait for uninstall from WSTP:
   {
-    std::lock_guard lock(retiredMTX);
-//    retiredRecords.merge( std::move(flowRecords) );
-//    decltype(retiredRecords) temp;
-//    std::merge(flowRecords.begin(), flowRecords.end(),
-//               retiredRecords.begin(), retiredRecords.end(), temp.begin());
-//    retiredRecords = temp;
-    for (auto&& flow : flowRecords) {
-//      retiredRecords.emplace( std::move(flow) );
-      f_sample(std::move(flow.second));
+    auto it = flowRecords.cbegin();
+    while ( it != flowRecords.cend() ) {
+      auto flowR = flowRecords.extract(it);
+      f_sample( std::move(flowR.mapped()) );
+      it = flowRecords.cbegin();
     }
-//    retiredRecords = std::move(flowRecords);
-//    std::for_each(std::move_iterator(flowRecords.begin()),
-//                  std::move_iterator(flowRecords.end()), f_sample);
   }
 
   wstp.wait();

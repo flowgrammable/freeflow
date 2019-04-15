@@ -5,6 +5,7 @@
 #include <vector>
 #include <thread>
 #include <iostream>
+#include <variant>
 
 #include "types.hpp"
 
@@ -16,8 +17,12 @@ class wstp_link {
 public:
   // Types:
   using pkt_id_t = int;
+  // Return types:
   using ts_t = std::vector<wsint64>;  // WSTP's 64-bit integer type
-  using fn_t = std::function<ts_t()>;
+  using miss_t = std::pair<ts_t, ts_t>;
+  using return_t = std::variant<wsint64, ts_t>;
+  // std::function definition:
+  using fn_t = std::function<return_t(uint64_t)>;
   using def_t = std::tuple<fn_t, const char*, const char*>;
 
   // Constants:

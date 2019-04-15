@@ -123,8 +123,12 @@ wstp_link::ts_t wstp_link::wakeup_fn() {
 }
 
 int wstp_link::install(std::vector<def_t>& definitions) {
-  // Send Mathematica definitions to external function:
   int count = 0;
+  // TODO: BeginPackage is not a standard atomic function...
+  // - It looks like a raw string should be sent for evauluation...
+//  count += put_function("BeginPackage", 1);
+//  count += put("counter`");
+  // Send Mathematica definitions to external function:
   constexpr auto close = std::make_tuple("FFClose[]", "", 0);
   worker_fTable_.emplace_back( std::bind(&wstp_link::close_fn, this) );
   count += put_function("DefineExternal", 3);
@@ -142,9 +146,10 @@ int wstp_link::install(std::vector<def_t>& definitions) {
     count += put_function("DefineExternal", 3);
     count += put(pattern);
   }
-
+//  count += put_function("EndPackage", 0);
   count += put_symbol("End");
   flush();
+
   if (error()) {
     print_error();
   }
@@ -259,30 +264,46 @@ int wstp_link::decode_call() {
     return 0;
   }
 
-  ts_t differences = worker_fTable_[funcID]();
-
+  // TODO: flexibility is broken, need a good way to compose function calls:
   put_function("ReturnPacket", 1);
-  // TODO: Need a way of returning multiple types...
-  if (differences.size() > 0) {
-    std::cerr << "Returning list of size: " << differences.size() << std::endl;
-    WSPutInteger64List(link_, differences.data(), static_cast<int>(differences.size()));
+  switch (funcID) {
+  case 0: // exit
+    break;
+  case 1: // wakeup
+    break;
+  case 2: // get_arrival
+  {
+    return_t v = worker_fTable_[funcID](0);
+    if (std::holds_alternative<ts_t>(v)) {
+      ts_t events = std::get<ts_t>(v);
+      std::cerr << "Returning list of size: " << events.size() << std::endl;
+      WSPutInteger64List(link_, events.data(), static_cast<int>(events.size()));
+    }
+    break;
+  }
+  case 3: // get_misses_MIN
+  {
+    return_t v = worker_fTable_[funcID](0);
+    if (std::holds_alternative<ts_t>(v)) {
+      auto events = std::get<ts_t>(v);
+      WSPutInteger64List(link_, events.data(), static_cast<int>(events.size()));
+    }
+    break;
+  }
+  case 4: // get_num_flows
+  {
+    return_t v = worker_fTable_[funcID](0);
+    if (std::holds_alternative<wsint64>(v)) {
+      auto count = std::get<wsint64>(v);
+      WSPutInteger64(link_, count);
+    }
+    break;
+  }
+  default:
+    std::cerr << "Unexpected funcID: " << funcID << std::endl;
   }
   put_end();
   flush();
-
-  // TODO: Find a clean way of returning items to Mathematica...
-//  if (funcID == 0) {
-//    put_function("ReturnPacket", 1);
-//    ts_t differences = worker_fTable_[funcID]();
-//    std::cerr << "Returning list of size: " << differences.size() << std::endl;
-//    WSPutInteger64List(link_, differences.data(), static_cast<int>(differences.size()));
-//    put_end();
-//  }
-//  else {
-//    factor_test2(get<int>());
-//    put_function("ReturnPacket", 1);
-//    put_end();
-//  }
   return funcID;
 }
 
