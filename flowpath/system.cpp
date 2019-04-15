@@ -192,6 +192,7 @@ fp_get_port(char const* name)
 {
 //  return fp::port_table.find(name);
   assert(false);
+  return nullptr;
 }
 
 // Returns the portId for a given port.
