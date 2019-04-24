@@ -301,6 +301,40 @@ main(int argc, const char* argv[])
   std::map<flow_id_t, std::vector<uint64_t>> missesLRU;
 #endif
 
+  auto f_sort_by_misses = [&](const std::map<flow_id_t, std::vector<uint64_t>>& misses) {
+    using pq_pair_t = std::pair<size_t, flow_id_t>;
+    using pq_container_t = std::vector<pq_pair_t>;
+    auto pq_compare_f = [](const pq_pair_t& a, const pq_pair_t& b) {
+      // vector is popped from end, so most important items should be at end..
+      if (a.first == b.first)
+        return a.second > b.second; // oldest flow (smalled flow_id at end)
+      return a.first < b.first;     // largest misses at end
+    };
+
+    pq_container_t queue;
+    { lock_guard lock(mtx_RetiredFlows);
+      for (const auto& [fid, flowR] : retiredRecords) {
+        auto it = misses.find(fid);
+        if (it != misses.end()) {
+          const auto& fmv = it->second;
+          queue.push_back(std::make_pair(fmv.size(), fid));
+        }
+        else {
+          queue.push_back(std::make_pair(0, fid));
+        }
+      }
+    }
+//    { lock_guard lck(mtx_Misses);
+//      for (const auto& [fid, fmv] : misses) {
+//        if (retiredRecords.count(fid) > 0) {
+//          queue.push_back(std::make_pair(fmv.size(), fid));
+//        }
+//      }
+//    }
+    std::stable_sort(queue.begin(), queue.end(), pq_compare_f);
+    return queue;
+  };
+
   // Define functions to interact with replacement:
   std::function<void(flow_id_t, const std::pair<uint64_t,timespec>&&)> f_sim_insert =
       [&](flow_id_t flowID, const std::pair<uint64_t,timespec>&& pktTime) {
@@ -333,17 +367,28 @@ main(int argc, const char* argv[])
   };
 
   wstp_link::fn_t f_get_misses_MIN = [&](flow_id_t) {
-    // Lock and pop a sample:
-    if (retiredRecords.size() == 0) {
+    static size_t update_triger = retiredRecords.size();
+    static auto sorted_queue = f_sort_by_misses(missesMIN);
+    if (update_triger != retiredRecords.size()) {
+      sorted_queue = f_sort_by_misses(missesMIN);
+      update_triger = sorted_queue.size();
+    }
+    if (update_triger == 0) {
+      std::cerr << "No flows in retiredRecrods." << std::endl;
       return wstp_link::return_t();
     }
 
+    // Lock and pop a sample:
+    auto [m_count, m_fid] = sorted_queue.back(); sorted_queue.pop_back();
+    std::cout << "Misses: " << m_count << "; FID: " << m_fid << std::endl;
     std::unique_lock lck(mtx_RetiredFlows);
-    auto record = retiredRecords.extract(retiredRecords.begin());
+    auto record = retiredRecords.extract(m_fid);
     lck.unlock();
     if (record.empty()) {
+      std::cerr << "Missing FID (" << m_fid << ") in retiredRecrods." << std::endl;
       return wstp_link::return_t();
     }
+    update_triger--;
 
     // Calculate event deltas deltas:
     const FlowRecord& flowR = record.mapped();
@@ -368,6 +413,7 @@ main(int argc, const char* argv[])
     return wstp_link::return_t(deltas);
   };
 
+
   // Global Stats:
   u16 maxPacketSize = std::numeric_limits<u16>::lowest();
   u16 minPacketSize = std::numeric_limits<u16>::max();
@@ -377,10 +423,8 @@ main(int argc, const char* argv[])
 
   // Sampling of retired flows:
   wstp_link::fn_t f_get_arrival = [&](uint64_t) {
-    for (int i = 0; retiredRecords.size() <= 0 && i < 10; i++) {
-      std::cerr << "Waiting for flow sample..." << std::endl;
-      // TODO: need to check WSAbort somehow...
-      std::this_thread::sleep_for(60s);
+    if (retiredRecords.size() == 0) {
+      return wstp_link::ts_t();
     }
     // Lock and pop:
     std::unique_lock lck(mtx_RetiredFlows);
@@ -392,18 +436,19 @@ main(int argc, const char* argv[])
     std::adjacent_difference(ts.begin(), ts.end(), deltas.begin());
     return deltas;
   };
+
   wstp_link::fn_t f_num_flows = [&](uint64_t) {
     return retiredRecords.size();
   };
 
   std::function<void(FlowRecord&&)> f_sample = [&](FlowRecord&& r) {
     // Only consider semi-large flows:
-    if (r.packets() > 128) {
+    if (r.packets() > 512) {
 //      auto lru_it = missesLRU.find(r.getFlowID());
       auto min_it = missesMIN.find(r.getFlowID());
       const auto& min_ts = min_it->second;
       // Only record multiple misses within MIN:
-      if ( min_it != missesLRU.end() && min_ts.size() > 1 ) {
+      if ( min_it != missesLRU.end() && min_ts.size() >= 8 ) {
         // Flow looks interesting, add to retiredRecords:
         std::lock_guard lock(mtx_RetiredFlows);
         retiredRecords.emplace(std::make_pair(r.getFlowID(), r));

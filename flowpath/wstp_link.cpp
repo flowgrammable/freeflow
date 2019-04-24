@@ -57,10 +57,51 @@ template<> int wstp_link::put_function<int64_t>(int64_t, int);
 template<> int wstp_link::put_symbol<std::string>(std::string);
 template<> int wstp_link::put_symbol<const char*>(const char*);
 
+// Initialize static member variables:
+bool wstp_link::quit_all_ = false;
+
+extern "C" {
+#include <csignal>
+
+// Define handler with C ABI for error callback:
+void err_handler(WSLINK link, int msg, int arg) {
+  switch (msg) {
+  case WSInterruptMessage:
+    std::cerr << "WSInterruptMessage callback message." << std::endl;
+    break;
+  case WSAbortMessage:
+    std::cerr << "WSAbortMessage callback message." << std::endl;
+    break;
+  case WSTerminateMessage:
+    std::cerr << "WSTerminateMessage callback message." << std::endl;
+    break;
+  default:
+    std::cerr << "WARNING: Unexpected callback message type: " << msg << std::endl;
+  }
+}
+// Define handler with C ABI for signal handling callback:
+void sig_handler(int signal) {
+  std::cerr << "Signal " << signal << " received;";
+  switch (signal) {
+  case SIGINT:
+    std::cerr << " exiting." << std::endl;
+    std::exit(EXIT_SUCCESS);
+  default:
+    std::cerr << " no action." << std::endl;
+  }
+}
+}
 
 wstp_link::wstp_link(std::string args) : env_(nullptr), link_(nullptr),
   worker_stop_(false) {
-  env_ = WSInitialize(nullptr);
+  WSEnvironmentParameter p = WSNewParameters(WSREVISION, WSAPIREVISION);
+  if (p) {
+//    WSDoNotHandleSignalParameter(p, SIGINT);
+  }
+  else {
+    std::cerr << "Failed to create WSEnviornmentParameter." << std::endl;
+  }
+  env_ = WSInitialize(p);
   if (!env_)
     throw std::string("Failed WSInitialize.");
 
@@ -77,13 +118,23 @@ wstp_link::wstp_link(std::string args) : env_(nullptr), link_(nullptr),
   }
 
   log("wstp.log");
-//  install();
-//  if (error())
-//    print_error();
+
+  WSSetSignalHandlerFromFunction(env_, SIGINT, sig_handler);
+  if (error()) {
+    print_error();
+  }
 }
 
-wstp_link::wstp_link(int argc, const char* argv[]) : env_(nullptr), link_(nullptr), worker_stop_(false) {
-  env_ = WSInitialize(nullptr);
+wstp_link::wstp_link(int argc, const char* argv[]) : env_(nullptr), link_(nullptr),
+  worker_stop_(false) {
+  WSEnvironmentParameter p = WSNewParameters(WSREVISION, WSAPIREVISION);
+  if (p) {
+//    WSDoNotHandleSignalParameter(p, SIGINT);
+  }
+  else {
+    std::cerr << "Failed to create WSEnviornmentParameter." << std::endl;
+  }
+  env_ = WSInitialize(p);
   if (!env_)
     throw std::string("Failed WSInitialize.");
 
@@ -100,9 +151,11 @@ wstp_link::wstp_link(int argc, const char* argv[]) : env_(nullptr), link_(nullpt
   }
 
   log("wstp.log");
-//  install();
-//  if (error())
-//    print_error();
+
+  WSSetSignalHandlerFromFunction(env_, SIGINT, sig_handler);
+  if (error()) {
+    print_error();
+  }
 }
 
 wstp_link::~wstp_link() {
@@ -112,14 +165,15 @@ wstp_link::~wstp_link() {
   worker_.join();
 }
 
-wstp_link::ts_t wstp_link::close_fn() {
+wsint64 wstp_link::close_fn() {
   worker_stop_ = true;
-  return ts_t();
+  quit_all_ = true;
+  return 0;
 }
 
-wstp_link::ts_t wstp_link::wakeup_fn() {
+wsint64 wstp_link::wakeup_fn() {
   // check for any compute jobs, then return...
-  return ts_t();
+  return 0;
 }
 
 int wstp_link::install(std::vector<def_t>& definitions) {
@@ -162,6 +216,11 @@ int wstp_link::install(std::vector<def_t>& definitions) {
 
 void wstp_link::receive_worker() {
   std::cout << "WSTP worker thread started." << std::endl;
+  try {
+  if (!WSSetMessageHandler(link_, err_handler)) {
+    std::cerr << "WARNING: unable to set wstp error message handler." << std::endl;
+    print_error();
+  }
   while (!worker_stop_) {
 //    std::cerr << "DEBUG: worker waiting on receive()" << std::endl;
     if (ready()) {
@@ -175,12 +234,16 @@ void wstp_link::receive_worker() {
       std::this_thread::sleep_for(std::chrono::seconds(1));
     }
   }
+  } catch (std::string s) {
+    std::cerr << "ERROR: Caught expection in wstp interface:\n" << s << std::endl;
+  }
   std::cout << "WSTP worker thread terminated." << std::endl;
 }
 
 void wstp_link::wait() {
-  while(!worker_stop_) {
-    std::this_thread::sleep_for(std::chrono::seconds(2));
+  while(!quit_all_) {
+    // TODO: need some way of restarting connection on failure?
+    std::this_thread::sleep_for(std::chrono::seconds(10));
   }
 }
 
@@ -277,7 +340,7 @@ int wstp_link::decode_call() {
     if (std::holds_alternative<ts_t>(v)) {
       ts_t events = std::get<ts_t>(v);
       std::cerr << "Returning list of size: " << events.size() << std::endl;
-      WSPutInteger64List(link_, events.data(), static_cast<int>(events.size()));
+      WSPutInteger64List(link_, events.data()+1, static_cast<int>(events.size()-1));
     }
     break;
   }
@@ -285,8 +348,9 @@ int wstp_link::decode_call() {
   {
     return_t v = worker_fTable_[funcID](0);
     if (std::holds_alternative<ts_t>(v)) {
-      auto events = std::get<ts_t>(v);
-      WSPutInteger64List(link_, events.data(), static_cast<int>(events.size()));
+      ts_t events = std::get<ts_t>(v);
+      std::cerr << "Returning list of size: " << events.size() << std::endl;
+      WSPutInteger64List(link_, events.data()+1, static_cast<int>(events.size()-1));
     }
     break;
   }
@@ -319,7 +383,7 @@ begin:
   pkt_id_t pkt_id = WSNextPacket(link_);
   switch (pkt_id) {
   case CALLPKT:
-    std::cerr << "Call WSTP Packet type." << std::endl;
+//    std::cerr << "Call WSTP Packet type." << std::endl;
     decode_call();
     break;
   case EVALUATEPKT:
@@ -436,41 +500,41 @@ void replace_all(std::string& str, std::string match, std::string replace) {
 template<>
 int64_t wstp_link::get<int64_t>() {
   static_assert(sizeof(wsint64) == sizeof(int64_t), "wsint64 is not 64-bits!");
-  std::cerr << "DEBUG: Called get<int64_t>()";
+//  std::cerr << "DEBUG: Called get<int64_t>()";
   wsint64 i;
   if (!WSGetInteger64(link_, &i)) {
     std::cerr << std::endl;
     print_error();
     reset();
   }
-  std::cerr << " = " << i << std::endl;
+//  std::cerr << " = " << i << std::endl;
   return i;
 }
 
 template<>
 int wstp_link::get<int>() {
-  std::cerr << "DEBUG: Called get<int>()";
+//  std::cerr << "DEBUG: Called get<int>()";
   int i;
   if (!WSGetInteger(link_, &i)) {
     std::cerr << std::endl;
     print_error();
     reset();
   }
-  std::cerr << " = " << i << std::endl;
+//  std::cerr << " = " << i << std::endl;
   return i;
 }
 
 // Real elements:
 template<>
 double wstp_link::get<double>() {
-  std::cerr << "DEBUG: Called get<double>()";
+//  std::cerr << "DEBUG: Called get<double>()";
   double r;
   if (!WSGetReal64(link_, &r)) {
     std::cerr << std::endl;
     print_error();
     reset();
   }
-  std::cerr << " = " << r << std::endl;
+//  std::cerr << " = " << r << std::endl;
   return r;
 }
 
@@ -498,7 +562,7 @@ std::string wstp_link::get<std::string>() {
 template<>
 int wstp_link::put<int64_t>(int64_t i) {
   static_assert(sizeof(wsint64) == sizeof(int64_t), "wsint64 is not 64-bits!");
-  std::cerr << "DEBUG: Called put<int64_t>(" << i << ")" << std::endl;
+//  std::cerr << "DEBUG: Called put<int64_t>(" << i << ")" << std::endl;
   if (!WSPutInteger64(link_, i)) {
     print_error();
     reset();
@@ -509,7 +573,7 @@ int wstp_link::put<int64_t>(int64_t i) {
 //WSPutInteger
 template<>
 int wstp_link::put<int>(int i) {
-  std::cerr << "DEBUG: Called put<int>(" << i << ")" << std::endl;
+//  std::cerr << "DEBUG: Called put<int>(" << i << ")" << std::endl;
   if (!WSPutInteger(link_, i)) {
     print_error();
     reset();
@@ -532,7 +596,7 @@ int wstp_link::put<int>(int i) {
 // Real elements:
 template<>
 int wstp_link::put<double>(double r) {
-  std::cerr << "DEBUG: Called put<double>(" << r << ")" << std::endl;
+//  std::cerr << "DEBUG: Called put<double>(" << r << ")" << std::endl;
   if (!WSPutReal64(link_, r)) {
     print_error();
     reset();
@@ -544,7 +608,7 @@ int wstp_link::put<double>(double r) {
 // String elements:
 template<>
 int wstp_link::put<std::string>(std::string s) {
-  std::cerr << "DEBUG: Called put<string>(" << s << ")" << std::endl;
+//  std::cerr << "DEBUG: Called put<string>(" << s << ")" << std::endl;
   replace_all(s, "\\", "\\\\");  // Mathematica requires all '\' to be escaped.
   if (!WSPutString(link_, s.c_str())) {
     print_error();
@@ -562,7 +626,7 @@ int wstp_link::put<const char*>(const char* cstr) {
 // Function:
 template<>
 int wstp_link::put_function<std::string>(std::string s, int args) {
-  std::cerr << "DEBUG: Called put_function<string>(" << s << ")" << std::endl;
+//  std::cerr << "DEBUG: Called put_function<string>(" << s << ")" << std::endl;
   if (!WSPutFunction(link_, s.c_str(), args)) {
     print_error();
     reset();
@@ -578,7 +642,7 @@ int wstp_link::put_function<const char*>(const char* cstr, int args) {
 // Symbol:
 template<>
 int wstp_link::put_symbol<std::string>(std::string s) {
-  std::cerr << "DEBUG: Called put_symbol<string>(" << s << ")" << std::endl;
+//  std::cerr << "DEBUG: Called put_symbol<string>(" << s << ")" << std::endl;
   if (!WSPutSymbol(link_, s.c_str())) {
     print_error();
     reset();
@@ -598,7 +662,7 @@ int wstp_link::put_function<int64_t>(int64_t i, int) {
 }
 
 int wstp_link::put_end() {
-  std::cerr << "DEBUG: Called put_end()" << std::endl;
+//  std::cerr << "DEBUG: Called put_end()" << std::endl;
   if (!WSEndPacket(link_)) {
     print_error();
     reset();

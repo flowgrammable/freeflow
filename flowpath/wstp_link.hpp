@@ -58,7 +58,7 @@ public:
 
   // Dynamic function handlers:
   int install(std::vector<def_t>&);
-  void wait();
+  static void wait();
 
 //private:
   // Packet type handlers:
@@ -68,8 +68,8 @@ public:
 
   // Dispatch Table Definitions:
   int decode_call();
-  ts_t close_fn();
-  ts_t wakeup_fn();
+  wsint64 close_fn();
+  wsint64 wakeup_fn();
 
   // Library call generation to get/recv data from link:
   template<typename T> T get();
@@ -90,6 +90,7 @@ public:
 //  std::vector<std::tuple<fn_t, std::string, std::string>> definitions_;
   std::thread worker_;
   bool worker_stop_;
+  static bool quit_all_;
 };
 
 
