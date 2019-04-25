@@ -339,7 +339,7 @@ int wstp_link::decode_call() {
     return_t v = worker_fTable_[funcID](0);
     if (std::holds_alternative<ts_t>(v)) {
       ts_t events = std::get<ts_t>(v);
-      std::cerr << "Returning list of size: " << events.size() << std::endl;
+      std::cout << "Returning list of size: " << events.size()-1 << std::endl;
       WSPutInteger64List(link_, events.data()+1, static_cast<int>(events.size()-1));
     }
     break;
@@ -349,7 +349,7 @@ int wstp_link::decode_call() {
     return_t v = worker_fTable_[funcID](0);
     if (std::holds_alternative<ts_t>(v)) {
       ts_t events = std::get<ts_t>(v);
-      std::cerr << "Returning list of size: " << events.size() << std::endl;
+      std::cout << "Returning list of size: " << events.size()-1 << std::endl;
       WSPutInteger64List(link_, events.data()+1, static_cast<int>(events.size()-1));
     }
     break;

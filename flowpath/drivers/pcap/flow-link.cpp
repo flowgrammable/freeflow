@@ -301,7 +301,8 @@ main(int argc, const char* argv[])
   std::map<flow_id_t, std::vector<uint64_t>> missesLRU;
 #endif
 
-  auto f_sort_by_misses = [&](const std::map<flow_id_t, std::vector<uint64_t>>& misses) {
+  auto f_sort_by_misses = [&mtx_RetiredFlows, &retiredRecords]
+      (const std::map<flow_id_t, std::vector<uint64_t>>& misses) {
     using pq_pair_t = std::pair<size_t, flow_id_t>;
     using pq_container_t = std::vector<pq_pair_t>;
     auto pq_compare_f = [](const pq_pair_t& a, const pq_pair_t& b) {
@@ -367,8 +368,8 @@ main(int argc, const char* argv[])
   };
 
   wstp_link::fn_t f_get_misses_MIN = [&](flow_id_t) {
-    static size_t update_triger = retiredRecords.size();
     static auto sorted_queue = f_sort_by_misses(missesMIN);
+    static size_t update_triger = sorted_queue.size();
     if (update_triger != retiredRecords.size()) {
       sorted_queue = f_sort_by_misses(missesMIN);
       update_triger = sorted_queue.size();
@@ -444,20 +445,26 @@ main(int argc, const char* argv[])
   std::function<void(FlowRecord&&)> f_sample = [&](FlowRecord&& r) {
     // Only consider semi-large flows:
     if (r.packets() > 512) {
+      std::unique_lock missesLock(mtx_Misses);
 //      auto lru_it = missesLRU.find(r.getFlowID());
       auto min_it = missesMIN.find(r.getFlowID());
       const auto& min_ts = min_it->second;
       // Only record multiple misses within MIN:
-      if ( min_it != missesLRU.end() && min_ts.size() >= 8 ) {
+      if ( min_it != missesMIN.end() && min_ts.size() >= 8 ) {
+        missesLock.unlock();
         // Flow looks interesting, add to retiredRecords:
-        std::lock_guard lock(mtx_RetiredFlows);
-        retiredRecords.emplace(std::make_pair(r.getFlowID(), r));
+        std::cout << "+ FlowID: " << r.getFlowID()
+                  << " Packets: " << r.packets()
+                  << " Misses: " << min_ts.size() << std::endl;
+        { std::lock_guard lock(mtx_RetiredFlows);
+          retiredRecords.emplace(std::make_pair(r.getFlowID(), r));
+        }
       }
       else {
         // Flow behaved unremarkibly, delete metadata:
-        std::lock_guard lck(mtx_Misses);
         missesLRU.erase(r.getFlowID());
         missesMIN.erase(r.getFlowID());
+        missesLock.unlock();
       }
     }
   };
