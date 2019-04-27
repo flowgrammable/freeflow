@@ -39,6 +39,7 @@
 
 #include <iostream>
 #include <sstream>
+#include <csignal>
 
 using pkt_id_t = wstp_link::pkt_id_t;
 
@@ -57,14 +58,9 @@ template<> int wstp_link::put_function<int64_t>(int64_t, int);
 template<> int wstp_link::put_symbol<std::string>(std::string);
 template<> int wstp_link::put_symbol<const char*>(const char*);
 
-// Initialize static member variables:
-bool wstp_link::quit_all_ = false;
-
 extern "C" {
-#include <csignal>
-
-// Define handler with C ABI for error callback:
-void err_handler(WSLINK link, int msg, int arg) {
+// Define handler with C ABI for wstp_link error callback:
+void wstp_link_err_handler(WSLINK link, int msg, int arg) {
   switch (msg) {
   case WSInterruptMessage:
     std::cerr << "WSInterruptMessage callback message." << std::endl;
@@ -79,8 +75,8 @@ void err_handler(WSLINK link, int msg, int arg) {
     std::cerr << "WARNING: Unexpected callback message type: " << msg << std::endl;
   }
 }
-// Define handler with C ABI for signal handling callback:
-void sig_handler(int signal) {
+// Define handler with C ABI for wstp_env signal callback:
+void wstp_env_sig_handler(int signal) {
   std::cerr << "Signal " << signal << " received;";
   switch (signal) {
   case SIGINT:
@@ -90,84 +86,119 @@ void sig_handler(int signal) {
     std::cerr << " no action." << std::endl;
   }
 }
+// Define handler with C ABI for wstp_env signal callback:
+void wstp_server_connection(WSLinkServer server, WSLINK wslink) {
+  std::cerr << "New Connection to WSLinkServer received" << std::endl;
+  wstp::take_connection(wslink);
+}
 }
 
-wstp_link::wstp_link(std::string args) : env_(nullptr), link_(nullptr),
-  worker_stop_(false) {
-  WSEnvironmentParameter p = WSNewParameters(WSREVISION, WSAPIREVISION);
-  if (p) {
-//    WSDoNotHandleSignalParameter(p, SIGINT);
+/////////////////////////////////////////
+//// WSTP Enviornment Handle Wrapper ////
+// Enforces only 1 framework initialization!
+int wstp_env::set_up_ = 0;
+WSENV wstp_env::handle_ = nullptr;
+
+wstp_env::wstp_env(WSEnvironmentParameter env_param) {
+  if (set_up_ == 0) {
+    handle_ = WSInitialize(env_param);
+    if (!handle_) {
+      throw std::string("WSInitialize Failed!");
+    }
+
+    int status = WSSetSignalHandlerFromFunction(handle_, SIGINT, wstp_env_sig_handler);
+    if (status != WSEOK) {
+      std::cerr << "Failed to set signal handler using "
+                   "WSSetSignalHandlerFromFunction()" << std::endl;
+      // No-throw error condition.
+    }
+  }
+  set_up_++;
+}
+
+wstp_env::~wstp_env() {
+  if (--set_up_ == 0) {
+    WSDeinitialize(handle_);
+  }
+}
+
+auto wstp_env::borrow_handle() const {
+  return handle_;
+}
+
+
+////////////////////////////////////////
+//// WSTP LinkServer Handle Wrapper ////
+wstp_env wstp_server::env_;
+
+wstp_server::wstp_server(const uint16_t port, const std::string ip) :
+  handle_(nullptr) {
+  int err = 0;
+  if (!ip.empty()) {
+    handle_ = WSNewLinkServerWithPortAndInterface(env_.borrow_handle(), port, ip.c_str(), nullptr, &err);
+  }
+  if (port != 0) {
+    handle_ = WSNewLinkServerWithPort(env_.borrow_handle(), port, nullptr, &err);
   }
   else {
-    std::cerr << "Failed to create WSEnviornmentParameter." << std::endl;
+    handle_ = WSNewLinkServer(env_.borrow_handle(), nullptr, &err);
   }
-  env_ = WSInitialize(p);
-  if (!env_)
-    throw std::string("Failed WSInitialize.");
+  if (err != WSEOK) {
+    std::string server(ip + ":" + std::to_string(port));
+    std::cerr << "Failed to start wstp_server(" << server << ")" << std::endl;
+    throw std::string("Failed wstp_server(" + server + ")");
+  }
+  WSRegisterCallbackFunctionWithLinkServer(handle_, wstp_server_connection);
+}
 
+wstp_server::~wstp_server() {
+  WSShutdownLinkServer(handle_);
+}
+
+auto wstp_server::borrow_handle() const {
+  return handle_;
+}
+
+
+///////////////////
+//// WSTP Link ////
+wstp_env wstp_link::env_;
+
+wstp_link::wstp_link(std::string args) :
+  link_(nullptr), worker_stop_(false) {
   int err = 0;
-  link_ = WSOpenString(env_, args.c_str(), &err);
+  link_ = WSOpenString(env_.borrow_handle(), args.c_str(), &err);
   if(!link_ || err != WSEOK) {
     std::cerr << "WSOpenString Error: " << err << std::endl;
     throw std::string("Failed WSOpenString.");
   }
-
   if (!(err = WSActivate(link_))) {
     std::cerr << "WSActivate Error: " << err << std::endl;
     throw print_error();
   }
-
-  log("wstp.log");
-
-  WSSetSignalHandlerFromFunction(env_, SIGINT, sig_handler);
-  if (error()) {
-    print_error();
-  }
+  log();
 }
 
-wstp_link::wstp_link(int argc, const char* argv[]) : env_(nullptr), link_(nullptr),
-  worker_stop_(false) {
-  WSEnvironmentParameter p = WSNewParameters(WSREVISION, WSAPIREVISION);
-  if (p) {
-//    WSDoNotHandleSignalParameter(p, SIGINT);
-  }
-  else {
-    std::cerr << "Failed to create WSEnviornmentParameter." << std::endl;
-  }
-  env_ = WSInitialize(p);
-  if (!env_)
-    throw std::string("Failed WSInitialize.");
-
+wstp_link::wstp_link(WSLINK link) :
+  link_(link), worker_stop_(false) {
   int err = 0;
-  link_ = WSOpenArgcArgv(env_, argc, const_cast<char**>(argv), &err);
-  if(!link_ || err != WSEOK) {
-    std::cerr << "WSOpenArgcArgv Error: " << err << std::endl;
-    throw std::string("Failed WSOpenArgcArgv.");
-  }
-
-  if (!(err = WSActivate(link_))) {
+  if (!link_ || !(err = WSActivate(link_))) {
     std::cerr << "WSActivate Error: " << err << std::endl;
     throw print_error();
   }
-
-  log("wstp.log");
-
-  WSSetSignalHandlerFromFunction(env_, SIGINT, sig_handler);
-  if (error()) {
-    print_error();
-  }
+  log();
 }
 
 wstp_link::~wstp_link() {
   worker_stop_ = true;
-  deinit();
-  closelink();
   worker_.join();
+  if (link_)
+    WSClose(link_);
+  link_ = nullptr;
 }
 
 wsint64 wstp_link::close_fn() {
   worker_stop_ = true;
-  quit_all_ = true;
   return 0;
 }
 
@@ -177,6 +208,9 @@ wsint64 wstp_link::wakeup_fn() {
 }
 
 int wstp_link::install(std::vector<def_t>& definitions) {
+  definitions_.insert(definitions_.end(), definitions.cbegin(), definitions.cend());
+  // No uniqueness detection...
+
   int count = 0;
   // TODO: BeginPackage is not a standard atomic function...
   // - It looks like a raw string should be sent for evauluation...
@@ -210,25 +244,19 @@ int wstp_link::install(std::vector<def_t>& definitions) {
 
   // start thread to serve as function handler:
   worker_ = std::thread(&wstp_link::receive_worker, this);
-
   return count;
 }
 
 void wstp_link::receive_worker() {
   std::cout << "WSTP worker thread started." << std::endl;
   try {
-  if (!WSSetMessageHandler(link_, err_handler)) {
-    std::cerr << "WARNING: unable to set wstp error message handler." << std::endl;
+  if (!WSSetMessageHandler(link_, wstp_link_err_handler)) {
+    std::cerr << "WARNING: Unable to set wstp error message handler." << std::endl;
     print_error();
   }
   while (!worker_stop_) {
-//    std::cerr << "DEBUG: worker waiting on receive()" << std::endl;
     if (ready()) {
       pkt_id_t id = receive();
-      if (error()) {
-        print_error();
-        break;
-      }
     }
     else {
       std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -240,27 +268,14 @@ void wstp_link::receive_worker() {
   std::cout << "WSTP worker thread terminated." << std::endl;
 }
 
-void wstp_link::wait() {
-  while(!quit_all_) {
-    // TODO: need some way of restarting connection on failure?
+// Used by main() thread to wait until all WSTP connections close before exit.
+void wstp::wait_for_unlink() {
+  while(!unlink_all_) {
     std::this_thread::sleep_for(std::chrono::seconds(10));
   }
 }
 
-void wstp_link::closelink(void) {
-  worker_stop_ = true;
-  if (link_)
-    WSClose(link_);
-  link_ = nullptr;
-}
-
-void wstp_link::deinit(void) {
-  if (env_)
-    WSDeinitialize(env_);
-  env_ = nullptr;
-}
-
-int wstp_link::ready() {
+int wstp_link::ready() const {
   flush();
   int i;
   if (!(i=WSReady(link_))) {
@@ -269,7 +284,7 @@ int wstp_link::ready() {
   return i;
 }
 
-int wstp_link::flush() {
+int wstp_link::flush() const {
   int i;
   if (!(i=WSFlush(link_))) {
     print_error();
@@ -277,14 +292,13 @@ int wstp_link::flush() {
   return i;
 }
 
-int wstp_link::reset() {
+void wstp_link::reset() {
   if (!WSClearError(link_)) {
     throw print_error();
   }
   if (!WSNewPacket(link_)) {
     throw print_error();
   }
-  return 0;
 }
 
 int wstp_link::error() const {
@@ -292,7 +306,7 @@ int wstp_link::error() const {
 }
 
 std::string wstp_link::get_error() const {
-  if ( int code = WSError(link_) ) {
+  if (int code = WSError(link_)) {
     const char* err = WSErrorMessage(link_);
     std::stringstream ss;
     ss << "wstp_link error " << code << ": " << err;
@@ -313,6 +327,14 @@ std::string wstp_link::print_error() const {
 }
 
 bool wstp_link::log(std::string filename) {
+  if (filename.empty()) {
+    const char* cstr = nullptr;
+    if (!WSLogFileNameForLink(link_, &cstr)) {
+      return false;
+    }
+    filename = std::string(cstr);
+    WSReleaseLogFileNameForLink(link_, cstr);
+  }
   if (!WSLogStreamToFile(link_, filename.c_str())) {
     print_error();
     return false;
@@ -321,11 +343,12 @@ bool wstp_link::log(std::string filename) {
 }
 
 int wstp_link::decode_call() {
-  int funcID = get<int>();
-  if (funcID < 0 || funcID >= worker_fTable_.size()) {
-    std::cerr << "Unrecognized Function ID: " << funcID << std::endl;
+  const int func = get<int>();
+  if (func < 0 || func >= worker_fTable_.size()) {
+    std::cerr << "Unrecognized Function ID: " << func << std::endl;
     return 0;
   }
+  const size_t funcID = static_cast<size_t>(func);
 
   // TODO: flexibility is broken, need a good way to compose function calls:
   put_function("ReturnPacket", 1);
@@ -368,7 +391,7 @@ int wstp_link::decode_call() {
   }
   put_end();
   flush();
-  return funcID;
+  return func;
 }
 
 pkt_id_t wstp_link::receive() {
@@ -394,11 +417,14 @@ begin:
     break;
   case ILLEGALPKT:
     if (error() == 11) {
+      std::cerr << "WSTP EOF Packet." << std::endl;
       worker_stop_ = true;
+    }
+    else {
+      std::cerr << "Unknown Illegal WSTP Packet type." << std::endl;
     }
     print_error();
     reset();
-//    goto begin; // break
     return pkt_id;
   default:
     std::cerr << "Unsupported WSTP Packet type; ignoring..." << std::endl;
@@ -669,4 +695,17 @@ int wstp_link::put_end() {
     return 0;
   }
   return 1;
+}
+
+
+//////////////////////////////
+//// WSTP Top-level Class ////
+bool wstp::unlink_all_ = false;
+std::mutex wstp::mtx_;
+std::vector<wstp_link> wstp::links_;
+std::vector<wstp_server> wstp::servers_;
+
+void wstp::take_connection(wstp_link&& link) {
+  std::lock_guard lck(mtx_);
+  links_.emplace_back(std::move(link));
 }

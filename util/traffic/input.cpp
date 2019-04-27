@@ -9,7 +9,7 @@
 bool running;
 
 // Signal handler, for a more graceful termination.
-void sig_handler(int sig)
+void wstp_env_sig_handler(int sig)
 {
   running = false;
 }
@@ -28,7 +28,7 @@ int main(int argc, char* argv[])
   sock->open();
 
   // Establish handler, setup run flag.
-  signal(SIGINT, sig_handler);
+  signal(SIGINT, wstp_env_sig_handler);
   running = true;
   while(running)
   {

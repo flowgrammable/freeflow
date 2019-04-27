@@ -13,6 +13,50 @@ extern "C" {
 #include <wstp.h>   // Wolfram Symbolic Transfer Protocol (WSTP)
 }
 
+////////////////////////////////////
+//// RAII WSTP Handle Wrappers: ////
+////////////////////////////////////
+class wstp_env;
+class wstp_server;
+class wstp_link;
+class wstp;
+
+//// WSTP Enviornment Handle ////
+class wstp_env {
+public:
+  wstp_env(WSEnvironmentParameter env_param = nullptr);
+  ~wstp_env();
+  wstp_env(const wstp_env& other) = delete;                  // copy constructor
+  wstp_env& operator=(const wstp_env& other) = delete;       // copy assignment
+  wstp_env(wstp_env&& other) = default;                      // move constructor
+  wstp_env& operator=(wstp_env&& other) = default;           // move assignment
+
+  auto borrow_handle() const;  // Member to ensure init
+private:
+  static int set_up_; // Enforces a single instatiation (~global std::shared_ptr)
+  static WSENV handle_;
+};
+
+
+//// WSTP LinkServer Handle ////
+class wstp_server {
+public:
+  wstp_server(const uint16_t port = 0, const std::string ip = std::string());
+  ~wstp_server();
+  wstp_server(const wstp_server& other) = delete;            // copy constructor
+  wstp_server& operator=(const wstp_server& other) = delete; // copy assignment
+  wstp_server(wstp_server&& other) = default;                // move constructor
+  wstp_server& operator=(wstp_server&& other) = default;     // move assignment
+
+  auto borrow_handle() const;  // Member to ensure init
+private:
+  static wstp_env env_;
+  WSLinkServer handle_;
+  std::vector<wstp_link> links_;
+};
+
+
+//// WSTP Link Interface ////
 class wstp_link {
 public:
   // Types:
@@ -27,6 +71,7 @@ public:
 
   // Constants:
 #ifdef __APPLE__
+  static constexpr char DEFAULT[] = "";
   static constexpr char LAUNCH_KERNEL[] = "-linkmode launch -linkname /Applications/Mathematica.app/Contents/MacOS/WolframKernel -wstp";
   static constexpr char CONNECT_TCPIP[] = "-linkmode connect -linkprotocol tcpip -linkname ";
   static constexpr char LISTEN_TCPIP[] = "-linkmode listen -linkprotocol tcpip -linkname ";
@@ -35,20 +80,25 @@ public:
 #endif
 
   // Constructors
-  wstp_link(std::string args = LAUNCH_KERNEL);
-  wstp_link(int argc, const char* argv[]);
+  wstp_link(std::string args = DEFAULT);
+  wstp_link(WSLINK);
   ~wstp_link();
+
+  wstp_link(const wstp_link& other) = delete;                // copy constructor
+  wstp_link& operator=(const wstp_link& other) = delete;     // copy assignment
+  wstp_link(wstp_link&& other) = default;                    // move constructor
+  wstp_link& operator=(wstp_link&& other) = default;         // move assignment
 
   // Error Handling:
   int error() const;
   std::string get_error() const;
   std::string print_error() const;
-  int reset();  // Attempt to recover from error.
-  bool log(std::string filename);
+  void reset();  // Attempt to recover from error.
+  bool log(std::string filename = std::string());
 
   // Public send/receive interface:
-  int ready();    // Indicates if data is ready to receive.
-  int flush();    // Attempt to send any queued messages.
+  int ready() const;    // Indicates if data is ready to receive.
+  int flush() const;    // Attempt to send any queued messages.
   template< typename Tuple, typename=std::enable_if_t<is_tuple<Tuple>::value> >
     std::vector<Tuple> receive_list();
 
@@ -58,9 +108,8 @@ public:
 
   // Dynamic function handlers:
   int install(std::vector<def_t>&);
-  static void wait();
 
-//private:
+private:
   // Packet type handlers:
   pkt_id_t receive();
   pkt_id_t receive(pkt_id_t id);
@@ -79,19 +128,37 @@ public:
   template<typename T> int put_symbol(T);
   int put_end();  // Mark end of packet.
 
-  void closelink();
-  void deinit();
-
-  WSENV env_;
+  static wstp_env env_;
   WSLINK link_;
 
   // Asyncronous Worker:
   std::vector<fn_t> worker_fTable_;
-//  std::vector<std::tuple<fn_t, std::string, std::string>> definitions_;
+  std::vector<def_t> definitions_;
   std::thread worker_;
   bool worker_stop_;
-  static bool quit_all_;
 };
+
+
+//// Top-level WSTP Orchistration ////
+class wstp {
+public:
+//  wstp();
+  template <typename... Args> static void listen(Args&&...);
+  static void take_connection(wstp_link&& link);
+  static void wait_for_unlink();
+
+private:
+  static std::mutex mtx_;
+  static std::vector<wstp_link> links_;
+  static std::vector<wstp_server> servers_;
+  static bool unlink_all_;
+};
+
+template<typename... Args>
+void wstp::listen(Args&&... args) {
+  std::lock_guard lck(mtx_);
+  servers_.emplace_back(std::forward<Args>(args)...);
+}
 
 
 // Generates appropriate get data calls for std::tuple:
@@ -102,6 +169,7 @@ template<typename Tuple> Tuple wstp_link::get() {
     }
   );
 }
+
 
 // Generates appropriate put data calls for std::tuple:
 template<typename Tuple> int wstp_link::put(Tuple t) {
@@ -128,7 +196,7 @@ template<typename Tuple> int wstp_link::put_function(Tuple t, int args) {
   );
   count += put_end();
   flush();
-  return count; // number of library calls made
+  return count;
 }
 
 
@@ -145,7 +213,7 @@ template<typename Tuple> int wstp_link::put_return(Tuple t, int args) {
   );
   count += put_end();
   flush();
-  return count; // number of library calls made
+  return count;
 }
 
 

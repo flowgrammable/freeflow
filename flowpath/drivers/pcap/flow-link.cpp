@@ -454,8 +454,8 @@ main(int argc, const char* argv[])
         missesLock.unlock();
         // Flow looks interesting, add to retiredRecords:
         std::cout << "+ FlowID: " << r.getFlowID()
-                  << " Packets: " << r.packets()
-                  << " Misses: " << min_ts.size() << std::endl;
+                  << ", Packets: " << r.packets()
+                  << ", Misses: " << min_ts.size() << std::endl;
         { std::lock_guard lock(mtx_RetiredFlows);
           retiredRecords.emplace(std::make_pair(r.getFlowID(), r));
         }
@@ -470,14 +470,19 @@ main(int argc, const char* argv[])
   };
 
   // Instantiate Mathematica Link:
-  wstp_link wstp(1, argv);
-  wstp.log( now_ss.str().append(".wstp.log") );
-  vector<wstp_link::def_t> definitions = {
-    make_tuple(f_get_arrival, "FFSampleFlow[]", ""),
-    make_tuple(f_get_misses_MIN, "FFGetMisses[]", ""),
-    make_tuple(f_num_flows, "FFNumFlows[]", "")
-  };
-  wstp.install(definitions);
+//  wstp wstp;
+  wstp::listen(uint16_t(7777));  // TEST ME...
+  {
+    wstp_link link;
+    link.log( now_ss.str().append(".wstp.log") );
+    vector<wstp_link::def_t> definitions = {
+      make_tuple(f_get_arrival, "FFSampleFlow[]", ""),
+      make_tuple(f_get_misses_MIN, "FFGetMisses[]", ""),
+      make_tuple(f_num_flows, "FFNumFlows[]", "")
+    };
+    link.install(definitions);
+    wstp::take_connection(std::move(link));
+  }
 
 
   ///////////////////////
@@ -845,6 +850,6 @@ main(int argc, const char* argv[])
     }
   }
 
-  wstp.wait();
+  wstp::wait_for_unlink();
   return 0;
 }
