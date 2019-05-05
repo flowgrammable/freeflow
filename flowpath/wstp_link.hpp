@@ -6,6 +6,8 @@
 #include <thread>
 #include <iostream>
 #include <variant>
+#include <functional>
+#include <mutex>
 
 #include "types.hpp"
 
@@ -70,13 +72,13 @@ public:
   using def_t = std::tuple<fn_t, const char*, const char*>;
 
   // Constants:
-#ifdef __APPLE__
   static constexpr char DEFAULT[] = "";
+#ifdef __APPLE__
   static constexpr char LAUNCH_KERNEL[] = "-linkmode launch -linkname /Applications/Mathematica.app/Contents/MacOS/WolframKernel -wstp";
   static constexpr char CONNECT_TCPIP[] = "-linkmode connect -linkprotocol tcpip -linkname ";
   static constexpr char LISTEN_TCPIP[] = "-linkmode listen -linkprotocol tcpip -linkname ";
 #else
-  constexpr char LAUNCH_KERNEL[] = "-linkmode launch -linkname /Applications/Mathematica.app/Contents/MacOS/WolframKernel -wstp";
+  static constexpr char LAUNCH_KERNEL[] = "-linkmode launch -linkname /Applications/Mathematica.app/Contents/MacOS/WolframKernel -wstp";
 #endif
 
   // Constructors

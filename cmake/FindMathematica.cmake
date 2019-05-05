@@ -3,7 +3,7 @@
 # See the FindMathematica manual for usage hints.
 #
 #=============================================================================
-# Copyright 2010-2018 Sascha Kratky
+# Copyright 2010-2019 Sascha Kratky
 #
 # Permission is hereby granted, free of charge, to any person)
 # obtaining a copy of this software and associated documentation)
@@ -34,7 +34,7 @@ cmake_minimum_required(VERSION 2.8.12)
 cmake_policy(POP)
 
 set (Mathematica_CMAKE_MODULE_DIR "${CMAKE_CURRENT_LIST_DIR}")
-set (Mathematica_CMAKE_MODULE_VERSION "3.2.4")
+set (Mathematica_CMAKE_MODULE_VERSION "3.2.5")
 
 # activate select policies
 if (POLICY CMP0025)
@@ -245,7 +245,7 @@ macro (_get_program_names _outProgramNames)
 	set (_MathematicaApps "Mathematica" "gridMathematica Server")
 	# Mathematica product versions in order of preference
 	set (_MathematicaVersions
-		"11.3" "11.2" "11.1" "11.0"
+		"12.0" "11.3" "11.2" "11.1" "11.0"
 		"10.4" "10.3" "10.2" "10.1" "10.0"
 		"9.0" "8.0" "7.0" "6.0" "5.2")
 	# search for explicitly requested application version first
@@ -757,7 +757,14 @@ macro (_get_compatible_system_IDs _systemID _outSystemIDs)
 			list (APPEND ${_outSystemIDs} ${_systemID})
 		endif()
 		# Linux 64-bit can run x86 through ia32-libs package
-		list (APPEND ${_outSystemIDs} "Linux")
+		if (Mathematica_VERSION)
+			if ("${Mathematica_VERSION}" VERSION_LESS "11.3")
+				# Mathematica 11.3 dropped support for 32-bit Linux
+				list (APPEND ${_outSystemIDs} "Linux")
+			endif()
+		else()
+			list (APPEND ${_outSystemIDs} "Linux")
+		endif()
 	else()
 		list (APPEND ${_outSystemIDs} ${_systemID})
 	endif()
@@ -1076,11 +1083,20 @@ macro (_append_mathlink_needed_system_libraries _outLibraries)
 			endif()
 		endif()
 		if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
-			list (APPEND ${_outLibraries} m pthread rt )
+			list (APPEND ${_outLibraries} m)
+			set (CMAKE_THREAD_PREFER_PTHREAD TRUE)
+			find_package(Threads REQUIRED)
+			list (APPEND ${_outLibraries} "${CMAKE_THREAD_LIBS_INIT}")
+			find_library(Mathematica_rt_LIBRARY rt)
+			mark_as_advanced(Mathematica_rt_LIBRARY)
+			list (APPEND ${_outLibraries} ${Mathematica_rt_LIBRARY})
 			if (DEFINED Mathematica_MathLink_VERSION_MINOR)
 				if ("${Mathematica_MathLink_VERSION_MINOR}" GREATER 24)
 					# Linux MathLink API revision >= 25 has dependency on libdl and libuuid
-					list (APPEND ${_outLibraries} dl uuid)
+					list (APPEND ${_outLibraries} ${CMAKE_DL_LIBS})
+					find_library (Mathematica_uuid_LIBRARY uuid)
+					mark_as_advanced(Mathematica_uuid_LIBRARY)
+					list (APPEND ${_outLibraries} ${Mathematica_uuid_LIBRARY})
 				endif()
 			endif()
 		elseif (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
@@ -1298,7 +1314,8 @@ macro (_setup_mathematica_base_directory)
 	else ()
 		# guess Mathematica_BASE_DIR from environment
 		# environment variable MATHEMATICA_BASE may override default
-		# $BaseDirectory, see http://reference.wolfram.com/language/tutorial/ConfigurationFiles.html
+		# $BaseDirectory, see
+		# https://reference.wolfram.com/language/tutorial/ConfigurationFiles.html
 		if (DEFINED ENV{MATHEMATICA_BASE})
 			set (Mathematica_BASE_DIR "$ENV{MATHEMATICA_BASE}")
 		elseif (CMAKE_HOST_WIN32 OR CYGWIN)
@@ -1349,7 +1366,8 @@ macro (_setup_mathematica_userbase_directory)
 	else ()
 		# guess Mathematica_USERBASE_DIR from environment
 		# environment variable MATHEMATICA_USERBASE may override default
-		# $UserBaseDirectory, see http://reference.wolfram.com/language/tutorial/ConfigurationFiles.html
+		# $UserBaseDirectory, see
+		# https://reference.wolfram.com/language/tutorial/ConfigurationFiles.html
 		if (DEFINED ENV{MATHEMATICA_USERBASE})
 			set (Mathematica_USERBASE_DIR "$ENV{MATHEMATICA_USERBASE}")
 		elseif (CMAKE_HOST_WIN32 OR CYGWIN)
@@ -3136,7 +3154,7 @@ macro (_add_script_or_code _cmdVar _scriptVar _codeVar)
 			# using the -script option does not work as expected, if it is preceded by multiple inline
 			# Mathematica commands using the -run option.
 			# Thus we use the Get function instead, which should work with all versions.
-			# According to http://reference.wolfram.com/language/tutorial/WolframLanguageScripts.html
+			# According to https://reference.wolfram.com/language/tutorial/WolframLanguageScripts.html
 			# running the kernel with the -script option is equivalent to reading the file using the Get function
 			# with a single difference: after the last command in the file is evaluated, the kernel terminates
 			Mathematica_TO_NATIVE_PATH("${_scriptFileAbs}" _scriptFileMma)
