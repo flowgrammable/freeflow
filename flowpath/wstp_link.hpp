@@ -30,13 +30,12 @@ public:
   ~wstp_env();
   wstp_env(const wstp_env& other) = delete;                  // copy constructor
   wstp_env& operator=(const wstp_env& other) = delete;       // copy assignment
-  wstp_env(wstp_env&& other) = default;                      // move constructor
-  wstp_env& operator=(wstp_env&& other) = default;           // move assignment
+  wstp_env(wstp_env&& other) = delete;                       // move constructor
+  wstp_env& operator=(wstp_env&& other) = delete;            // move assignment
 
   auto borrow_handle() const;  // Member to ensure init
 private:
-  static int set_up_; // Enforces a single instatiation (~global std::shared_ptr)
-  static WSENV handle_;
+  WSENV handle_;
 };
 
 
@@ -47,14 +46,13 @@ public:
   ~wstp_server();
   wstp_server(const wstp_server& other) = delete;            // copy constructor
   wstp_server& operator=(const wstp_server& other) = delete; // copy assignment
-  wstp_server(wstp_server&& other) = default;                // move constructor
-  wstp_server& operator=(wstp_server&& other) = default;     // move assignment
+  wstp_server(wstp_server&& other) = delete;                 // move constructor
+  wstp_server& operator=(wstp_server&& other) = delete;      // move assignment
 
   auto borrow_handle() const;  // Member to ensure init
 private:
-  static wstp_env env_;
+//  static wstp_env env_;
   WSLinkServer handle_;
-  std::vector<wstp_link> links_;
 };
 
 
@@ -88,8 +86,8 @@ public:
 
   wstp_link(const wstp_link& other) = delete;                // copy constructor
   wstp_link& operator=(const wstp_link& other) = delete;     // copy assignment
-  wstp_link(wstp_link&& other) = default;                    // move constructor
-  wstp_link& operator=(wstp_link&& other) = default;         // move assignment
+  wstp_link(wstp_link&& other) = delete;                     // move constructor
+  wstp_link& operator=(wstp_link&& other) = delete;          // move assignment
 
   // Error Handling:
   int error() const;
@@ -130,7 +128,7 @@ private:
   template<typename T> int put_symbol(T);
   int put_end();  // Mark end of packet.
 
-  static wstp_env env_;
+//  static wstp_env env_;
   WSLINK link_;
 
   // Asyncronous Worker:
@@ -145,21 +143,23 @@ private:
 class wstp {
 public:
 //  wstp();
-  template <typename... Args> static void listen(Args&&...);
-  static void take_connection(wstp_link&& link);
+  template<typename... Args> static void listen(Args&&...);
+//  static void take_connection(wstp_link&& link);
+  static void take_connection(WSLINK wslink);
   static void wait_for_unlink();
 
 private:
   static std::mutex mtx_;
-  static std::vector<wstp_link> links_;
-  static std::vector<wstp_server> servers_;
+  static std::vector<std::unique_ptr<wstp_link>> links_;
+  static std::vector<std::unique_ptr<wstp_server>> servers_;
   static bool unlink_all_;
 };
 
 template<typename... Args>
 void wstp::listen(Args&&... args) {
   std::lock_guard lck(mtx_);
-  servers_.emplace_back(std::forward<Args>(args)...);
+  auto ptr = std::make_unique<wstp_server>( std::forward<Args>(args)... );
+  servers_.emplace_back(std::move(ptr));
 }
 
 

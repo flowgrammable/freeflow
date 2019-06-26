@@ -46,82 +46,6 @@ sig_handle(int sig)
 }
 
 
-static std::ostream& print_eval(std::ostream &out, const EvalContext& evalCxt) {
-  int committedBytes = evalCxt.v.absoluteBytes<int>() - evalCxt.v.committedBytes<int>();
-  int pendingBytes = evalCxt.v.committedBytes<int>();
-  string committed("|"), pending("|");
-  if (committedBytes > 0) {
-    committed = string(committedBytes * 2, '+');
-  }
-  if (pendingBytes > 0) {
-    pending = string(pendingBytes * 2, '-');
-    pending.append("|");
-  }
-  out << committed << pending << '\n';
-#ifdef DEBUG_LOG
-  out << evalCxt.extractLog.str();
-#endif
-  return out;
-}
-
-
-stringstream hexdump(const void* msg, size_t bytes) {
-  auto m = static_cast<const uint8_t*>(msg);
-  stringstream ss;
-
-  ss << std::hex << std::setfill('0');
-  for (decltype(bytes) i = 0; i < bytes; i++) {
-    ss << setw(2) << static_cast<unsigned int>(m[i]);
-  }
-  return ss;
-}
-
-
-static void print_hex(const string& s) {
-  stringstream ss = hexdump(s.c_str(), s.size());
-  cerr << ss.str() << endl;
-}
-
-
-static stringstream dump_packet(fp::Packet* p) {
-  return hexdump(p->data(), p->size());
-}
-
-
-static void print_packet(fp::Packet* p) {
-  cerr << p->timestamp().tv_sec << ':' << p->timestamp().tv_nsec << '\n'
-       << dump_packet(p).str() << endl;
-}
-
-
-static stringstream print_flow(const FlowRecord& flow) {
-  stringstream ss;
-
-  // Print flow summary information:
-  auto pkts = flow.packets();
-  auto byts = flow.bytes();
-  ss << "FlowID=" << flow.getFlowID()
-     << ", key=" << 0
-     << ", packets=" << pkts
-     << ", bytes=" << byts
-     << ", ppBytes=" << byts/pkts
-     << '\n';
-  return ss;
-}
-
-
-static void print_log(const EvalContext& e) {
-#ifdef DEBUG_LOG
-  cerr << e.extractLog.str() << endl;
-#endif
-}
-
-
-static void print_log(const FlowRecord& flow) {
-  cerr << flow.getLog() << endl;
-}
-
-
 static void print_help(const char* argv0, const po::options_description desc) {
     cout << "Usage: " << argv0 << " [options] (directionA.pcap) [directionB.pcap]" << endl;
     cout << desc << endl;
@@ -298,7 +222,7 @@ main(int argc, const char* argv[])
       ss << evalCxt.v.absoluteBytes<int>() << ", "
          << evalCxt.v.committedBytes<int>() << ", "
          << evalCxt.v.pendingBytes<int>() << '\n';
-      ss << dump_packet(p).str() << '\n';
+      ss << dump_packet(*p).str() << '\n';
       print_eval(ss, evalCxt);
       ss << "> Exception occured during extract: " << e.what();
 //      debugLog <<  ss.str() << '\n';

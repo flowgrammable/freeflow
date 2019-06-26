@@ -33,6 +33,8 @@ public:
   uint64_t get_capacity_miss() const {return capacityMiss_;}
   uint64_t get_compulsory_miss() const {return compulsoryMiss_;}
 
+  const auto& get_stack() const {return stack_;}
+
 private:
   auto internal_insert(const Key& k, const Time& t);
 
@@ -75,7 +77,7 @@ auto SimLRU<Key>::internal_insert(const Key& k, const Time& t) {
   }
   lookup_.insert( std::make_pair(k, stack_.begin()) );
   assert(lookup_.size() == stack_.size());
-  if (stack_.size() >= MAX_) {
+  if (stack_.size() > MAX_) {
     auto evicted = std::move(stack_.back());
     Key k = evicted.first;
     lookup_.erase(k);

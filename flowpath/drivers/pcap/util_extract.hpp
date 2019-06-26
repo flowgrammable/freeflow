@@ -281,5 +281,13 @@ int extract_icmpv6(EvalContext&);
 int extract_ipsec_esp(EvalContext&);
 int extract_ipsec_ah(EvalContext&);
 
+std::ostream& print_eval(std::ostream &out, const EvalContext& evalCxt);
+std::stringstream hexdump(const void* msg, size_t bytes);
+void print_hex(const std::string& s);
+std::stringstream dump_packet(const fp::Packet& p);
+void print_packet(const fp::Packet& p);
+std::stringstream print_flow(const FlowRecord& flow);
+void print_log(const EvalContext& e);
+void print_log(const FlowRecord& flow);
 
 #endif

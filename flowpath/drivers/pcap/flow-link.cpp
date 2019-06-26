@@ -6,8 +6,10 @@
 #include "util_io.hpp"
 #include "sim_min.hpp"
 #include "sim_lru.hpp"
+#include "cache_sim.hpp"
 
 #include <string>
+#include <sstream>
 #include <iostream>
 #include <stdexcept>
 #include <iomanip>
@@ -50,84 +52,6 @@ void
 sig_handle(int sig)
 {
   running = false;
-}
-
-
-static std::ostream& print_eval(std::ostream &out, const EvalContext& evalCxt) {
-  int committedBytes = evalCxt.v.absoluteBytes<int>() - evalCxt.v.committedBytes<int>();
-  int pendingBytes = evalCxt.v.committedBytes<int>();
-  string committed("|"), pending("|");
-  if (committedBytes > 0) {
-    committed = string(committedBytes * 2, '+');
-  }
-  if (pendingBytes > 0) {
-    pending = string(pendingBytes * 2, '-');
-    pending.append("|");
-  }
-  out << committed << pending << '\n';
-#ifdef DEBUG_LOG
-  out << evalCxt.extractLog.str();
-#endif
-  return out;
-}
-
-
-stringstream hexdump(const void* msg, size_t bytes) {
-  auto m = static_cast<const uint8_t*>(msg);
-  stringstream ss;
-
-  ss << std::hex << std::setfill('0');
-  for (decltype(bytes) i = 0; i < bytes; i++) {
-    ss << setw(2) << static_cast<unsigned int>(m[i]);
-  }
-  return ss;
-}
-
-
-static void print_hex(const string& s) {
-  stringstream ss = hexdump(s.c_str(), s.size());
-  cerr << ss.str() << endl;
-}
-
-
-static stringstream dump_packet(const fp::Packet& p) {
-  return hexdump(p.data(), p.size());
-}
-
-
-static void print_packet(const fp::Packet& p) {
-  cerr << p.timestamp().tv_sec << ':' << p.timestamp().tv_nsec << '\n'
-       << dump_packet(p).str() << endl;
-}
-
-
-static stringstream print_flow(const FlowRecord& flow) {
-  stringstream ss;
-
-  // Print flow summary information:
-  auto pkts = flow.packets();
-  auto byts = flow.bytes();
-  ss << "FlowID=" << flow.getFlowID()
-     << ", key=" << 0
-     << ", packets=" << pkts
-     << ", bytes=" << byts
-     << ", ppBytes=" << byts/pkts
-     << ", " << (flow.sawSYN()?"SYN":"")
-             << (flow.sawFIN()?"|FIN":"")
-             << (flow.sawRST()?"|RST\n":"\n");
-  return ss;
-}
-
-
-static void print_log(const EvalContext& e) {
-#ifdef DEBUG_LOG
-  cerr << e.extractLog.str() << endl;
-#endif
-}
-
-
-static void print_log(const FlowRecord& flow) {
-  cerr << flow.getLog() << endl;
 }
 
 
@@ -296,6 +220,7 @@ main(int argc, const char* argv[])
 #ifdef ENABLE_SIM
   SimMIN<flow_id_t> simMIN(1<<16);  // 64k
   SimLRU<flow_id_t> simLRU(1<<16);
+  CacheSim<flow_id_t> cacheSimLRU(1<<16);
   std::mutex mtx_Misses; // covers both missesMIN and missesLRU
   std::map<flow_id_t, std::vector<uint64_t>> missesMIN;
   std::map<flow_id_t, std::vector<uint64_t>> missesLRU;
@@ -343,6 +268,7 @@ main(int argc, const char* argv[])
     auto [ns, ts] = pktTime;
     simMIN.insert(flowID, ts);
     simLRU.insert(flowID, ts);
+    cacheSimLRU.insert(flowID, ts);
     {
       std::lock_guard lock(mtx_Misses);
       missesMIN.erase(flowID);
@@ -360,10 +286,13 @@ main(int argc, const char* argv[])
       std::lock_guard lock(mtx_Misses);
       missesMIN[flowID].emplace_back(ns);
     }
-    if (!simLRU.update(flowID, ts)) {
+    bool test;
+    if (!(test = simLRU.update(flowID, ts))) {
       std::lock_guard lock(mtx_Misses);
       missesLRU[flowID].emplace_back(ns);
     }
+    auto test2 = cacheSimLRU.update(flowID, ts);
+    assert(test2.first == test);
 #endif
   };
 
@@ -470,9 +399,11 @@ main(int argc, const char* argv[])
   };
 
   // Instantiate Mathematica Link:
+  constexpr bool enable_wstp = false;
+  if (enable_wstp) {
 //  wstp wstp;
-  wstp::listen(uint16_t(7777));  // TEST ME...
-  {
+//  wstp::listen(uint16_t(7777));  // TEST ME...
+//  {
     wstp_link link;
     link.log( now_ss.str().append(".wstp.log") );
     vector<wstp_link::def_t> definitions = {
@@ -481,7 +412,9 @@ main(int argc, const char* argv[])
       make_tuple(f_num_flows, "FFNumFlows[]", "")
     };
     link.install(definitions);
-    wstp::take_connection(std::move(link));
+//    wstp::take_connection(std::move(link)); // move is broken
+//  }
+//  wstp::listen();  // TEST ME...
   }
 
 

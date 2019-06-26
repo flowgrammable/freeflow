@@ -76,7 +76,7 @@ void wstp_link_err_handler(WSLINK link, int msg, int arg) {
   }
 }
 // Define handler with C ABI for wstp_env signal callback:
-void wstp_env_sig_handler(int signal) {
+void wstp_ENVsig_handler(int signal) {
   std::cerr << "Signal " << signal << " received;";
   switch (signal) {
   case SIGINT:
@@ -95,31 +95,24 @@ void wstp_server_connection(WSLinkServer server, WSLINK wslink) {
 
 /////////////////////////////////////////
 //// WSTP Enviornment Handle Wrapper ////
-// Enforces only 1 framework initialization!
-int wstp_env::set_up_ = 0;
-WSENV wstp_env::handle_ = nullptr;
+static wstp_env ENV;  // single global instace.
 
-wstp_env::wstp_env(WSEnvironmentParameter env_param) {
-  if (set_up_ == 0) {
-    handle_ = WSInitialize(env_param);
-    if (!handle_) {
-      throw std::string("WSInitialize Failed!");
-    }
-
-    int status = WSSetSignalHandlerFromFunction(handle_, SIGINT, wstp_env_sig_handler);
-    if (status != WSEOK) {
-      std::cerr << "Failed to set signal handler using "
-                   "WSSetSignalHandlerFromFunction()" << std::endl;
-      // No-throw error condition.
-    }
+wstp_env::wstp_env(WSEnvironmentParameter ENVparam) {
+  handle_ = WSInitialize(ENVparam);
+  if (!handle_) {
+    throw std::string("WSInitialize Failed!");
   }
-  set_up_++;
+
+  int status = WSSetSignalHandlerFromFunction(handle_, SIGINT, wstp_ENVsig_handler);
+  if (status != WSEOK) {
+    std::cerr << "Failed to set signal handler using "
+                 "WSSetSignalHandlerFromFunction()" << std::endl;
+    // No-throw error condition.
+  }
 }
 
 wstp_env::~wstp_env() {
-  if (--set_up_ == 0) {
-    WSDeinitialize(handle_);
-  }
+  WSDeinitialize(handle_);
 }
 
 auto wstp_env::borrow_handle() const {
@@ -129,19 +122,19 @@ auto wstp_env::borrow_handle() const {
 
 ////////////////////////////////////////
 //// WSTP LinkServer Handle Wrapper ////
-wstp_env wstp_server::env_;
+//wstp_env wstp_server::ENV;
 
 wstp_server::wstp_server(const uint16_t port, const std::string ip) :
   handle_(nullptr) {
   int err = 0;
   if (!ip.empty()) {
-    handle_ = WSNewLinkServerWithPortAndInterface(env_.borrow_handle(), port, ip.c_str(), nullptr, &err);
+    handle_ = WSNewLinkServerWithPortAndInterface(ENV.borrow_handle(), port, ip.c_str(), nullptr, &err);
   }
   if (port != 0) {
-    handle_ = WSNewLinkServerWithPort(env_.borrow_handle(), port, nullptr, &err);
+    handle_ = WSNewLinkServerWithPort(ENV.borrow_handle(), port, nullptr, &err);
   }
   else {
-    handle_ = WSNewLinkServer(env_.borrow_handle(), nullptr, &err);
+    handle_ = WSNewLinkServer(ENV.borrow_handle(), nullptr, &err);
   }
   if (err != WSEOK) {
     std::string server(ip + ":" + std::to_string(port));
@@ -162,12 +155,12 @@ auto wstp_server::borrow_handle() const {
 
 ///////////////////
 //// WSTP Link ////
-wstp_env wstp_link::env_;
+//wstp_env wstp_link::ENV;
 
 wstp_link::wstp_link(std::string args) :
   link_(nullptr), worker_stop_(false) {
   int err = 0;
-  link_ = WSOpenString(env_.borrow_handle(), args.c_str(), &err);
+  link_ = WSOpenString(ENV.borrow_handle(), args.c_str(), &err);
   if(!link_ || err != WSEOK) {
     std::cerr << "WSOpenString Error: " << err << std::endl;
     throw std::string("Failed WSOpenString.");
@@ -190,11 +183,14 @@ wstp_link::wstp_link(WSLINK link) :
 }
 
 wstp_link::~wstp_link() {
-  worker_stop_ = true;
-  worker_.join();
-  if (link_)
+  if (worker_.joinable()) {
+    worker_stop_ = true;
+    worker_.join();
+  }
+  if (link_) {
     WSClose(link_);
-  link_ = nullptr;
+    link_ = nullptr;
+  }
 }
 
 wsint64 wstp_link::close_fn() {
@@ -702,10 +698,17 @@ int wstp_link::put_end() {
 //// WSTP Top-level Class ////
 bool wstp::unlink_all_ = false;
 std::mutex wstp::mtx_;
-std::vector<wstp_link> wstp::links_;
-std::vector<wstp_server> wstp::servers_;
+std::vector<std::unique_ptr<wstp_link>> wstp::links_;
+std::vector<std::unique_ptr<wstp_server>> wstp::servers_;
 
-void wstp::take_connection(wstp_link&& link) {
+// Move is broken...
+//void wstp::take_connection(wstp_link&& link) {
+//  std::lock_guard lck(mtx_);
+//  links_.emplace_back(std::move(link));
+//}
+
+void wstp::take_connection(WSLINK wslink) {
   std::lock_guard lck(mtx_);
-  links_.emplace_back(std::move(link));
+  auto ptr = std::make_unique<wstp_link>(wslink);
+  links_.emplace_back(std::move(ptr));
 }
