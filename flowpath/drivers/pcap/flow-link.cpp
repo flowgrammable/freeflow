@@ -38,7 +38,7 @@
 #include "absl/container/inlined_vector.h"
 
 // Wolfram Symbolic Transfer Protocol (WSTP):
-#include "wstp_link.hpp"
+#include "wstp.hpp"
 
 using namespace std;
 //using namespace util_view;
@@ -399,19 +399,21 @@ main(int argc, const char* argv[])
   };
 
   // Instantiate Mathematica Link:
-  constexpr bool enable_wstp = false;
+  constexpr bool enable_wstp = true;
   if (enable_wstp) {
-//  wstp wstp;
-//  wstp::listen(uint16_t(7777));  // TEST ME...
+  wstp::listen(uint16_t(7777));  // TEST ME...
 //  {
-    wstp_link link;
-    link.log( now_ss.str().append(".wstp.log") );
-    vector<wstp_link::def_t> definitions = {
-      make_tuple(f_get_arrival, "FFSampleFlow[]", ""),
-      make_tuple(f_get_misses_MIN, "FFGetMisses[]", ""),
-      make_tuple(f_num_flows, "FFNumFlows[]", "")
-    };
-    link.install(definitions);
+
+//    wstp_link link;
+//    link.log( now_ss.str().append(".wstp.log") );
+//    vector<wstp_link::def_t> definitions = {
+//      def_t( wstp_link::sig_t("FFSampleFlow[]", ""), wstp_link::fn_t(f_get_arrival) ),
+//      make_tuple( wstp_link::sig_t("FFGetMisses[]", "", wstp_link::fn_t(f_get_misses_MIN) ),
+//      make_tuple( wstp_link::sig_t("FFNumFlows[]", "", wstp_link::fn_t(f_num_flows) )
+//    };
+    wstp_link::register_fn( wstp_link::def_t( wstp_link::sig_t("FFSampleFlow[]", ""), wstp_link::fn_t(f_get_arrival) ));
+//    link.install(definitions);
+
 //    wstp::take_connection(std::move(link)); // move is broken
 //  }
 //  wstp::listen();  // TEST ME...

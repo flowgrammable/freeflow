@@ -1,6 +1,8 @@
 #ifndef FP_WSTP_LINK_HPP
 #define FP_WSTP_LINK_HPP
 
+#include "types.hpp"
+
 #include <string>
 #include <vector>
 #include <thread>
@@ -9,19 +11,10 @@
 #include <functional>
 #include <mutex>
 
-#include "types.hpp"
-
 extern "C" {
 #include <wstp.h>   // Wolfram Symbolic Transfer Protocol (WSTP)
 }
 
-////////////////////////////////////
-//// RAII WSTP Handle Wrappers: ////
-////////////////////////////////////
-class wstp_env;
-class wstp_server;
-class wstp_link;
-class wstp;
 
 //// WSTP Enviornment Handle ////
 class wstp_env {
@@ -33,26 +26,9 @@ public:
   wstp_env(wstp_env&& other) = delete;                       // move constructor
   wstp_env& operator=(wstp_env&& other) = delete;            // move assignment
 
-  auto borrow_handle() const;  // Member to ensure init
+  WSENV borrow_handle() const;  // Member to ensure init
 private:
   WSENV handle_;
-};
-
-
-//// WSTP LinkServer Handle ////
-class wstp_server {
-public:
-  wstp_server(const uint16_t port = 0, const std::string ip = std::string());
-  ~wstp_server();
-  wstp_server(const wstp_server& other) = delete;            // copy constructor
-  wstp_server& operator=(const wstp_server& other) = delete; // copy assignment
-  wstp_server(wstp_server&& other) = delete;                 // move constructor
-  wstp_server& operator=(wstp_server&& other) = delete;      // move assignment
-
-  auto borrow_handle() const;  // Member to ensure init
-private:
-//  static wstp_env env_;
-  WSLinkServer handle_;
 };
 
 
@@ -60,14 +36,15 @@ private:
 class wstp_link {
 public:
   // Types:
-  using pkt_id_t = int;
+  using pkt_id_t = int; // WSTP Packet ID
   // Return types:
   using ts_t = std::vector<wsint64>;  // WSTP's 64-bit integer type
   using miss_t = std::pair<ts_t, ts_t>;
   using return_t = std::variant<wsint64, ts_t>;
-  // std::function definition:
+  // Function signatures:
   using fn_t = std::function<return_t(uint64_t)>;
-  using def_t = std::tuple<fn_t, const char*, const char*>;
+  using sig_t = std::tuple<std::string, std::string>;
+  using def_t = std::tuple<sig_t, fn_t>;
 
   // Constants:
   static constexpr char DEFAULT[] = "";
@@ -107,7 +84,9 @@ public:
   int factor_test2(int = ((1<<10) * (7*7*7) * 11));
 
   // Dynamic function handlers:
-  int install(std::vector<def_t>&);
+  static int register_fn(def_t);
+  int install();
+  int install(std::vector<def_t>&); // depricated
 
 private:
   // Packet type handlers:
@@ -132,35 +111,11 @@ private:
   WSLINK link_;
 
   // Asyncronous Worker:
-  std::vector<fn_t> worker_fTable_;
-  std::vector<def_t> definitions_;
+  static std::vector<fn_t> worker_fTable_;
+  static std::vector<sig_t> wstp_signatures_;
   std::thread worker_;
   bool worker_stop_;
 };
-
-
-//// Top-level WSTP Orchistration ////
-class wstp {
-public:
-//  wstp();
-  template<typename... Args> static void listen(Args&&...);
-//  static void take_connection(wstp_link&& link);
-  static void take_connection(WSLINK wslink);
-  static void wait_for_unlink();
-
-private:
-  static std::mutex mtx_;
-  static std::vector<std::unique_ptr<wstp_link>> links_;
-  static std::vector<std::unique_ptr<wstp_server>> servers_;
-  static bool unlink_all_;
-};
-
-template<typename... Args>
-void wstp::listen(Args&&... args) {
-  std::lock_guard lck(mtx_);
-  auto ptr = std::make_unique<wstp_server>( std::forward<Args>(args)... );
-  servers_.emplace_back(std::move(ptr));
-}
 
 
 // Generates appropriate get data calls for std::tuple:

@@ -40,10 +40,16 @@
 #include <iostream>
 #include <sstream>
 #include <csignal>
+#include <tuple>
 
 using pkt_id_t = wstp_link::pkt_id_t;
 
 // Forward declarations of get/put specilizations:
+extern "C" {
+void wstp_link_err_handler(WSLINK link, int msg, int arg);
+void wstp_ENVsig_handler(int signal);
+}
+
 template<> int wstp_link::get<int>();
 template<> int64_t wstp_link::get<int64_t>();
 template<> double wstp_link::get<double>();
@@ -58,44 +64,15 @@ template<> int wstp_link::put_function<int64_t>(int64_t, int);
 template<> int wstp_link::put_symbol<std::string>(std::string);
 template<> int wstp_link::put_symbol<const char*>(const char*);
 
-extern "C" {
-// Define handler with C ABI for wstp_link error callback:
-void wstp_link_err_handler(WSLINK link, int msg, int arg) {
-  switch (msg) {
-  case WSInterruptMessage:
-    std::cerr << "WSInterruptMessage callback message." << std::endl;
-    break;
-  case WSAbortMessage:
-    std::cerr << "WSAbortMessage callback message." << std::endl;
-    break;
-  case WSTerminateMessage:
-    std::cerr << "WSTerminateMessage callback message." << std::endl;
-    break;
-  default:
-    std::cerr << "WARNING: Unexpected callback message type: " << msg << std::endl;
-  }
-}
-// Define handler with C ABI for wstp_env signal callback:
-void wstp_ENVsig_handler(int signal) {
-  std::cerr << "Signal " << signal << " received;";
-  switch (signal) {
-  case SIGINT:
-    std::cerr << " exiting." << std::endl;
-    std::exit(EXIT_SUCCESS);
-  default:
-    std::cerr << " no action." << std::endl;
-  }
-}
-// Define handler with C ABI for wstp_env signal callback:
-void wstp_server_connection(WSLinkServer server, WSLINK wslink) {
-  std::cerr << "New Connection to WSLinkServer received" << std::endl;
-  wstp::take_connection(wslink);
-}
-}
+
+// Global Initialization:
+std::vector<wstp_link::fn_t> wstp_link::worker_fTable_;
+std::vector<wstp_link::sig_t> wstp_link::wstp_signatures_;
+
 
 /////////////////////////////////////////
 //// WSTP Enviornment Handle Wrapper ////
-static wstp_env ENV;  // single global instace.
+wstp_env ENV;  // single global instace.
 
 wstp_env::wstp_env(WSEnvironmentParameter ENVparam) {
   handle_ = WSInitialize(ENVparam);
@@ -111,52 +88,19 @@ wstp_env::wstp_env(WSEnvironmentParameter ENVparam) {
   }
 }
 
+
 wstp_env::~wstp_env() {
   WSDeinitialize(handle_);
 }
 
-auto wstp_env::borrow_handle() const {
-  return handle_;
-}
 
-
-////////////////////////////////////////
-//// WSTP LinkServer Handle Wrapper ////
-//wstp_env wstp_server::ENV;
-
-wstp_server::wstp_server(const uint16_t port, const std::string ip) :
-  handle_(nullptr) {
-  int err = 0;
-  if (!ip.empty()) {
-    handle_ = WSNewLinkServerWithPortAndInterface(ENV.borrow_handle(), port, ip.c_str(), nullptr, &err);
-  }
-  if (port != 0) {
-    handle_ = WSNewLinkServerWithPort(ENV.borrow_handle(), port, nullptr, &err);
-  }
-  else {
-    handle_ = WSNewLinkServer(ENV.borrow_handle(), nullptr, &err);
-  }
-  if (err != WSEOK) {
-    std::string server(ip + ":" + std::to_string(port));
-    std::cerr << "Failed to start wstp_server(" << server << ")" << std::endl;
-    throw std::string("Failed wstp_server(" + server + ")");
-  }
-  WSRegisterCallbackFunctionWithLinkServer(handle_, wstp_server_connection);
-}
-
-wstp_server::~wstp_server() {
-  WSShutdownLinkServer(handle_);
-}
-
-auto wstp_server::borrow_handle() const {
+WSENV wstp_env::borrow_handle() const {
   return handle_;
 }
 
 
 ///////////////////
 //// WSTP Link ////
-//wstp_env wstp_link::ENV;
-
 wstp_link::wstp_link(std::string args) :
   link_(nullptr), worker_stop_(false) {
   int err = 0;
@@ -172,6 +116,7 @@ wstp_link::wstp_link(std::string args) :
   log();
 }
 
+
 wstp_link::wstp_link(WSLINK link) :
   link_(link), worker_stop_(false) {
   int err = 0;
@@ -181,6 +126,7 @@ wstp_link::wstp_link(WSLINK link) :
   }
   log();
 }
+
 
 wstp_link::~wstp_link() {
   if (worker_.joinable()) {
@@ -193,20 +139,58 @@ wstp_link::~wstp_link() {
   }
 }
 
+
 wsint64 wstp_link::close_fn() {
   worker_stop_ = true;
   return 0;
 }
+
 
 wsint64 wstp_link::wakeup_fn() {
   // check for any compute jobs, then return...
   return 0;
 }
 
-int wstp_link::install(std::vector<def_t>& definitions) {
-  definitions_.insert(definitions_.end(), definitions.cbegin(), definitions.cend());
-  // No uniqueness detection...
 
+int wstp_link::register_fn(def_t def) {
+  static std::once_flag once;
+  auto init_fn = [](){
+    wstp_signatures_.emplace_back( sig_t("FFClose[]", "") );
+    wstp_signatures_.emplace_back( sig_t("FFWakeup[]", "") );
+//    wstp_signatures_.emplace_back(std::make_tuple(wstp_link::close_fn, "FFClose[]", ""));
+//    wstp_signatures_.emplace_back(std::make_tuple(wstp_link::wakeup_fn, "FFWakeup[]", ""));
+  };
+  std::call_once(once, init_fn);
+
+  wstp_signatures_.insert(wstp_signatures_.end(), std::get<sig_t>(def));
+  worker_fTable_.insert(worker_fTable_.end(), std::get<fn_t>(def));
+  return wstp_signatures_.size();
+}
+
+
+// Requires Mathematica to initialize the link as Install[] instead of Connect[]:
+// - Must be called following connection setup!
+int wstp_link::install() {
+  int count = 0;
+
+  for (int i = 0; i < wstp_signatures_.size(); i++) {
+    count += put_function("DefineExternal", 3);
+    const sig_t& s = wstp_signatures_[i];
+    count += put(std::make_tuple(std::get<0>(s), std::get<1>(s), i));
+  }
+  count += put_symbol("End");
+
+  if (error()) {
+    print_error();
+  }
+
+  // start thread to serve as function handler:
+  worker_ = std::thread(&wstp_link::receive_worker, this);
+  return count;
+}
+
+
+int wstp_link::install(std::vector<def_t>& definitions) {
   int count = 0;
   // TODO: BeginPackage is not a standard atomic function...
   // - It looks like a raw string should be sent for evauluation...
@@ -224,9 +208,11 @@ int wstp_link::install(std::vector<def_t>& definitions) {
   count += put(wakeup);
 
   for (auto& d : definitions) {
-    auto pattern = std::make_tuple(std::get<1>(d), std::get<2>(d),
-                                   static_cast<int>(worker_fTable_.size()));
-    worker_fTable_.emplace_back(std::get<0>(d));
+    // TODO: uniqueness detection...
+    wstp_signatures_.emplace_back( std::get<sig_t>(d) );
+    auto pattern = std::tuple_cat(std::get<sig_t>(d),
+                   std::make_tuple(static_cast<int>(worker_fTable_.size())) );
+    worker_fTable_.emplace_back(std::get<fn_t>(d));
     count += put_function("DefineExternal", 3);
     count += put(pattern);
   }
@@ -242,6 +228,7 @@ int wstp_link::install(std::vector<def_t>& definitions) {
   worker_ = std::thread(&wstp_link::receive_worker, this);
   return count;
 }
+
 
 void wstp_link::receive_worker() {
   std::cout << "WSTP worker thread started." << std::endl;
@@ -264,12 +251,6 @@ void wstp_link::receive_worker() {
   std::cout << "WSTP worker thread terminated." << std::endl;
 }
 
-// Used by main() thread to wait until all WSTP connections close before exit.
-void wstp::wait_for_unlink() {
-  while(!unlink_all_) {
-    std::this_thread::sleep_for(std::chrono::seconds(10));
-  }
-}
 
 int wstp_link::ready() const {
   flush();
@@ -280,6 +261,7 @@ int wstp_link::ready() const {
   return i;
 }
 
+
 int wstp_link::flush() const {
   int i;
   if (!(i=WSFlush(link_))) {
@@ -287,6 +269,7 @@ int wstp_link::flush() const {
   }
   return i;
 }
+
 
 void wstp_link::reset() {
   if (!WSClearError(link_)) {
@@ -297,9 +280,11 @@ void wstp_link::reset() {
   }
 }
 
+
 int wstp_link::error() const {
   return WSError(link_);
 }
+
 
 std::string wstp_link::get_error() const {
   if (int code = WSError(link_)) {
@@ -313,6 +298,7 @@ std::string wstp_link::get_error() const {
   }
 }
 
+
 std::string wstp_link::print_error() const {
   if (error()) {
     std::string err = get_error();
@@ -321,6 +307,7 @@ std::string wstp_link::print_error() const {
   }
   return std::string();
 }
+
 
 bool wstp_link::log(std::string filename) {
   if (filename.empty()) {
@@ -337,6 +324,7 @@ bool wstp_link::log(std::string filename) {
   }
   return true;
 }
+
 
 int wstp_link::decode_call() {
   const int func = get<int>();
@@ -390,6 +378,7 @@ int wstp_link::decode_call() {
   return func;
 }
 
+
 pkt_id_t wstp_link::receive() {
   // Skip any unconsumed data if needed:
 begin:
@@ -433,6 +422,7 @@ begin:
   return pkt_id;  // TODO: repeat until packet is fully received?
 }
 
+
 pkt_id_t wstp_link::receive(const pkt_id_t id) {
   pkt_id_t rid;
   while((rid = receive()) != id) {
@@ -441,6 +431,7 @@ pkt_id_t wstp_link::receive(const pkt_id_t id) {
   }
   return rid;
 }
+
 
 // Example Test Functions:
 int wstp_link::factor_test(int n) {
@@ -489,6 +480,7 @@ int wstp_link::factor_test(int n) {
   return EXIT_SUCCESS;
 }
 
+
 int wstp_link::factor_test2(int n) {
   std::cout << "Factors of " << n << ":\n";
 
@@ -518,6 +510,7 @@ void replace_all(std::string& str, std::string match, std::string replace) {
   }
 }
 
+
 // Integer elements:
 template<>
 int64_t wstp_link::get<int64_t>() {
@@ -533,6 +526,7 @@ int64_t wstp_link::get<int64_t>() {
   return i;
 }
 
+
 template<>
 int wstp_link::get<int>() {
 //  std::cerr << "DEBUG: Called get<int>()";
@@ -545,6 +539,7 @@ int wstp_link::get<int>() {
 //  std::cerr << " = " << i << std::endl;
   return i;
 }
+
 
 // Real elements:
 template<>
@@ -559,6 +554,7 @@ double wstp_link::get<double>() {
 //  std::cerr << " = " << r << std::endl;
   return r;
 }
+
 
 // String elements:
 template<>
@@ -592,6 +588,7 @@ int wstp_link::put<int64_t>(int64_t i) {
   }
   return 1;
 }
+
 //WSPutInteger
 template<>
 int wstp_link::put<int>(int i) {
@@ -615,6 +612,7 @@ int wstp_link::put<int>(int i) {
 //  return 1;
 //}
 
+
 // Real elements:
 template<>
 int wstp_link::put<double>(double r) {
@@ -626,6 +624,7 @@ int wstp_link::put<double>(double r) {
   }
   return 1;
 }
+
 
 // String elements:
 template<>
@@ -661,6 +660,7 @@ int wstp_link::put_function<const char*>(const char* cstr, int args) {
   return put_function(std::string(cstr), args);
 }
 
+
 // Symbol:
 template<>
 int wstp_link::put_symbol<std::string>(std::string s) {
@@ -677,11 +677,13 @@ int wstp_link::put_symbol<const char*>(const char* cstr) {
   return put_symbol(std::string(cstr));
 }
 
+
 // TODO: this seems like a hack and should be factored out?
 template<>
 int wstp_link::put_function<int64_t>(int64_t i, int) {
   return put(i);
 }
+
 
 int wstp_link::put_end() {
 //  std::cerr << "DEBUG: Called put_end()" << std::endl;
@@ -694,21 +696,35 @@ int wstp_link::put_end() {
 }
 
 
-//////////////////////////////
-//// WSTP Top-level Class ////
-bool wstp::unlink_all_ = false;
-std::mutex wstp::mtx_;
-std::vector<std::unique_ptr<wstp_link>> wstp::links_;
-std::vector<std::unique_ptr<wstp_server>> wstp::servers_;
+//////////////////////////////////////
+//// WSTP C ABI Callback Handlers ////
+extern "C" {
+// Define handler with C ABI for wstp_link error callback:
+void wstp_link_err_handler(WSLINK link, int msg, int arg) {
+  switch (msg) {
+  case WSInterruptMessage:
+    std::cerr << "WSInterruptMessage callback message." << std::endl;
+    break;
+  case WSAbortMessage:
+    std::cerr << "WSAbortMessage callback message." << std::endl;
+    break;
+  case WSTerminateMessage:
+    std::cerr << "WSTerminateMessage callback message." << std::endl;
+    break;
+  default:
+    std::cerr << "WARNING: Unexpected callback message type: " << msg << std::endl;
+  }
+}
 
-// Move is broken...
-//void wstp::take_connection(wstp_link&& link) {
-//  std::lock_guard lck(mtx_);
-//  links_.emplace_back(std::move(link));
-//}
-
-void wstp::take_connection(WSLINK wslink) {
-  std::lock_guard lck(mtx_);
-  auto ptr = std::make_unique<wstp_link>(wslink);
-  links_.emplace_back(std::move(ptr));
+// Define handler with C ABI for wstp_env signal callback:
+void wstp_ENVsig_handler(int signal) {
+  std::cerr << "Signal " << signal << " received;";
+  switch (signal) {
+  case SIGINT:
+    std::cerr << " exiting." << std::endl;
+    std::exit(EXIT_SUCCESS);
+  default:
+    std::cerr << " no action." << std::endl;
+  }
+}
 }
