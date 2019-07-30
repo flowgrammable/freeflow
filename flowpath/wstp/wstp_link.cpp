@@ -66,8 +66,7 @@ template<> int wstp_link::put_symbol<const char*>(const char*);
 
 
 // Global Initialization:
-std::vector<wstp_link::fn_t> wstp_link::worker_fTable_;
-std::vector<wstp_link::sig_t> wstp_link::wstp_signatures_;
+std::vector<wstp_link::def_t> wstp_link::wstp_signatures_;
 
 
 /////////////////////////////////////////
@@ -155,15 +154,13 @@ wsint64 wstp_link::wakeup_fn() {
 int wstp_link::register_fn(def_t def) {
   static std::once_flag once;
   auto init_fn = [](){
-    wstp_signatures_.emplace_back( sig_t("FFClose[]", "") );
-    wstp_signatures_.emplace_back( sig_t("FFWakeup[]", "") );
-//    wstp_signatures_.emplace_back(std::make_tuple(wstp_link::close_fn, "FFClose[]", ""));
-//    wstp_signatures_.emplace_back(std::make_tuple(wstp_link::wakeup_fn, "FFWakeup[]", ""));
+    wstp_signatures_.emplace_back( def_t( sig_t("FFClose[]", ""), nullptr) );
+    wstp_signatures_.emplace_back( def_t( sig_t("FFWakeup[]", ""), nullptr) );
   };
   std::call_once(once, init_fn);
 
-  wstp_signatures_.insert(wstp_signatures_.end(), std::get<sig_t>(def));
-  worker_fTable_.insert(worker_fTable_.end(), std::get<fn_t>(def));
+  wstp_signatures_.insert(wstp_signatures_.end(), def);
+//  worker_fTable_.insert(worker_fTable_.end(), std::get<fn_t>(def));
   return wstp_signatures_.size();
 }
 
@@ -174,9 +171,21 @@ int wstp_link::install() {
   int count = 0;
 
   for (int i = 0; i < wstp_signatures_.size(); i++) {
+    const sig_t& sig = std::get<sig_t>(wstp_signatures_[i]);
+    const fn_t& fn = std::get<fn_t>(wstp_signatures_[i]);
     count += put_function("DefineExternal", 3);
-    const sig_t& s = wstp_signatures_[i];
-    count += put(std::make_tuple(std::get<0>(s), std::get<1>(s), i));
+    count += put(std::tuple_cat( sig, std::make_tuple(i)) );
+
+    switch (i) {
+    case 0:
+      worker_fTable_.emplace_back( std::bind(&wstp_link::close_fn, this) );
+      break;
+    case 1:
+      worker_fTable_.emplace_back( std::bind(&wstp_link::wakeup_fn, this) );
+      break;
+    default:
+      worker_fTable_.emplace_back(fn);
+    }
   }
   count += put_symbol("End");
 
@@ -184,47 +193,7 @@ int wstp_link::install() {
     print_error();
   }
 
-  // start thread to serve as function handler:
-  worker_ = std::thread(&wstp_link::receive_worker, this);
-  return count;
-}
-
-
-int wstp_link::install(std::vector<def_t>& definitions) {
-  int count = 0;
-  // TODO: BeginPackage is not a standard atomic function...
-  // - It looks like a raw string should be sent for evauluation...
-//  count += put_function("BeginPackage", 1);
-//  count += put("counter`");
-  // Send Mathematica definitions to external function:
-  constexpr auto close = std::make_tuple("FFClose[]", "", 0);
-  worker_fTable_.emplace_back( std::bind(&wstp_link::close_fn, this) );
-  count += put_function("DefineExternal", 3);
-  count += put(close);
-
-  constexpr auto wakeup = std::make_tuple("FFWakeup[]", "", 1);
-  worker_fTable_.emplace_back( std::bind(&wstp_link::wakeup_fn, this) );
-  count += put_function("DefineExternal", 3);
-  count += put(wakeup);
-
-  for (auto& d : definitions) {
-    // TODO: uniqueness detection...
-    wstp_signatures_.emplace_back( std::get<sig_t>(d) );
-    auto pattern = std::tuple_cat(std::get<sig_t>(d),
-                   std::make_tuple(static_cast<int>(worker_fTable_.size())) );
-    worker_fTable_.emplace_back(std::get<fn_t>(d));
-    count += put_function("DefineExternal", 3);
-    count += put(pattern);
-  }
-//  count += put_function("EndPackage", 0);
-  count += put_symbol("End");
-  flush();
-
-  if (error()) {
-    print_error();
-  }
-
-  // start thread to serve as function handler:
+  // Start thread to serve as function handler:
   worker_ = std::thread(&wstp_link::receive_worker, this);
   return count;
 }
@@ -334,47 +303,27 @@ int wstp_link::decode_call() {
   }
   const size_t funcID = static_cast<size_t>(func);
 
-  // TODO: flexibility is broken, need a good way to compose function calls:
+  // Execute appropriate function:
+  return_t v = worker_fTable_[funcID](0);
+
+  // Send result back:
   put_function("ReturnPacket", 1);
-  switch (funcID) {
-  case 0: // exit
-    break;
-  case 1: // wakeup
-    break;
-  case 2: // get_arrival
-  {
-    return_t v = worker_fTable_[funcID](0);
-    if (std::holds_alternative<ts_t>(v)) {
-      ts_t events = std::get<ts_t>(v);
-      std::cout << "Returning list of size: " << events.size()-1 << std::endl;
-      WSPutInteger64List(link_, events.data()+1, static_cast<int>(events.size()-1));
-    }
-    break;
+  if (std::holds_alternative<ts_t>(v)) {
+    const ts_t& events = std::get<ts_t>(v);
+    std::cerr << "Returning list of size: " << events.size()-1 << std::endl;
+    WSPutInteger64List(link_, events.data()+1, static_cast<int>(events.size()-1));
   }
-  case 3: // get_misses_MIN
-  {
-    return_t v = worker_fTable_[funcID](0);
-    if (std::holds_alternative<ts_t>(v)) {
-      ts_t events = std::get<ts_t>(v);
-      std::cout << "Returning list of size: " << events.size()-1 << std::endl;
-      WSPutInteger64List(link_, events.data()+1, static_cast<int>(events.size()-1));
-    }
-    break;
+  else if (std::holds_alternative<wsint64>(v)) {
+    auto x = std::get<wsint64>(v);
+    std::cerr << "Returning wsint64: " << x << std::endl;
+    WSPutInteger64(link_, x);
   }
-  case 4: // get_num_flows
-  {
-    return_t v = worker_fTable_[funcID](0);
-    if (std::holds_alternative<wsint64>(v)) {
-      auto count = std::get<wsint64>(v);
-      WSPutInteger64(link_, count);
-    }
-    break;
-  }
-  default:
-    std::cerr << "Unexpected funcID: " << funcID << std::endl;
+  else {
+    std::cerr << "Invalid return variant!" << std::endl;
   }
   put_end();
   flush();
+
   return func;
 }
 

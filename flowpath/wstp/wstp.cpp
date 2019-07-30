@@ -60,8 +60,8 @@ std::vector<std::unique_ptr<wstp_server>> wstp::servers_;
 std::vector<std::unique_ptr<wstp_link>>::iterator
 wstp::take_connection(WSLINK wslink) {
   std::lock_guard lck(mtx_);
-  auto ptr = std::make_unique<wstp_link>(wslink);
-  return links_.emplace(links_.end(), std::move(ptr));
+  auto link = std::make_unique<wstp_link>(wslink);
+  return links_.emplace(links_.end(), std::move(link));
 }
 
 // Used by main() thread to wait until all WSTP connections close before exit.

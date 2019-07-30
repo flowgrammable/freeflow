@@ -86,7 +86,6 @@ public:
   // Dynamic function handlers:
   static int register_fn(def_t);
   int install();
-  int install(std::vector<def_t>&); // depricated
 
 private:
   // Packet type handlers:
@@ -110,9 +109,11 @@ private:
 //  static wstp_env env_;
   WSLINK link_;
 
+  // Global mapping of WSTP function calls:
+  static std::vector<def_t> wstp_signatures_;
+
   // Asyncronous Worker:
-  static std::vector<fn_t> worker_fTable_;
-  static std::vector<sig_t> wstp_signatures_;
+  std::vector<fn_t> worker_fTable_;
   std::thread worker_;
   bool worker_stop_;
 };

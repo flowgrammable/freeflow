@@ -44,7 +44,7 @@
 
 using pkt_id_t = wstp_link::pkt_id_t;
 
-// Forward declarations of get/put specilizations:
+// WSTP Server new connection callblack hook:
 std::vector<std::unique_ptr<wstp_link>>::iterator wstp_take_connection(WSLINK wslink);
 extern "C" {
 void wstp_server_connection(WSLinkServer server, WSLINK wslink);
@@ -92,6 +92,6 @@ void wstp_server_connection(WSLinkServer server, WSLINK wslink) {
   std::cerr << "New Connection to WSLinkServer received" << std::endl;
   auto link_it = wstp_take_connection(wslink);
   // install definitions (should be moved to rx?)
-//  link.install();
+  (*link_it)->install();
 }
 }
