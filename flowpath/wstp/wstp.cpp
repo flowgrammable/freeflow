@@ -41,28 +41,28 @@
 #include <sstream>
 #include <csignal>
 
-using pkt_id_t = wstp_link::pkt_id_t;
-
 
 //////////////////////////////
 //// WSTP Top-level Class ////
 bool wstp::unlink_all_ = false;
 std::mutex wstp::mtx_;
-std::vector<std::unique_ptr<wstp_link>> wstp::links_;
-std::vector<std::unique_ptr<wstp_server>> wstp::servers_;
+std::vector<wstp_link> wstp::links_;
+std::vector<wstp_server> wstp::servers_;
 
-// Move is broken...
-//void wstp::take_connection(wstp_link&& link) {
-//  std::lock_guard lck(mtx_);
-//  links_.emplace_back(std::move(link));
-//}
 
-std::vector<std::unique_ptr<wstp_link>>::iterator
+std::vector<wstp_link>::iterator
+wstp::take_connection(wstp_link&& link) {
+  std::lock_guard lck(mtx_);
+  return links_.insert(links_.end(), std::forward<wstp_link>(link));
+}
+
+
+std::vector<wstp_link>::iterator
 wstp::take_connection(WSLINK wslink) {
   std::lock_guard lck(mtx_);
-  auto link = std::make_unique<wstp_link>(wslink);
-  return links_.emplace(links_.end(), std::move(link));
+  return links_.emplace(links_.end(), wslink);
 }
+
 
 // Used by main() thread to wait until all WSTP connections close before exit.
 void wstp::wait_for_unlink() {
@@ -71,7 +71,8 @@ void wstp::wait_for_unlink() {
   }
 }
 
-std::vector<std::unique_ptr<wstp_link>>::iterator
+
+std::vector<wstp_link>::iterator
 wstp_take_connection(WSLINK wslink) {
   return wstp::take_connection(wslink);
 }

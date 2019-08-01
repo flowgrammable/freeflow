@@ -42,10 +42,9 @@
 #include <sstream>
 #include <csignal>
 
-using pkt_id_t = wstp_link::pkt_id_t;
 
 // WSTP Server new connection callblack hook:
-std::vector<std::unique_ptr<wstp_link>>::iterator wstp_take_connection(WSLINK wslink);
+std::vector<wstp_link>::iterator wstp_take_connection(WSLINK wslink);
 extern "C" {
 void wstp_server_connection(WSLinkServer server, WSLINK wslink);
 }
@@ -56,31 +55,49 @@ extern wstp_env ENV;
 ////////////////////////////////////////
 //// WSTP LinkServer Handle Wrapper ////
 wstp_server::wstp_server(const uint16_t port, const std::string ip) :
-  handle_(nullptr) {
+  server_(nullptr) {
   int err = 0;
   if (!ip.empty()) {
-    handle_ = WSNewLinkServerWithPortAndInterface(ENV.borrow_handle(), port, ip.c_str(), nullptr, &err);
+    server_ = WSNewLinkServerWithPortAndInterface(ENV.borrow_handle(), port, ip.c_str(), nullptr, &err);
   }
   if (port != 0) {
-    handle_ = WSNewLinkServerWithPort(ENV.borrow_handle(), port, nullptr, &err);
+    server_ = WSNewLinkServerWithPort(ENV.borrow_handle(), port, nullptr, &err);
   }
   else {
-    handle_ = WSNewLinkServer(ENV.borrow_handle(), nullptr, &err);
+    server_ = WSNewLinkServer(ENV.borrow_handle(), nullptr, &err);
   }
   if (err != WSEOK) {
     std::string server(ip + ":" + std::to_string(port));
     std::cerr << "Failed to start wstp_server(" << server << ")" << std::endl;
     throw std::string("Failed wstp_server(" + server + ")");
   }
-  WSRegisterCallbackFunctionWithLinkServer(handle_, wstp_server_connection);
+  WSRegisterCallbackFunctionWithLinkServer(server_, wstp_server_connection);
 }
+
 
 wstp_server::~wstp_server() {
-  WSShutdownLinkServer(handle_);
+  if (server_) {
+    WSShutdownLinkServer(server_);
+    server_ = nullptr;
+  }
 }
 
+
+// move constructor
+wstp_server::wstp_server(wstp_server&& other) :
+  server_(std::exchange(other.server_, nullptr))
+{}
+
+
+// move assignment
+wstp_server& wstp_server::operator=(wstp_server&& other) {
+  server_ = (std::exchange(other.server_, nullptr));
+  return *this;
+}
+
+
 auto wstp_server::borrow_handle() const {
-  return handle_;
+  return server_;
 }
 
 
@@ -90,8 +107,13 @@ extern "C" {
 // Define handler with C ABI for wstp_server connection callback:
 void wstp_server_connection(WSLinkServer server, WSLINK wslink) {
   std::cerr << "New Connection to WSLinkServer received" << std::endl;
-  auto link_it = wstp_take_connection(wslink);
-  // install definitions (should be moved to rx?)
-  (*link_it)->install();
+  try {
+    auto link_it = wstp_take_connection(wslink);
+    link_it->install();
+  }
+  catch (const std::runtime_error& e) {
+    std::cerr << "Caught exception when initializing WSTP connection: "
+              << e.what() << std::endl;
+  }
 }
 }

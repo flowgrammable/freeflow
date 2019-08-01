@@ -98,19 +98,19 @@ WSENV wstp_env::borrow_handle() const {
 }
 
 
-///////////////////
-//// WSTP Link ////
+//////////////////////////////////
+//// WSTP Link Handle Wrapper ////
 wstp_link::wstp_link(std::string args) :
   link_(nullptr), worker_stop_(false) {
   int err = 0;
   link_ = WSOpenString(ENV.borrow_handle(), args.c_str(), &err);
   if(!link_ || err != WSEOK) {
     std::cerr << "WSOpenString Error: " << err << std::endl;
-    throw std::string("Failed WSOpenString.");
+    throw std::runtime_error{"Failed WSOpenString."};
   }
   if (!(err = WSActivate(link_))) {
     std::cerr << "WSActivate Error: " << err << std::endl;
-    throw print_error();
+    throw std::runtime_error{print_error()};
   }
   log();
 }
@@ -121,7 +121,7 @@ wstp_link::wstp_link(WSLINK link) :
   int err = 0;
   if (!link_ || !(err = WSActivate(link_))) {
     std::cerr << "WSActivate Error: " << err << std::endl;
-    throw print_error();
+    throw std::runtime_error{print_error()};
   }
   log();
 }
@@ -138,6 +138,25 @@ wstp_link::~wstp_link() {
   }
 }
 
+// move constructor
+wstp_link::wstp_link(wstp_link&& other) :
+  link_(std::exchange(other.link_, nullptr)),
+  worker_(std::move(other.worker_)),
+  worker_stop_(other.worker_stop_)
+{
+  bind(); // initializes new worker_fTable.
+}
+
+// move assignment
+wstp_link& wstp_link::operator=(wstp_link&& other) {
+  link_ = (std::exchange(other.link_, nullptr));
+  std::swap(worker_, other.worker_);
+  worker_stop_ = other.worker_stop_;
+
+  bind(); // initializes new worker_fTable.
+  return *this;
+}
+
 
 wsint64 wstp_link::close_fn() {
   worker_stop_ = true;
@@ -147,7 +166,10 @@ wsint64 wstp_link::close_fn() {
 
 wsint64 wstp_link::wakeup_fn() {
   // check for any compute jobs, then return...
-  return 0;
+  const auto p1 = std::chrono::system_clock::now();
+  const int epoc = std::chrono::duration_cast<std::chrono::seconds>(
+                    p1.time_since_epoch()).count();
+  return factor_test2(epoc);
 }
 
 
@@ -160,10 +182,30 @@ int wstp_link::register_fn(def_t def) {
   std::call_once(once, init_fn);
 
   wstp_signatures_.insert(wstp_signatures_.end(), def);
-//  worker_fTable_.insert(worker_fTable_.end(), std::get<fn_t>(def));
   return wstp_signatures_.size();
 }
 
+
+void wstp_link::bind() {
+  using fTable_t = decltype(worker_fTable_);
+  fTable_t next;
+
+  for (size_t i = 0; i < wstp_signatures_.size(); i++) {
+    switch (i) {
+    case 0:
+      next.emplace_back( std::bind(&wstp_link::close_fn, this) );
+      break;
+    case 1:
+      next.emplace_back( std::bind(&wstp_link::wakeup_fn, this) );
+      break;
+    default:
+      const fn_t& fn = std::get<fn_t>(wstp_signatures_[i]);
+      next.emplace_back(fn);
+    }
+  }
+
+  std::swap(worker_fTable_, next);
+}
 
 // Requires Mathematica to initialize the link as Install[] instead of Connect[]:
 // - Must be called following connection setup!
@@ -172,26 +214,16 @@ int wstp_link::install() {
 
   for (int i = 0; i < wstp_signatures_.size(); i++) {
     const sig_t& sig = std::get<sig_t>(wstp_signatures_[i]);
-    const fn_t& fn = std::get<fn_t>(wstp_signatures_[i]);
     count += put_function("DefineExternal", 3);
     count += put(std::tuple_cat( sig, std::make_tuple(i)) );
-
-    switch (i) {
-    case 0:
-      worker_fTable_.emplace_back( std::bind(&wstp_link::close_fn, this) );
-      break;
-    case 1:
-      worker_fTable_.emplace_back( std::bind(&wstp_link::wakeup_fn, this) );
-      break;
-    default:
-      worker_fTable_.emplace_back(fn);
-    }
   }
   count += put_symbol("End");
 
   if (error()) {
     print_error();
   }
+
+  bind();
 
   // Start thread to serve as function handler:
   worker_ = std::thread(&wstp_link::receive_worker, this);
@@ -202,20 +234,22 @@ int wstp_link::install() {
 void wstp_link::receive_worker() {
   std::cout << "WSTP worker thread started." << std::endl;
   try {
-  if (!WSSetMessageHandler(link_, wstp_link_err_handler)) {
-    std::cerr << "WARNING: Unable to set wstp error message handler." << std::endl;
-    print_error();
-  }
-  while (!worker_stop_) {
-    if (ready()) {
-      pkt_id_t id = receive();
+    if (!WSSetMessageHandler(link_, wstp_link_err_handler)) {
+      std::cerr << "WARNING: Unable to set wstp error message handler." << std::endl;
+      print_error();
     }
-    else {
-      std::this_thread::sleep_for(std::chrono::seconds(1));
+    while (!worker_stop_) {
+      if (ready()) {
+        pkt_id_t id = receive();
+      }
+      else {
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+      }
     }
   }
-  } catch (std::string s) {
-    std::cerr << "ERROR: Caught expection in wstp interface:\n" << s << std::endl;
+  catch (const std::runtime_error& e) {
+    std::cerr << "ERROR: Caught expection in wstp interface:\n" << e.what() << std::endl;
+    worker_stop_ = true;
   }
   std::cout << "WSTP worker thread terminated." << std::endl;
 }
@@ -234,7 +268,7 @@ int wstp_link::ready() const {
 int wstp_link::flush() const {
   int i;
   if (!(i=WSFlush(link_))) {
-    print_error();
+    throw std::runtime_error{print_error()};
   }
   return i;
 }
@@ -242,10 +276,10 @@ int wstp_link::flush() const {
 
 void wstp_link::reset() {
   if (!WSClearError(link_)) {
-    throw print_error();
+    throw std::runtime_error{print_error()};
   }
   if (!WSNewPacket(link_)) {
-    throw print_error();
+    throw std::runtime_error{print_error()};
   }
 }
 
@@ -299,11 +333,15 @@ int wstp_link::decode_call() {
   const int func = get<int>();
   if (func < 0 || func >= worker_fTable_.size()) {
     std::cerr << "Unrecognized Function ID: " << func << std::endl;
+    put_symbol("$Failed");  // TODO: verify appropriate error...
     return 0;
   }
   const size_t funcID = static_cast<size_t>(func);
 
   // Execute appropriate function:
+  std::cerr << "Evaluate: "
+            << std::get<0>( std::get<sig_t>(wstp_signatures_[funcID]) )
+            << std::endl;
   return_t v = worker_fTable_[funcID](0);
 
   // Send result back:
@@ -320,6 +358,7 @@ int wstp_link::decode_call() {
   }
   else {
     std::cerr << "Invalid return variant!" << std::endl;
+    put_symbol("$Failed");  // TODO: verify appropriate error...
   }
   put_end();
   flush();
@@ -344,18 +383,18 @@ begin:
     decode_call();
     break;
   case EVALUATEPKT:
-    std::cerr << "Evaluate WSTP Packet type." << std::endl;
+    std::cerr << "Unhandled Evaluate WSTP Packet type." << std::endl;
     break;
   case RETURNPKT:
-    std::cerr << "Return WSTP Packet type." << std::endl;
+    std::cerr << "Unhandled Return WSTP Packet type." << std::endl;
     break;
   case ILLEGALPKT:
     if (error() == 11) {
-      std::cerr << "WSTP EOF Packet." << std::endl;
-      worker_stop_ = true;
+      std::cerr << "WSTP EOF Packet (Connection closed).\n" << std::endl;
+      throw std::runtime_error{"WSTP Connection Closed."};
     }
     else {
-      std::cerr << "Unknown Illegal WSTP Packet type." << std::endl;
+      std::cerr << "Unknown/Illegal WSTP Packet type." << std::endl;
     }
     print_error();
     reset();
@@ -397,7 +436,7 @@ int wstp_link::factor_test(int n) {
   while( (pkt = WSNextPacket(link_)) != RETURNPKT) {
     WSNewPacket(link_);
     if (error()) {
-      throw print_error();
+      throw std::runtime_error{print_error()};
     }
   }
 
@@ -406,7 +445,7 @@ int wstp_link::factor_test(int n) {
   if ( !WSTestHead(link_, "List", &len) ) {
     std::cerr << "WSTestHead is NULL" << std::endl;
     if (error()) {
-      throw print_error();
+      throw std::runtime_error{print_error()};
     }
   }
 
@@ -421,14 +460,13 @@ int wstp_link::factor_test(int n) {
       std::cout << prime << " ^ " << expt << std::endl;
     } else {
       std::cerr << "Failed to decode WSTestHead" << std::endl;
-      throw print_error();
+      throw std::runtime_error{print_error()};
     }
   }
 
 //  WSPutFunction(link_, "Exit", 0);
   return EXIT_SUCCESS;
 }
-
 
 int wstp_link::factor_test2(int n) {
   std::cout << "Factors of " << n << ":\n";
@@ -445,7 +483,7 @@ int wstp_link::factor_test2(int n) {
   for (factor_t f : factors) {
     std::cout << std::get<0>(f) << " ^ " << std::get<1>(f) << std::endl;
   }
-  return EXIT_SUCCESS;
+  return factors.size();
 }
 
 
@@ -652,13 +690,13 @@ extern "C" {
 void wstp_link_err_handler(WSLINK link, int msg, int arg) {
   switch (msg) {
   case WSInterruptMessage:
-    std::cerr << "WSInterruptMessage callback message." << std::endl;
+    std::cerr << "Unhandled WSInterruptMessage callback message!" << std::endl;
     break;
   case WSAbortMessage:
-    std::cerr << "WSAbortMessage callback message." << std::endl;
+    std::cerr << "Unhandled WSAbortMessage callback message!" << std::endl;
     break;
   case WSTerminateMessage:
-    std::cerr << "WSTerminateMessage callback message." << std::endl;
+    std::cerr << "Unhandled WSTerminateMessage callback message!" << std::endl;
     break;
   default:
     std::cerr << "WARNING: Unexpected callback message type: " << msg << std::endl;

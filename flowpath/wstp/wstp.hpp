@@ -13,37 +13,34 @@
 #include <functional>
 #include <mutex>
 
+std::vector<wstp_link>::iterator wstp_take_connection(WSLINK wslink);
 
-//// Top-level WSTP Orchistration ////
-
-std::vector<std::unique_ptr<wstp_link>>::iterator
-wstp_take_connection(WSLINK wslink);
-
-
+////////////////////////////////////////
+//// Top-level WSTP Library Wrapper ////
 class wstp {
  public:
 //  wstp();
   template<typename... Args> static auto listen(Args&&...);
   static void wait_for_unlink();
 
-private:
-  static std::mutex mtx_;
-  static std::vector<std::unique_ptr<wstp_link>> links_;
-  static std::vector<std::unique_ptr<wstp_server>> servers_;
-  static bool unlink_all_;
-
-  // Callback interface
+  /// Callback interface
 public:
-  //  static void take_connection(wstp_link&& link);
-  static std::vector<std::unique_ptr<wstp_link>>::iterator take_connection(WSLINK wslink);
+  static std::vector<wstp_link>::iterator take_connection(wstp_link&& link);
+  static std::vector<wstp_link>::iterator take_connection(WSLINK wslink);
+
+private:
+  /// Members
+  static std::mutex mtx_;
+  static std::vector<wstp_link> links_;
+  static std::vector<wstp_server> servers_;
+  static bool unlink_all_;
 };
 
 
 template<typename... Args>
 auto wstp::listen(Args&&... args) {
   std::lock_guard lck(mtx_);
-  auto ptr = std::make_unique<wstp_server>( std::forward<Args>(args)... );
-  return servers_.emplace(servers_.end(), std::move(ptr));
+  return servers_.emplace(servers_.end(), std::forward<Args>(args)...);
 }
 
 

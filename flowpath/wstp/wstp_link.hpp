@@ -63,8 +63,8 @@ public:
 
   wstp_link(const wstp_link& other) = delete;                // copy constructor
   wstp_link& operator=(const wstp_link& other) = delete;     // copy assignment
-  wstp_link(wstp_link&& other) = delete;                     // move constructor
-  wstp_link& operator=(wstp_link&& other) = delete;          // move assignment
+  wstp_link(wstp_link&& other);                     // move constructor
+  wstp_link& operator=(wstp_link&& other);          // move assignment
 
   // Error Handling:
   int error() const;
@@ -86,6 +86,7 @@ public:
   // Dynamic function handlers:
   static int register_fn(def_t);
   int install();
+  void bind();
 
 private:
   // Packet type handlers:
@@ -106,7 +107,7 @@ private:
   template<typename T> int put_symbol(T);
   int put_end();  // Mark end of packet.
 
-//  static wstp_env env_;
+  /// Members ///
   WSLINK link_;
 
   // Global mapping of WSTP function calls:
