@@ -28,6 +28,11 @@ ostream& gz_ostream::get_ostream() const {
   return *os;
 }
 
+void gz_ostream::flush() {
+  os->flush();
+  os_file.flush();
+}
+
 
 /// INPUT GZ STREAM ///
 gz_istream::gz_istream(const std::string& filename) {

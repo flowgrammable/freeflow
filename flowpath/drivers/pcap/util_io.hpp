@@ -1,5 +1,5 @@
-#ifndef GZ_OSTREAM_HPP
-#define GZ_OSTREAM_HPP
+#ifndef FF_UTIL_IO_HPP
+#define FF_UTIL_IO_HPP
 
 #include <fstream>
 
@@ -9,12 +9,16 @@
 /// OUTPUT GZ STREAM ///
 class gz_ostream {
 public:
-  gz_ostream() = delete;
   gz_ostream(const std::string& filename);
-  gz_ostream(gz_ostream& other) = delete;
-  gz_ostream(gz_ostream&& other) = default;
   ~gz_ostream();
+
+  gz_ostream(const gz_ostream&) = delete;
+  gz_ostream(gz_ostream&&) = default;
+  gz_ostream& operator=(const gz_ostream&) = delete;
+  gz_ostream& operator=(gz_ostream&&) = default;
+
   std::ostream& get_ostream() const;
+  void flush();
 
 private:
   std::fstream os_file;
@@ -26,11 +30,14 @@ private:
 /// INPUT GZ STREAM ///
 class gz_istream {
 public:
-  gz_istream() = delete;
   gz_istream(const std::string& filename);
-  gz_istream(gz_istream& other) = delete;
-  gz_istream(gz_istream&& other) = default;
   ~gz_istream() = default;
+
+  gz_istream(const gz_istream&) = delete;
+  gz_istream(gz_istream&&) = default;
+  gz_istream& operator=(const gz_istream&) = delete;
+  gz_istream& operator=(gz_istream&&) = default;
+
   std::istream& get_ostream() const;
 
 private:
@@ -40,4 +47,4 @@ private:
 };
 
 
-#endif // GZ_OSTREAM_HPP
+#endif // FF_UTIL_IO_HPP

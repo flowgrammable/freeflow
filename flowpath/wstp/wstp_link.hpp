@@ -72,6 +72,7 @@ public:
   std::string print_error() const;
   void reset();  // Attempt to recover from error.
   bool log(std::string filename = std::string());
+  bool alive() const;
 
   // Public send/receive interface:
   int ready() const;    // Indicates if data is ready to receive.
@@ -108,7 +109,7 @@ private:
   int put_end();  // Mark end of packet.
 
   /// Members ///
-  WSLINK link_;
+  WSLINK link_ = nullptr;
 
   // Global mapping of WSTP function calls:
   static std::vector<def_t> wstp_signatures_;
@@ -116,7 +117,7 @@ private:
   // Asyncronous Worker:
   std::vector<fn_t> worker_fTable_;
   std::thread worker_;
-  bool worker_stop_;
+  bool worker_stop_ = false;
 };
 
 

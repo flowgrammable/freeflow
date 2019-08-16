@@ -31,6 +31,8 @@
 #include <memory>
 
 #include <boost/program_options.hpp>
+#include <boost/optional.hpp>
+#include <boost/optional/optional_io.hpp>
 
 // Google's Abseil C++ library:
 #include "absl/container/flat_hash_map.h"
@@ -46,167 +48,221 @@ namespace po = boost::program_options;
 
 using flow_id_t = u64;
 
+// Global Runtime Timekeeping:
+chrono::system_clock::time_point startTime = chrono::system_clock::now();
 
-static bool running;
+// Signal Handler:
+static bool running = true;
 void
-sig_handle(int sig)
-{
+sig_handle(int sig) {
   running = false;
 }
 
+using opt_string_ = boost::optional<string>;
+using opt_port_ = boost::optional<uint16_t>;
+struct global_config {
+  // CAIDA Trace Generation:
+  opt_string_ logFilename;
+  opt_string_ flowsFilename;
+  opt_string_ statsFilename;
+  opt_string_ traceFilename;
+  opt_string_ traceTCPFilename;
+  opt_string_ traceUDPFilename;
+  opt_string_ traceOtherFilename;
+  opt_string_ traceScansFilename;
 
-static void print_help(const char* argv0, const po::options_description desc) {
-    cout << "Usage: " << argv0 << " [options] (directionA.pcap) [directionB.pcap]" << endl;
-    cout << desc << endl;
+  // Cache Simulation Configs:
+
+  // WSTP Configs:
+  opt_port_ wstp_port;
+} CONFIG;
+
+string get_time(chrono::system_clock::time_point tp) {
+  stringstream ss;
+  time_t time_c = chrono::system_clock::to_time_t(tp);
+  ss << std::put_time(std::localtime(&time_c),"%F_%T");
+  return ss.str();
 }
 
-
-///////////////////////////////////////////////////////////////////////////////
-int
-main(int argc, const char* argv[])
-{
-  signal(SIGINT, sig_handle);
-  signal(SIGKILL, sig_handle);
-  signal(SIGHUP, sig_handle);
-  running = true;
-
-  std::string flowsFilename;
-  std::string traceFilename;
-  std::string logfilename;
-  std::string inputAfilename;
-  std::string inputBfilename;
-
-  caidaHandler caida;
-
-  // Get current time (to generate trace filename):
-  stringstream now_ss;
-  chrono::system_clock::time_point start_time = chrono::system_clock::now();
-  {
-    time_t now_c = chrono::system_clock::to_time_t(start_time);
-    now_ss << std::put_time(std::localtime(&now_c),"%F_%T");
+void print_usage(const char* argv0, std::vector<po::options_description> opts) {
+  cout << "Usage: " << argv0 << " [options] [input_pcap_files...]\n";
+  for (const auto& opt : opts) {
+    cout << opt << '\n';
   }
+  cout.flush();
+}
 
+// Boost commandline and config file parsing.
+po::variables_map parse_options(int argc, const char* argv[]) {
+  // Get current time (to generate trace filename):
+  const std::string startTime_str = get_time(startTime);
 
-  // Boost commandline parsing:
-  po::options_description nonpos_desc("Available options");
-  po::options_description pos_desc("Positional options");
-  po::options_description cmdline_desc("All options");
-  po::positional_options_description boostPO;
+  po::options_description explicitOpts("Options");
+  explicitOpts.add_options()
+    ("help,h", "Print usage (this message)")
+    ("config,c",
+      po::value<std::vector<string>>(),
+      "Input config file")
+    ("flow-log,l",
+      po::value<opt_string_>(&CONFIG.logFilename)->default_value(startTime_str+".log"),
+      "Output log file")
+    ("decode-log,d",
+      po::value<opt_string_>(&CONFIG.logFilename)->default_value(startTime_str+".decode.log"),
+      "Packet decode log file")
+    ("stats,s",
+      po::value<opt_string_>(&CONFIG.statsFilename)->implicit_value(startTime_str+".stats"),
+      "Output flows stats")
+      // TODO: repurpose flows file...
+    ("flows,f",
+      po::value<opt_string_>(&CONFIG.flowsFilename)->implicit_value(startTime_str+".flows"),
+      "Output observed flows and keys")
+    ("trace,t",
+      po::value<opt_string_>(&CONFIG.traceFilename)->implicit_value(startTime_str+".trace"),
+      "Output timeseries trace (all protocols)")
+    ("trace-tcp",
+      po::value<opt_string_>(&CONFIG.traceTCPFilename)->implicit_value(startTime_str+".trace.tcp"),
+      "Output timeseries trace (TCP only)")
+    ("trace-udp",
+      po::value<opt_string_>(&CONFIG.traceUDPFilename)->implicit_value(startTime_str+".trace.udp"),
+      "Output timeseries trace (UDP only)")
+    ("trace-other",
+      po::value<opt_string_>(&CONFIG.traceOtherFilename)->implicit_value(startTime_str+".trace.other"),
+      "Output timeseries trace (excluding TCP and UDP)")
+    ("trace-scans",
+      po::value<opt_string_>(&CONFIG.traceScansFilename)->implicit_value(startTime_str+".trace.scans"),
+      "Output timeseries trace (assumed TCP Scans)");
+
+  po::options_description hiddenOpts("Hidden Options");
+  hiddenOpts.add_options()
+    ("pcaps", po::value<vector<string>>(), "PCAP input files");
+
+  po::positional_options_description positionalOpts;
+  positionalOpts.add("pcaps", -1);
+
+  po::options_description allOpts;
+  allOpts.add(explicitOpts).add(hiddenOpts);
   po::variables_map vm;
-
-  nonpos_desc.add_options()
-      ("help,h", "Display this message")
-      ("log-file,l",
-       po::value<std::string>(&logfilename)->default_value(now_ss.str().append(".log")),
-       "The name of the log file")
-      ("flows-file,f",
-       po::value<std::string>(&flowsFilename)->default_value(now_ss.str().append(".flows")),
-       "The name of the observed flows file")
-      ("trace-file,t",
-       po::value<std::string>(&traceFilename)->default_value(now_ss.str().append(".trace")),
-       "The name of the timeseries trace file")
-      ;
-
-  pos_desc.add_options()
-      ("directionA", po::value<std::string>(&inputAfilename), "The name of the pcap input file")
-      ("directionB", po::value<std::string>(&inputBfilename), "The name of the pcap input file")
-      ;
-
-  boostPO.add("directionA", 1);
-  boostPO.add("directionB", 1);
-
-  cmdline_desc.add(nonpos_desc).add(pos_desc);
-
   try {
+    /* Stores in 'vm' all options that are defined in 'options'.
+     * If 'vm' already has a non-defaulted value of an option, that value is not
+     * changed, even if 'options' specify some value.
+     */
+    // Parse command line first:
     po::store(po::command_line_parser(argc, argv)
-              .options(cmdline_desc)
-              .positional(boostPO)
-              .run()
-              , vm);
-
-    if (vm.count("help")) {
-      print_help(argv[0], nonpos_desc);
-      return 0;
+              .options(allOpts)
+              .positional(positionalOpts)
+              .run(), vm);
+    // Then parse any config files:
+    // - Store's priority apply to config variable as well...
+    if (vm.count("config") > 0) {
+      auto configFiles = vm["config"].as<vector<string>>();
+      for (const string& conf : configFiles) {
+        auto tmp = po::parse_config_file<char>(conf.c_str(), allOpts);
+        po::store(tmp, vm);
+      }
     }
-
     po::notify(vm);
   }
   catch (po::unknown_option ex) {
     cout << ex.what() << endl;
-    print_help(argv[0], nonpos_desc);
-    return 2;
+    print_usage(argv[0], {explicitOpts});
+    exit(EXIT_FAILURE);
   }
-
+  if (vm.count("help")) {
+    print_usage(argv[0], {explicitOpts});
+    exit(EXIT_SUCCESS);
+  }
   // Ensure at least one input file is given
-  if (!vm.count("directionA")) {
-    cout << "An input file is required" << endl;
-    print_help(argv[0], nonpos_desc);
-    return 2;
+  if (!vm.count("pcaps")) {
+    cout << "An input file is required!" << endl;
+    print_usage(argv[0], {explicitOpts, hiddenOpts});
+    exit(EXIT_FAILURE);
   }
+  return vm;
+}
 
-  // Open Log/Trace Output Files:
-  ofstream debugLog;
-  debugLog.open(logfilename, ios::out);
 
-  // Open Pcap Input Files:
-  debugLog << "Direction A: " << inputAfilename << '\n';
-  caida.open(1, inputAfilename);
-  if (vm.count("directionB")) {
-    debugLog << "Direction B: " << inputBfilename << '\n';
-    caida.open(2, inputBfilename);
-  }
+/// MAIN ///////////////////////////////////////////////////////////////////////
+int main(int argc, const char* argv[]) {
+  signal(SIGINT, sig_handle);
+  signal(SIGKILL, sig_handle);
+  signal(SIGHUP, sig_handle);
+
+  po::variables_map config = parse_options(argc, argv);
 
   // Output Files:
-  // - unique_ptr to prevent resizing vector destroying gz_ostream.
-  std::vector< unique_ptr<gz_ostream> > gz_handles;
-  // boost gzip file open helper lambda:
-  auto open_gzip = [&](const std::string& filename) -> ostream& {
-    gz_handles.push_back( make_unique<gz_ostream>(filename) );
-    return gz_handles.back()->get_ostream();
+  // - unique_ptr to prevent resizing vector moving gz_ostream.
+  ofstream NULL_OFSTREAM;
+  vector<gz_ostream> gz_handles;
+
+  // gzip file open helper lambda:
+  auto open_gzostream = [&](boost::optional<string> opt) -> ostream& {
+    if (!opt) {
+      return NULL_OFSTREAM;
+    }
+    string& filename = *opt;
+    if (filename.substr(filename.find_last_of('.')) != ".gz") {
+      filename.append(".gz");
+    }
+    gz_handles.emplace_back(filename);
+    return gz_handles.back().get_ostream();
   };
 
-  // Log output format:
-  debugLog << "Logging to: " << logfilename << '\n';
-  debugLog << "Tracing to: " << traceFilename << '\n';
-  debugLog << "Stats dumping to: " << flowsFilename << '\n';
+  // Configuration:
+  constexpr bool enable_wstp = true;
+//  constexpr bool enable_sim = true;
 
-  constexpr auto FKT_SIZE = std::tuple_size<FlowKeyTuple>::value;
-  debugLog << "File: " << flowsFilename << "\n"
-           << "- Flow Key String: " << FKT_SIZE << "B\n"
-           << "- FlowID: " << sizeof(flow_id_t) << "B\n";
-  debugLog << "File: " << traceFilename + ".gz" << "\n"
-           << "- Flow Key String: " << FKT_SIZE << "B\n";
+  // Log/Trace Output Files:
+  ofstream debugLog(*CONFIG.logFilename);
 
+//  debugLog << "Flows File: " << flowsFilename << "\n"
+//           << "- Flow Key String: " << FKT_SIZE << "B\n"
+//           << "- FlowID: " << sizeof(flow_id_t) << "B\n";
 
   // Flow Stats Output Files:
-  auto& flowStats = open_gzip(flowsFilename + ".gz");
-  debugLog << "File: " << flowsFilename + ".gz" << "\n";
+  ostream& flowStats = open_gzostream(CONFIG.statsFilename);
+  if (CONFIG.statsFilename) {
+    debugLog << "Flow Stats File: " << *CONFIG.statsFilename << "\n";
+  }
 
   // Trace Output Files:
-  auto& flowTrace = open_gzip(traceFilename + ".gz");
-  debugLog << "File: " << traceFilename + ".gz" << "\n"
-           << "- Flow Key String: " << FKT_SIZE << "B\n";
-  auto& tcpFlowTrace = open_gzip(traceFilename + ".tcp.gz");
-  debugLog << "File: " << traceFilename + ".tcp.gz" << "\n"
-           << "- Flow Key String: " << FKT_SIZE << "B\n"
-           << "- Flags: " << sizeof(Flags) << "B\n";
-  auto& udpFlowTrace = open_gzip(traceFilename + ".udp.gz");
-  debugLog << "File: " << traceFilename + ".udp.gz" << "\n"
-           << "- Flow Key String: " << FKT_SIZE << "B\n";
-  auto& otherFlowTrace = open_gzip(traceFilename + ".other.gz");
-  debugLog << "File: " << traceFilename + ".other.gz" << "\n"
-           << "- Flow Key String: " << FKT_SIZE << "B\n";
-  auto& scanFlowTrace = open_gzip(traceFilename + ".scans.gz");
-  debugLog << "File: " << traceFilename + ".scans.gz" << "\n"
-           << "- Flow Key String: " << FKT_SIZE << "B\n"
-           << "- Flags: " << sizeof(Flags) << "B\n";
+  ostream& flowTrace = open_gzostream(CONFIG.traceFilename);
+  ostream& tcpFlowTrace = open_gzostream(CONFIG.traceTCPFilename);
+  ostream& udpFlowTrace = open_gzostream(CONFIG.traceUDPFilename);
+  ostream& otherFlowTrace = open_gzostream(CONFIG.traceOtherFilename);
+  ostream& scanFlowTrace = open_gzostream(CONFIG.traceScansFilename);
+  if (CONFIG.traceFilename) {
+    constexpr auto FKT_SIZE = std::tuple_size<FlowKeyTuple>::value;
+    debugLog << "Packet Trace File: " << *CONFIG.traceFilename << "\n"
+             << "- Flow Key String: " << FKT_SIZE << "B\n";
+    debugLog << "TCP Packet Trace File: " << *CONFIG.traceTCPFilename << "\n"
+             << "- Flow Key String: " << FKT_SIZE << "B\n"
+             << "- Flags: " << sizeof(Flags) << "B\n";
+    debugLog << "UDP Packet Trace File: " << *CONFIG.traceUDPFilename << "\n"
+             << "- Flow Key String: " << FKT_SIZE << "B\n";
+    debugLog << "Untracked Packet Trace File: " << *CONFIG.traceOtherFilename << "\n"
+             << "- Flow Key String: " << FKT_SIZE << "B\n";
+    debugLog << "Scan Packet Trace File: " << *CONFIG.traceScansFilename << "\n"
+             << "- Flow Key String: " << FKT_SIZE << "B\n"
+             << "- Flags: " << sizeof(Flags) << "B\n";
+  }
 
+  // Open Pcap Input Files:
+  caidaHandler caida;
+  {
+    vector<string> inputs = config["pcaps"].as<vector<string>>();
+    for (size_t i = 0; i < inputs.size(); i++) {
+      string& filename = inputs[i];
+      debugLog << "PCAP stream "<< i << ": " << filename << '\n';
+      caida.open(i, filename);
+    }
+  }
   debugLog.flush();
 
   // Global Metadata structures:
   flow_id_t nextFlowID = 1; // flowID 0 is reserved for 'flow not found'
   absl::flat_hash_map<FlowKeyTuple, absl::InlinedVector<flow_id_t,1>> flowIDs;
-    // maps flows to vector (from most-recent to least-recent) of flowIDs
+  // maps flows to vector (from most-recent to least-recent) of flowIDs
   std::map<flow_id_t, FlowRecord> flowRecords;
   std::unordered_set<flow_id_t> blacklistFlows;
   std::set<flow_id_t> touchedFlows;
@@ -218,14 +274,16 @@ main(int argc, const char* argv[])
   // Simulation bookeeping structures:
 #define ENABLE_SIM
 #ifdef ENABLE_SIM
-  SimMIN<flow_id_t> simMIN(1<<16);  // 64k
-  SimLRU<flow_id_t> simLRU(1<<16);
-  CacheSim<flow_id_t> cacheSimLRU(1<<16);
+  SimMIN<flow_id_t> simMIN(1<<10);  // MIN Algorithm
+//  SimLRU<flow_id_t> simLRU(1<<16);  // Fully Associative LRU Algorithm
+//  CacheSim<flow_id_t> simLRU_2(1<<16); // REMOVE ME: sanity check
+  CacheSim<flow_id_t> cacheSimLRU(1<<10, 8); // 8-way set-associative LRU
   std::mutex mtx_Misses; // covers both missesMIN and missesLRU
   std::map<flow_id_t, std::vector<uint64_t>> missesMIN;
   std::map<flow_id_t, std::vector<uint64_t>> missesLRU;
 #endif
 
+  // Lamba function interface for reporting misses:
   auto f_sort_by_misses = [&mtx_RetiredFlows, &retiredRecords]
       (const std::map<flow_id_t, std::vector<uint64_t>>& misses) {
     using pq_pair_t = std::pair<size_t, flow_id_t>;
@@ -261,23 +319,31 @@ main(int argc, const char* argv[])
     return queue;
   };
 
-  // Define functions to interact with replacement:
+  // Define functions to interact with cache simulations:
+  // - Insert called once (on flow startup)
   std::function<void(flow_id_t, const std::pair<uint64_t,timespec>&&)> f_sim_insert =
       [&](flow_id_t flowID, const std::pair<uint64_t,timespec>&& pktTime) {
 #ifdef ENABLE_SIM
     auto [ns, ts] = pktTime;
     simMIN.insert(flowID, ts);
-    simLRU.insert(flowID, ts);
-    cacheSimLRU.insert(flowID, ts);
-    {
+//    simLRU.insert(flowID, ts);
+//    simLRU_2.insert(flowID, ts);
+    auto victim = cacheSimLRU.insert(flowID, ts);
+    if (victim) {
+      // If victim exists (something was replaced).
+      // victim: std::pair<Key, Reservation>
+      flow_id_t id = victim->first;
+      std::pair<size_t,size_t>& reservation = victim->second;
+    }
+    { // TODO: revisit clearning misses on new flow insert...
       std::lock_guard lock(mtx_Misses);
       missesMIN.erase(flowID);
       missesLRU.erase(flowID);
     }
-
 #endif
   };
 
+  // Update called on each subsequent packet
   std::function<void(flow_id_t, const std::pair<uint64_t,timespec>&&)> f_sim_update =
       [&](flow_id_t flowID, const std::pair<uint64_t,timespec>&& pktTime) {
 #ifdef ENABLE_SIM
@@ -286,16 +352,28 @@ main(int argc, const char* argv[])
       std::lock_guard lock(mtx_Misses);
       missesMIN[flowID].emplace_back(ns);
     }
-    bool test;
-    if (!(test = simLRU.update(flowID, ts))) {
-      std::lock_guard lock(mtx_Misses);
+//    bool test;
+//    if (!(test = simLRU.update(flowID, ts))) {
+//      std::lock_guard lock(mtx_Misses);
+//      missesLRU[flowID].emplace_back(ns);
+//    }
+//    auto test2 = simLRU_2.update(flowID, ts);
+//    assert(test2.first == test);
+    auto [hit, victim] = cacheSimLRU.update(flowID, ts);
+    if (!hit) {
+      // TODO: take note of miss statistics...
       missesLRU[flowID].emplace_back(ns);
+      if (victim) {
+        // If victim exists (something was replaced).
+        // victim: std::pair<Key, Reservation>
+        flow_id_t id = victim->first;
+        std::pair<size_t,size_t>& reservation = victim->second;
+      }
     }
-    auto test2 = cacheSimLRU.update(flowID, ts);
-    assert(test2.first == test);
 #endif
   };
 
+  // Define WSTP interface functions used for install:
   wstp_link::fn_t f_get_misses_MIN = [&](flow_id_t) {
     static auto sorted_queue = f_sort_by_misses(missesMIN);
     static size_t update_triger = sorted_queue.size();
@@ -314,7 +392,7 @@ main(int argc, const char* argv[])
     std::unique_lock lck(mtx_RetiredFlows);
     auto record = retiredRecords.extract(m_fid);
     lck.unlock();
-    if (record.empty()) {
+    if (record) {
       std::cerr << "Missing FID (" << m_fid << ") in retiredRecrods." << std::endl;
       return wstp_link::return_t();
     }
@@ -371,6 +449,14 @@ main(int argc, const char* argv[])
     return retiredRecords.size();
   };
 
+  wstp_link::fn_t f_get_ids = [&](uint64_t) {
+    wstp_link::ts_t ids;  // reusing timeseries type for vector of 64-bit ints
+    for (const auto& [key, value] : retiredRecords) {
+      ids.push_back(key);
+    }
+    return ids;
+  };
+
   std::function<void(FlowRecord&&)> f_sample = [&](FlowRecord&& r) {
     // Only consider semi-large flows:
     if (r.packets() > 512) {
@@ -399,15 +485,16 @@ main(int argc, const char* argv[])
   };
 
   // Instantiate Mathematica Link:
-  constexpr bool enable_wstp = true;
   if (enable_wstp) {
     using def_t = wstp_link::def_t;
     using fn_t = wstp_link::fn_t;
     using sig_t = wstp_link::sig_t;
-    wstp::listen( uint16_t(7777) );
     wstp_link::register_fn( def_t(sig_t("FFNumFlows[]", ""), fn_t(f_num_flows)) );
     wstp_link::register_fn( def_t(sig_t("FFSampleFlow[]", ""), fn_t(f_get_arrival)) );
     wstp_link::register_fn( def_t(sig_t("FFGetMisses[]", ""), fn_t(f_get_misses_MIN)) );
+    //    wstp::listen( uint16_t(7777) );
+    string interface = wstp::listen();
+    debugLog << "WSTP Server listening on " << interface << endl;
   }
 
 
@@ -422,8 +509,6 @@ main(int argc, const char* argv[])
 
     { // per-packet processing
       const fp::Packet& p = cxt.packet();
-//      evalQueue.emplace(p);
-//      EvalContext& evalCxt = evalQueue.back();
       EvalContext evalCxt(p);
 
       // Attempt to parse packet headers:
@@ -482,7 +567,6 @@ main(int argc, const char* argv[])
         serialize(flowTrace, fkt);
       };
       ////////////////////////////////////
-
       tracePoint();
 
 
@@ -611,6 +695,7 @@ main(int argc, const char* argv[])
 
         ///////////////////////////////////////////////////
         // Clean up dormant flows every new 128k new flows:
+        // TODO: make trace not thotime based?
         if (flowID % (128*1024) == 0) {
           timespec diff = pktTime - last_epoc;
           last_epoc = pktTime;
@@ -639,7 +724,9 @@ main(int argc, const char* argv[])
             constexpr uint64_t TCP_TIMEOUT = 600;
             constexpr uint64_t LONG_TIMEOUT = 120;
 
-            // FlowID reverse search lambda (linear):
+            ////////////////////////////////////////
+            // FlowID reverse search lambda (linear)
+            // - Needed when flows expire (no FKT from active packet)
             // FIXME: avoid linear search!
             auto find_key = [&flowIDs](flow_id_t id) -> const FlowKeyTuple {
               for (const auto& [fkt, fid_v] : flowIDs) {
@@ -650,6 +737,9 @@ main(int argc, const char* argv[])
               return FlowKeyTuple();
             };
 
+            /////////////////////
+            // Delete Flow lambda
+            // - Removes flow from tracked flowRecords, samples if noteworthy.
             auto delete_flow = [&flowRecords, &f_sample](decltype(flowRecords)::iterator flowR_i) {
               f_sample( std::move(flowRecords.extract(flowR_i).mapped()) );
             };
@@ -667,7 +757,6 @@ main(int argc, const char* argv[])
                        << " seconds of inactivity; "
                        << print_flow_key_string( find_key(i) ) << endl;
               flowStats << print_flow(flowR).str();
-//              flowRecords.erase(flowR_i);
               delete_flow(flowR_i);
             }
             else if (flowR.sawFIN() && sinceLast.tv_sec >= FIN_TIMEOUT) {
@@ -679,7 +768,6 @@ main(int argc, const char* argv[])
                        << " seconds of inactivity; "
                        << print_flow_key_string( find_key(i) ) << endl;
               flowStats << print_flow(flowR).str();
-//              flowRecords.erase(flowR_i);
               delete_flow(flowR_i);
             }
             else if (flowR.isTCP() && sinceLast.tv_sec >= TCP_TIMEOUT) {
@@ -689,7 +777,6 @@ main(int argc, const char* argv[])
                        << " seconds of inactivity; "
                        << print_flow_key_string( find_key(i) ) << endl;
               flowStats << print_flow(flowR).str();
-//              flowRecords.erase(flowR_i);
               delete_flow(flowR_i);
             }
             else if (sinceLast.tv_sec >= LONG_TIMEOUT) {
@@ -699,7 +786,6 @@ main(int argc, const char* argv[])
                        << " seconds of inactivity; "
                        << print_flow_key_string( find_key(i) ) << endl;
               flowStats << print_flow(flowR).str();
-//              flowRecords.erase(flowR_i);
               delete_flow(flowR_i);
             }
           }
@@ -739,18 +825,19 @@ main(int argc, const char* argv[])
   // Print Locality Simulation:
 #ifdef ENABLE_SIM
   debugLog << "SimMIN Cache Size: " << simMIN.get_size() << '\n';
-  debugLog << " - Miss (Compulsory): " << simMIN.get_compulsory_miss() << '\n';
   debugLog << " - Hits: " << simMIN.get_hits() << '\n';
+  debugLog << " - Miss (Compulsory): " << simMIN.get_compulsory_miss() << '\n';
   debugLog << " - Miss (Capacity): " << simMIN.get_capacity_miss() << '\n';
   debugLog << " - Max elements between barrier: " << simMIN.get_max_elements() << '\n';
-  debugLog << "SimLRU Cache Size: " << simLRU.get_size() << '\n';
-  debugLog << " - Miss (Compulsory): " << simLRU.get_compulsory_miss() << '\n';
-  debugLog << " - Hits: " << simLRU.get_hits() << '\n';
-  debugLog << " - Miss (Capacity): " << simLRU.get_capacity_miss() << '\n';
+
+  debugLog << "cacheSimLRU Cache Size: " << cacheSimLRU.get_size() << '\n';
+  debugLog << " - Hits: " << cacheSimLRU.get_hits() << '\n';
+  debugLog << " - Miss (Compulsory): " << cacheSimLRU.get_compulsory_miss() << '\n';
+  debugLog << " - Miss (Capacity): " << cacheSimLRU.get_capacity_miss() << '\n';
 #endif
 
   chrono::system_clock::time_point end_time = chrono::system_clock::now();
-  auto msec = chrono::duration_cast<chrono::milliseconds>(end_time - start_time).count();
+  auto msec = chrono::duration_cast<chrono::milliseconds>(end_time - startTime).count();
   auto sec  = msec/1000;
   auto min  = sec/60;
   auto hrs  = min/60;
@@ -760,11 +847,6 @@ main(int argc, const char* argv[])
 //  debugLog << "Capture Start: " << packet_time << '\n'
 //           << "Capture End: " << packet_time2 << '\n'
 //           << "Capture Duration: " << packet_time2-packet_time << endl;
-  cout << "Run took "
-       << hrs << "h:" << min%60 << "m:"
-       << sec%60 << "s:" << msec%1000 << "ms\n";
-  cout << "Processed " << totalPackets << " packets ("
-       << flowIDs.size() << " flows)." << endl;
 
   // Simulation finished, wait for uninstall from WSTP:
   {
@@ -776,6 +858,16 @@ main(int argc, const char* argv[])
     }
   }
 
+  for (auto& h : gz_handles) {
+    h.flush();
+  }
+
+  cout << "Run took "
+       << hrs << "h:" << min%60 << "m:"
+       << sec%60 << "s:" << msec%1000 << "ms\n";
+  cout << "Processed " << totalPackets << " packets ("
+       << flowIDs.size() << " flows)." << endl;
+
   wstp::wait_for_unlink();
-  return 0;
+  return EXIT_SUCCESS;
 }

@@ -44,7 +44,7 @@
 
 //////////////////////////////
 //// WSTP Top-level Class ////
-bool wstp::unlink_all_ = false;
+//bool wstp::all_unlinked_ = true;
 std::mutex wstp::mtx_;
 std::vector<wstp_link> wstp::links_;
 std::vector<wstp_server> wstp::servers_;
@@ -66,7 +66,14 @@ wstp::take_connection(WSLINK wslink) {
 
 // Used by main() thread to wait until all WSTP connections close before exit.
 void wstp::wait_for_unlink() {
-  while(!unlink_all_) {
+  while(true) {
+    bool alive = false;
+    for (const auto& link : links_) {
+      alive |= link.alive();
+    }
+    if (!alive) {
+      return;
+    }
     std::this_thread::sleep_for(std::chrono::seconds(10));
   }
 }

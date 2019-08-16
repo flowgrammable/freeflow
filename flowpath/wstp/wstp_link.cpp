@@ -100,8 +100,7 @@ WSENV wstp_env::borrow_handle() const {
 
 //////////////////////////////////
 //// WSTP Link Handle Wrapper ////
-wstp_link::wstp_link(std::string args) :
-  link_(nullptr), worker_stop_(false) {
+wstp_link::wstp_link(std::string args) {
   int err = 0;
   link_ = WSOpenString(ENV.borrow_handle(), args.c_str(), &err);
   if(!link_ || err != WSEOK) {
@@ -116,8 +115,7 @@ wstp_link::wstp_link(std::string args) :
 }
 
 
-wstp_link::wstp_link(WSLINK link) :
-  link_(link), worker_stop_(false) {
+wstp_link::wstp_link(WSLINK link) : link_(link) {
   int err = 0;
   if (!link_ || !(err = WSActivate(link_))) {
     std::cerr << "WSActivate Error: " << err << std::endl;
@@ -132,7 +130,9 @@ wstp_link::~wstp_link() {
     worker_stop_ = true;
     worker_.join();
   }
-  if (link_) {
+  if (link_ && WSError(link_) == 0) {
+    // library bug: WSClose seems to segfault if the library already closed connection...
+    // - e.g. "wstp_link error 1: WSTP connection was lost."
     WSClose(link_);
     link_ = nullptr;
   }
@@ -232,7 +232,7 @@ int wstp_link::install() {
 
 
 void wstp_link::receive_worker() {
-  std::cout << "WSTP worker thread started." << std::endl;
+  std::cerr << "WSTP worker thread started." << std::endl;
   try {
     if (!WSSetMessageHandler(link_, wstp_link_err_handler)) {
       std::cerr << "WARNING: Unable to set wstp error message handler." << std::endl;
@@ -247,11 +247,11 @@ void wstp_link::receive_worker() {
       }
     }
   }
-  catch (const std::runtime_error& e) {
+  catch (const std::runtime_error e) {
     std::cerr << "ERROR: Caught expection in wstp interface:\n" << e.what() << std::endl;
-    worker_stop_ = true;
   }
-  std::cout << "WSTP worker thread terminated." << std::endl;
+  std::cerr << "WSTP worker thread terminated." << std::endl;
+  worker_stop_ = true;
 }
 
 
@@ -286,6 +286,11 @@ void wstp_link::reset() {
 
 int wstp_link::error() const {
   return WSError(link_);
+}
+
+
+bool wstp_link::alive() const {
+  return !worker_stop_;
 }
 
 

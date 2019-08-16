@@ -63,7 +63,9 @@ void serialize_tuple(Target& out, const Tuple& t, std::index_sequence<Is...>) {
 // Serialize tuples - generates index sequence:
 template <typename Target, typename... Ts>
 void serialize(Target& out, const std::tuple<Ts...>& t) {
-  serialize_tuple(out, t, std::index_sequence_for<Ts...>{});
+  if (out) {
+    serialize_tuple(out, t, std::index_sequence_for<Ts...>{});
+  }
 }
 
 template<class Ch, class Tr, class... Ts>

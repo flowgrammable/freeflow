@@ -89,6 +89,7 @@ void caidaHandler::open(int id, string file) {
   }
 
   // Open PCAP file:
+  std::cerr << "PCAP Stream " << id << " opening " << file << std::endl;
   pcap_.emplace(std::piecewise_construct,
                 std::forward_as_tuple(id),
                 std::forward_as_tuple(id, file.c_str()) );

@@ -29,6 +29,7 @@ public:
   wstp_server& operator=(wstp_server&& other);      // move assignment
 
   auto borrow_handle() const;  // Member to ensure init
+  std::string get_interface() const;
 
 private:
   /// Members ///

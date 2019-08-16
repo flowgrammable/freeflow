@@ -38,6 +38,7 @@ public:
   uint64_t get_capacity_miss() const {return capacityMiss_;}
   uint64_t get_compulsory_miss() const {return compulsoryMiss_;}
   size_t get_max_elements() const {return max_elements_;}
+  auto get_barrier_duration() const {return barrier_duration_;}
 
 private:
   const size_t MAX_;
@@ -52,6 +53,7 @@ private:
   uint64_t compulsoryMiss_ = 0;
 //  uint64_t invalidates_ = 0;
   size_t max_elements_ = 0;
+  std::vector<size_t> barrier_duration_;  // number of hits when barrier was moved.
 };
 
 
@@ -115,6 +117,7 @@ bool SimMIN<Key>::update(const Key& k, const Time& t) {
       std::cerr << "WARNING: SIM_MIN's index rolled over size_t!" << std::endl;
     }
     barrier_ = last;
+//    barrier_duration_.push_back(hits_);
     trim_to_barrier();
     return true;  // hit
   }

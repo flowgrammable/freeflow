@@ -54,7 +54,7 @@ extern wstp_env ENV;
 
 ////////////////////////////////////////
 //// WSTP LinkServer Handle Wrapper ////
-wstp_server::wstp_server(const uint16_t port, const std::string ip) :
+wstp_server::wstp_server(uint16_t port, std::string ip) :
   server_(nullptr) {
   int err = 0;
   if (!ip.empty()) {
@@ -72,6 +72,12 @@ wstp_server::wstp_server(const uint16_t port, const std::string ip) :
     throw std::string("Failed wstp_server(" + server + ")");
   }
   WSRegisterCallbackFunctionWithLinkServer(server_, wstp_server_connection);
+
+  const char* str = WSInterfaceFromLinkServer(server_, &err);
+  ip = str;
+  WSReleaseInterfaceFromLinkServer(server_, str);
+  port = WSPortFromLinkServer(server_, &err);
+  std::cout << "Launched WSTP server on " << ip <<":" << port << std::endl;
 }
 
 
@@ -98,6 +104,16 @@ wstp_server& wstp_server::operator=(wstp_server&& other) {
 
 auto wstp_server::borrow_handle() const {
   return server_;
+}
+
+
+std::string wstp_server::get_interface() const {
+  int err;
+  const char* str = WSInterfaceFromLinkServer(server_, &err);
+  uint16_t port = WSPortFromLinkServer(server_, &err);
+  std::string interface = std::string(str) + ":" + std::to_string(port);
+  WSReleaseInterfaceFromLinkServer(server_, str);
+  return interface;
 }
 
 

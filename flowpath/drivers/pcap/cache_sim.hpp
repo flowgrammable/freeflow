@@ -113,9 +113,9 @@ class AssociativeSet {
 public:
   using Time = timespec;  // maybe throw out?
   using MIN_Time = size_t;
-  using Reservation = std::pair<MIN_Time,MIN_Time>; // refactor to Time?
+  using Reservation = std::pair<MIN_Time, MIN_Time>; // refactor to Time?
 
-  using Stack = std::list< std::pair<Key,Reservation> >;
+  using Stack = std::list< std::pair<Key, Reservation> >;
   using Stack_it = typename Stack::iterator;
   using Stack_value = typename Stack::value_type;
 //  using Policy_ptr = std::unique_ptr<Policy<Stack_it>>;
@@ -157,7 +157,7 @@ private:
 
   // Way Containers:
   Stack stack_;
-  absl::flat_hash_map<Key,Stack_it> lookup_;
+  absl::flat_hash_map<Key, Stack_it> lookup_;
 
   // Stats:
   uint64_t hits_ = 0;
@@ -175,6 +175,7 @@ public:
 //  using Reservation = std::pair<Point,Point>;
 //  using Reservation = std::pair<size_t,size_t>;
 //  using History = absl::InlinedVector<Reservation,1>;
+  using Stack_value = typename AssociativeSet<Key>::Stack_value;
 
   CacheSim(size_t entries, size_t ways = 0);
   auto insert(const Key& k, const Time& t);
@@ -227,6 +228,7 @@ auto AssociativeSet<Key>::insert(const Key& k, const Time& t) {
 
 // Key has been accessed again (not first occurance)
 // - Determine if hit or capacity conflict.
+// - Returns {hit/miss, eviction (if necessary)}
 template<typename Key>
 auto AssociativeSet<Key>::update(const Key& k, const Time& t) {
   MIN_Time column = compulsoryMiss_ + capacityMiss_;  // Comparable to Min's t
@@ -236,6 +238,7 @@ auto AssociativeSet<Key>::update(const Key& k, const Time& t) {
     Stack_it it = status->second;
     Reservation& r = it->second;
     r.second = column;
+    // TODO: factor out into promotion function if modularity is needed:
     if (it != stack_.begin()) {
       // Move element from current position to front of list (MSP):
       stack_.splice(stack_.begin(), stack_, it, std::next(it));
@@ -245,7 +248,7 @@ auto AssociativeSet<Key>::update(const Key& k, const Time& t) {
   else {
     capacityMiss_++;
     auto evicted = internal_insert(k, t);
-    return std::make_pair(false, std::optional<Stack_value>(evicted));  // miss
+    return std::make_pair(false, evicted);  // miss
   }
 }
 
@@ -259,16 +262,14 @@ auto AssociativeSet<Key>::internal_insert(const Key& k, const Time& t) {
   auto item = std::make_pair(k,res);
 
   // Replacement Policy:
-  Stack_value evicted;
+  std::optional<Stack_value> evicted;
   if (stack_.size() >= MAX_) {
     auto victim_it = replace_find();
+    lookup_.erase(victim_it->first);
     evicted = std::move(*victim_it);
     stack_.erase(victim_it);
-    lookup_.erase(evicted.first);
   }
-  else {
-    evicted = std::make_pair(Key(0), Reservation());
-  }
+  // else evicted (std::optional) is left default constructed.
 
   // Insert Policy:
   auto insert_it = insert_find();
@@ -319,7 +320,7 @@ auto AssociativeSet<Key>::insert_find() {
     it = find_MRU(p_insert_.offset_);
     break;
   default:
-    assert(false);
+    throw std::runtime_error("Unknown Insert Policy.");
   }
   return it;
 }
@@ -340,7 +341,7 @@ auto AssociativeSet<Key>::replace_find() {
     it = find_MRU(p_replace_.offset_);
     break;
   default:
-    assert(false);
+    throw std::runtime_error("Unknown Replace Policy.");
   }
   return it;
 }

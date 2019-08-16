@@ -33,14 +33,15 @@ private:
   static std::mutex mtx_;
   static std::vector<wstp_link> links_;
   static std::vector<wstp_server> servers_;
-  static bool unlink_all_;
+//  static bool all_unlinked_;
 };
 
 
 template<typename... Args>
 auto wstp::listen(Args&&... args) {
   std::lock_guard lck(mtx_);
-  return servers_.emplace(servers_.end(), std::forward<Args>(args)...);
+  auto it = servers_.emplace(servers_.end(), std::forward<Args>(args)...);
+  return it->get_interface();
 }
 
 
