@@ -49,7 +49,7 @@ extern "C" {
 void wstp_server_connection(WSLinkServer server, WSLINK wslink);
 }
 
-extern wstp_env ENV;
+extern std::shared_ptr<wstp_env> ENV;
 
 
 ////////////////////////////////////////
@@ -58,13 +58,13 @@ wstp_server::wstp_server(uint16_t port, std::string ip) :
   server_(nullptr) {
   int err = 0;
   if (!ip.empty()) {
-    server_ = WSNewLinkServerWithPortAndInterface(ENV.borrow_handle(), port, ip.c_str(), nullptr, &err);
+    server_ = WSNewLinkServerWithPortAndInterface(ENV->borrow_handle(), port, ip.c_str(), nullptr, &err);
   }
   if (port != 0) {
-    server_ = WSNewLinkServerWithPort(ENV.borrow_handle(), port, nullptr, &err);
+    server_ = WSNewLinkServerWithPort(ENV->borrow_handle(), port, nullptr, &err);
   }
   else {
-    server_ = WSNewLinkServer(ENV.borrow_handle(), nullptr, &err);
+    server_ = WSNewLinkServer(ENV->borrow_handle(), nullptr, &err);
   }
   if (err != WSEOK) {
     std::string server(ip + ":" + std::to_string(port));
@@ -83,6 +83,7 @@ wstp_server::wstp_server(uint16_t port, std::string ip) :
 
 wstp_server::~wstp_server() {
   if (server_) {
+    std::cerr << "Shutting down WSTP Server." << std::endl;
     WSShutdownLinkServer(server_);
     server_ = nullptr;
   }

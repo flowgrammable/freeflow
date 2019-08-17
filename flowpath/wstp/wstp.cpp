@@ -42,30 +42,50 @@
 #include <csignal>
 
 
+/////////////////
+//// GLOBALS ////
+static std::unique_ptr<wstp_singleton> wstp_global;
+extern std::shared_ptr<wstp_env> ENV;
+
 //////////////////////////////
 //// WSTP Top-level Class ////
-//bool wstp::all_unlinked_ = true;
-std::mutex wstp::mtx_;
-std::vector<wstp_link> wstp::links_;
-std::vector<wstp_server> wstp::servers_;
+wstp_singleton* wstp_singleton::singleton_ = nullptr;
 
+wstp_singleton::wstp_singleton() {
+  if (ENV) {
+    env_ = ENV;
+  }
+  else {
+    env_ = std::make_shared<wstp_env>();
+  }
+
+  if (singleton_ == nullptr) {
+    singleton_ = this;
+  }
+}
+
+wstp_singleton::~wstp_singleton() {
+  if (singleton_ == this) {
+    singleton_ = nullptr;
+  }
+}
 
 std::vector<wstp_link>::iterator
-wstp::take_connection(wstp_link&& link) {
+wstp_singleton::take_connection(wstp_link&& link) {
   std::lock_guard lck(mtx_);
   return links_.insert(links_.end(), std::forward<wstp_link>(link));
 }
 
 
 std::vector<wstp_link>::iterator
-wstp::take_connection(WSLINK wslink) {
+wstp_singleton::take_connection(WSLINK wslink) {
   std::lock_guard lck(mtx_);
   return links_.emplace(links_.end(), wslink);
 }
 
 
 // Used by main() thread to wait until all WSTP connections close before exit.
-void wstp::wait_for_unlink() {
+void wstp_singleton::wait_for_unlink() {
   while(true) {
     bool alive = false;
     for (const auto& link : links_) {
@@ -79,7 +99,17 @@ void wstp::wait_for_unlink() {
 }
 
 
+wstp_singleton& wstp_singleton::getInstance() {
+  if (singleton_) {
+    return *singleton_;
+  }
+  wstp_global = std::make_unique<wstp_singleton>();
+  return wstp_singleton::getInstance();
+}
+
+
 std::vector<wstp_link>::iterator
 wstp_take_connection(WSLINK wslink) {
-  return wstp::take_connection(wslink);
+  wstp_singleton& w = wstp_singleton::getInstance();
+  return w.take_connection(wslink);
 }

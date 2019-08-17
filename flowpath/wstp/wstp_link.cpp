@@ -71,7 +71,8 @@ std::vector<wstp_link::def_t> wstp_link::wstp_signatures_;
 
 /////////////////////////////////////////
 //// WSTP Enviornment Handle Wrapper ////
-wstp_env ENV;  // single global instace.
+std::shared_ptr<wstp_env> ENV = std::make_shared<wstp_env>();  // single global instace.
+
 
 wstp_env::wstp_env(WSEnvironmentParameter ENVparam) {
   handle_ = WSInitialize(ENVparam);
@@ -82,7 +83,7 @@ wstp_env::wstp_env(WSEnvironmentParameter ENVparam) {
   int status = WSSetSignalHandlerFromFunction(handle_, SIGINT, wstp_ENVsig_handler);
   if (status != WSEOK) {
     std::cerr << "Failed to set signal handler using "
-                 "WSSetSignalHandlerFromFunction()" << std::endl;
+              << __func__ << std::endl;
     // No-throw error condition.
   }
 }
@@ -102,7 +103,7 @@ WSENV wstp_env::borrow_handle() const {
 //// WSTP Link Handle Wrapper ////
 wstp_link::wstp_link(std::string args) {
   int err = 0;
-  link_ = WSOpenString(ENV.borrow_handle(), args.c_str(), &err);
+  link_ = WSOpenString(ENV->borrow_handle(), args.c_str(), &err);
   if(!link_ || err != WSEOK) {
     std::cerr << "WSOpenString Error: " << err << std::endl;
     throw std::runtime_error{"Failed WSOpenString."};
@@ -133,6 +134,7 @@ wstp_link::~wstp_link() {
   if (link_ && WSError(link_) == 0) {
     // library bug: WSClose seems to segfault if the library already closed connection...
     // - e.g. "wstp_link error 1: WSTP connection was lost."
+    std::cerr << "Closing WSTP Link." << std::endl;
     WSClose(link_);
     link_ = nullptr;
   }

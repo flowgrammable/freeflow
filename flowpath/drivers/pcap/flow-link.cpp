@@ -43,7 +43,6 @@
 #include "wstp.hpp"
 
 using namespace std;
-//using namespace util_view;
 namespace po = boost::program_options;
 
 using flow_id_t = u64;
@@ -215,10 +214,6 @@ int main(int argc, const char* argv[]) {
   // Log/Trace Output Files:
   ofstream debugLog(*CONFIG.logFilename);
 
-//  debugLog << "Flows File: " << flowsFilename << "\n"
-//           << "- Flow Key String: " << FKT_SIZE << "B\n"
-//           << "- FlowID: " << sizeof(flow_id_t) << "B\n";
-
   // Flow Stats Output Files:
   ostream& flowStats = open_gzostream(CONFIG.statsFilename);
   if (CONFIG.statsFilename) {
@@ -259,10 +254,10 @@ int main(int argc, const char* argv[]) {
   }
   debugLog.flush();
 
-  // Global Metadata structures:
+  // Flow State Tracking:
   flow_id_t nextFlowID = 1; // flowID 0 is reserved for 'flow not found'
-  absl::flat_hash_map<FlowKeyTuple, absl::InlinedVector<flow_id_t,1>> flowIDs;
   // maps flows to vector (from most-recent to least-recent) of flowIDs
+  absl::flat_hash_map<FlowKeyTuple, absl::InlinedVector<flow_id_t,1>> flowIDs;
   std::map<flow_id_t, FlowRecord> flowRecords;
   std::unordered_set<flow_id_t> blacklistFlows;
   std::set<flow_id_t> touchedFlows;
@@ -319,8 +314,8 @@ int main(int argc, const char* argv[]) {
     return queue;
   };
 
-  // Define functions to interact with cache simulations:
-  // - Insert called once (on flow startup)
+  /// Helper functions to interact with cache simulations: /////////////////////
+  // - Insert called once (first packet on flow startup)
   std::function<void(flow_id_t, const std::pair<uint64_t,timespec>&&)> f_sim_insert =
       [&](flow_id_t flowID, const std::pair<uint64_t,timespec>&& pktTime) {
 #ifdef ENABLE_SIM
@@ -342,8 +337,7 @@ int main(int argc, const char* argv[]) {
     }
 #endif
   };
-
-  // Update called on each subsequent packet
+  // - Update called on each subsequent packet
   std::function<void(flow_id_t, const std::pair<uint64_t,timespec>&&)> f_sim_update =
       [&](flow_id_t flowID, const std::pair<uint64_t,timespec>&& pktTime) {
 #ifdef ENABLE_SIM
@@ -373,7 +367,44 @@ int main(int argc, const char* argv[]) {
 #endif
   };
 
-  // Define WSTP interface functions used for install:
+
+  // Generic Packet Stats:
+  u16 maxPacketSize = std::numeric_limits<u16>::lowest();
+  u16 minPacketSize = std::numeric_limits<u16>::max();
+  u64 totalPackets = 0, totalBytes = 0, \
+      blacklistPackets = 0, malformedPackets = 0, timeoutPackets = 0, \
+      flowPortReuse = 0;
+
+  /// Filtering function to find 'interesting' flows once they retire: /////////
+  std::function<void(FlowRecord&&)> f_sample = [&](FlowRecord&& r) {
+    // Only consider semi-large flows:
+    if (r.packets() > 512) {
+      std::unique_lock missesLock(mtx_Misses);
+//      auto lru_it = missesLRU.find(r.getFlowID());
+      auto min_it = missesMIN.find(r.getFlowID());
+      const auto& min_ts = min_it->second;
+      // Only record multiple misses within MIN:
+      if ( min_it != missesMIN.end() && min_ts.size() >= 8 ) {
+        missesLock.unlock();
+        // Flow looks interesting, add to retiredRecords:
+        std::cout << "+ FlowID: " << r.getFlowID()
+                  << ", Packets: " << r.packets()
+                  << ", Misses: " << min_ts.size() << std::endl;
+        { std::lock_guard lock(mtx_RetiredFlows);
+          retiredRecords.emplace(std::make_pair(r.getFlowID(), r));
+        }
+      }
+      else {
+        // Flow behaved unremarkibly, delete metadata:
+        missesLRU.erase(r.getFlowID());
+        missesMIN.erase(r.getFlowID());
+        missesLock.unlock();
+      }
+    }
+  };
+
+
+  /// WSTP interface functions used for exploration ////////////////////////////
   wstp_link::fn_t f_get_misses_MIN = [&](flow_id_t) {
     static auto sorted_queue = f_sort_by_misses(missesMIN);
     static size_t update_triger = sorted_queue.size();
@@ -421,14 +452,6 @@ int main(int argc, const char* argv[]) {
     return wstp_link::return_t(deltas);
   };
 
-
-  // Global Stats:
-  u16 maxPacketSize = std::numeric_limits<u16>::lowest();
-  u16 minPacketSize = std::numeric_limits<u16>::max();
-  u64 totalPackets = 0, totalBytes = 0, \
-      blacklistPackets = 0, malformedPackets = 0, timeoutPackets = 0, \
-      flowPortReuse = 0;
-
   // Sampling of retired flows:
   wstp_link::fn_t f_get_arrival = [&](uint64_t) {
     if (retiredRecords.size() == 0) {
@@ -457,34 +480,9 @@ int main(int argc, const char* argv[]) {
     return ids;
   };
 
-  std::function<void(FlowRecord&&)> f_sample = [&](FlowRecord&& r) {
-    // Only consider semi-large flows:
-    if (r.packets() > 512) {
-      std::unique_lock missesLock(mtx_Misses);
-//      auto lru_it = missesLRU.find(r.getFlowID());
-      auto min_it = missesMIN.find(r.getFlowID());
-      const auto& min_ts = min_it->second;
-      // Only record multiple misses within MIN:
-      if ( min_it != missesMIN.end() && min_ts.size() >= 8 ) {
-        missesLock.unlock();
-        // Flow looks interesting, add to retiredRecords:
-        std::cout << "+ FlowID: " << r.getFlowID()
-                  << ", Packets: " << r.packets()
-                  << ", Misses: " << min_ts.size() << std::endl;
-        { std::lock_guard lock(mtx_RetiredFlows);
-          retiredRecords.emplace(std::make_pair(r.getFlowID(), r));
-        }
-      }
-      else {
-        // Flow behaved unremarkibly, delete metadata:
-        missesLRU.erase(r.getFlowID());
-        missesMIN.erase(r.getFlowID());
-        missesLock.unlock();
-      }
-    }
-  };
 
   // Instantiate Mathematica Link:
+  wstp_singleton& wstp = wstp_singleton::getInstance();
   if (enable_wstp) {
     using def_t = wstp_link::def_t;
     using fn_t = wstp_link::fn_t;
@@ -492,14 +490,13 @@ int main(int argc, const char* argv[]) {
     wstp_link::register_fn( def_t(sig_t("FFNumFlows[]", ""), fn_t(f_num_flows)) );
     wstp_link::register_fn( def_t(sig_t("FFSampleFlow[]", ""), fn_t(f_get_arrival)) );
     wstp_link::register_fn( def_t(sig_t("FFGetMisses[]", ""), fn_t(f_get_misses_MIN)) );
-    //    wstp::listen( uint16_t(7777) );
-    string interface = wstp::listen();
+    wstp_link::register_fn( def_t(sig_t("FFGetFlowIDs[]", ""), fn_t(f_get_ids)) );
+    string interface = wstp.listen();
     debugLog << "WSTP Server listening on " << interface << endl;
   }
 
 
-  ///////////////////////
-  // PCAP file read loop:
+  /// PCAP file read loop: /////////////////////////////////////////////////////
   s64 count = 0, last_count = 0;
   fp::Context cxt = caida.recv();
   timespec last_epoc = cxt.packet().timestamp();
@@ -868,6 +865,7 @@ int main(int argc, const char* argv[]) {
   cout << "Processed " << totalPackets << " packets ("
        << flowIDs.size() << " flows)." << endl;
 
-  wstp::wait_for_unlink();
+  wstp.wait_for_unlink();
+  cerr << "Main thread terminating." << endl;
   return EXIT_SUCCESS;
 }
