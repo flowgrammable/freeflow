@@ -477,7 +477,31 @@ int main(int argc, const char* argv[]) {
     for (const auto& [key, value] : retiredRecords) {
       ids.push_back(key);
     }
+    // BUG: confirm why 1 record is missing on send...
     return ids;
+  };
+
+  wstp_link::fn_t f_get_ts = [&](uint64_t fid) {
+    // Calculate event deltas deltas:
+    const FlowRecord& flowR = retiredRecords.at(fid);
+    const auto& ts = flowR.getArrivalV();
+    wstp_link::ts_t deltas(ts.size());
+    std::adjacent_difference(ts.begin(), ts.end(), deltas.begin());
+
+    // Search for miss vector:
+    std::unique_lock lck2(mtx_Misses);
+    auto miss_ts = missesMIN.at(fid);
+    lck2.unlock();
+    if (miss_ts.empty()) {
+      return wstp_link::return_t(deltas);
+    }
+
+    // Mark miss by returning netagive distances:
+    for (auto miss : miss_ts) {
+      auto x = std::find(ts.begin(), ts.end(), miss);
+      deltas[std::distance(ts.begin(), x)] *= -1;
+    }
+    return wstp_link::return_t(deltas);
   };
 
 
@@ -491,6 +515,7 @@ int main(int argc, const char* argv[]) {
     wstp_link::register_fn( def_t(sig_t("FFSampleFlow[]", ""), fn_t(f_get_arrival)) );
     wstp_link::register_fn( def_t(sig_t("FFGetMisses[]", ""), fn_t(f_get_misses_MIN)) );
     wstp_link::register_fn( def_t(sig_t("FFGetFlowIDs[]", ""), fn_t(f_get_ids)) );
+    wstp_link::register_fn( def_t(sig_t("FFGetFlowTS[x_Integer]", "x"), fn_t(f_get_ts)) );
     string interface = wstp.listen();
     debugLog << "WSTP Server listening on " << interface << endl;
   }

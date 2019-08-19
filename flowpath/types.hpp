@@ -35,6 +35,12 @@ serialize(Target& out, const T& x) {
   out.write(reinterpret_cast<const char*>(&x), sizeof(x));
 }
 
+// Serialize element to std::basic_ostream:
+//template <typename T>
+//void serialize(std::basic_ostream& s, const T& x) {
+//  s.append(reinterpret_cast<const char*>(&x), sizeof(x));
+//}
+
 // Serialize element to std::string:
 template <typename T>
 void serialize(std::string& s, const T& x) {

@@ -44,6 +44,8 @@ public:
   // Function signatures:
   using fn_t = std::function<return_t(uint64_t)>;
   using sig_t = std::tuple<std::string, std::string>;
+  // - Mathematica Definition of Function: Foo[x_Integer]
+  // - Mapping of argument name x to transfer type: x, {x}
   using def_t = std::tuple<sig_t, fn_t>;
 
   // Constants:

@@ -332,6 +332,7 @@ bool wstp_link::log(std::string filename) {
     print_error();
     return false;
   }
+  std::cerr << "WSTP Link logging to: " << filename << std::endl;
   return true;
 }
 
@@ -346,17 +347,22 @@ int wstp_link::decode_call() {
   const size_t funcID = static_cast<size_t>(func);
 
   // Execute appropriate function:
-  std::cerr << "Evaluate: "
-            << std::get<0>( std::get<sig_t>(wstp_signatures_[funcID]) )
-            << std::endl;
-  return_t v = worker_fTable_[funcID](0);
+  const sig_t& sig = std::get<sig_t>(wstp_signatures_[funcID]);
+  std::string name = std::get<0>(sig);
+  std::string args = std::get<1>(sig);
+  std::cerr << "Evaluate: " << name << ";\t" << args << std::endl;
+  int64_t x = 0;
+  if (!args.empty()) {
+    x = wstp_link::get<int64_t>();
+  }
+  return_t v = worker_fTable_[funcID](x);
 
   // Send result back:
   put_function("ReturnPacket", 1);
   if (std::holds_alternative<ts_t>(v)) {
     const ts_t& events = std::get<ts_t>(v);
-    std::cerr << "Returning list of size: " << events.size()-1 << std::endl;
-    WSPutInteger64List(link_, events.data()+1, static_cast<int>(events.size()-1));
+    std::cerr << "Returning list of size: " << events.size() << std::endl;
+    WSPutInteger64List(link_, events.data(), static_cast<int>(events.size()));
   }
   else if (std::holds_alternative<wsint64>(v)) {
     auto x = std::get<wsint64>(v);
