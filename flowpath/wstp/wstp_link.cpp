@@ -112,7 +112,6 @@ wstp_link::wstp_link(std::string args) {
     std::cerr << "WSActivate Error: " << err << std::endl;
     throw std::runtime_error{print_error()};
   }
-  log();
 }
 
 
@@ -122,7 +121,6 @@ wstp_link::wstp_link(WSLINK link) : link_(link) {
     std::cerr << "WSActivate Error: " << err << std::endl;
     throw std::runtime_error{print_error()};
   }
-  log();
 }
 
 
@@ -350,23 +348,32 @@ int wstp_link::decode_call() {
   const sig_t& sig = std::get<sig_t>(wstp_signatures_[funcID]);
   std::string name = std::get<0>(sig);
   std::string args = std::get<1>(sig);
-  std::cerr << "Evaluate: " << name << ";\t" << args << std::endl;
+  std::cerr << "Evaluate: " << name << "; " << args << std::endl;
   int64_t x = 0;
-  if (!args.empty()) {
+  if (!args.empty()) {  // TODO: Support dynamic arguments if needed later...
     x = wstp_link::get<int64_t>();
   }
-  return_t v = worker_fTable_[funcID](x);
+  arg_t v = worker_fTable_[funcID](x);
 
   // Send result back:
   put_function("ReturnPacket", 1);
   if (std::holds_alternative<ts_t>(v)) {
-    const ts_t& events = std::get<ts_t>(v);
-    std::cerr << "Returning list of size: " << events.size() << std::endl;
-    WSPutInteger64List(link_, events.data(), static_cast<int>(events.size()));
+    const ts_t& list = std::get<ts_t>(v);
+//    std::cerr << "Returning list of size: " << list.size() << std::endl;
+    WSPutInteger64List(link_, list.data(), static_cast<int>(list.size()));
+  }
+  else if (std::holds_alternative<data_t>(v)) {
+    const data_t& data = std::get<data_t>(v);
+//    std::cerr << "Creating outer list of size: " << data.size() << std::endl;
+    put_function("List", data.size());
+    for (const ts_t& list : data) {
+//      std::cerr << "Returning list of size: " << list.size() << std::endl;
+      WSPutInteger64List(link_, list.data(), static_cast<int>(list.size()));
+    }
   }
   else if (std::holds_alternative<wsint64>(v)) {
     auto x = std::get<wsint64>(v);
-    std::cerr << "Returning wsint64: " << x << std::endl;
+//    std::cerr << "Returning wsint64: " << x << std::endl;
     WSPutInteger64(link_, x);
   }
   else {

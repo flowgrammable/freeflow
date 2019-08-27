@@ -136,10 +136,10 @@ class EvalContext;  // forward declaration
 
 class FlowRecord {
 public:
-  const enum MODE_EN {NORMAL, TIMESERIES} MODE;
+  enum MODE_EN {NORMAL, TIMESERIES};
 
   FlowRecord(u64 flowID, const timespec& ts, MODE_EN m = NORMAL) :
-    MODE(m), flowID_(flowID), flowTuple_{}, start_(ts),
+    MODE_(m), flowID_(flowID), flowTuple_{}, start_(ts),
     arrival_ns_ts_{}, byte_ts_{}, protoFlags_{},
     saw_open_(false), saw_close_(false), saw_reset_(false),
     pkts_(0), bytes_(0), fragments_(0), retransmits_(0), directionality_(0),
@@ -147,7 +147,7 @@ public:
   }
 
   FlowRecord(u64 flowID, const FlowKeyTuple& flowTuple, const timespec& ts, MODE_EN m = NORMAL) :
-    MODE(m), flowID_(flowID), flowTuple_(flowTuple), start_(ts),
+    MODE_(m), flowID_(flowID), flowTuple_(flowTuple), start_(ts),
     arrival_ns_ts_{}, byte_ts_{}, protoFlags_{},
     saw_open_(false), saw_close_(false), saw_reset_(false),
     pkts_(0), bytes_(0), fragments_(0), retransmits_(0), directionality_(0),
@@ -204,6 +204,7 @@ private:
   // also useful to have IPFlags?
 
   // Time-series:
+  const MODE_EN MODE_;
   timespec start_;
   u64 pkts_;
   u64 bytes_;

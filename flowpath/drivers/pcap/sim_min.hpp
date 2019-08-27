@@ -3,6 +3,8 @@
 
 #include <vector>
 #include <iostream>
+#include <algorithm>
+#include <chrono>
 
 #include "types.hpp"
 #include "util_container.hpp"
@@ -26,7 +28,7 @@ public:
   SimMIN(size_t entries);
 
 private:
-  void trim_to_barrier();
+  std::vector<Key> trim_to_barrier();
 
 public:
   void insert(const Key& k, const Time& t);
@@ -80,6 +82,10 @@ void SimMIN<Key>::insert(const Key& k, const Time& t) {
   assert(capacity_.size() == compulsoryMiss_ + capacityMiss_ - trim_offset_);
 }
 
+template <class T>
+__attribute__((always_inline)) inline void DoNotOptimize(const T &value) {
+  asm volatile("" : "+m"(const_cast<T &>(value)));
+}
 
 // Key has been accessed again (not first occurance)
 // Reserve or determine if capacity conflict.
@@ -117,8 +123,7 @@ bool SimMIN<Key>::update(const Key& k, const Time& t) {
       std::cerr << "WARNING: SIM_MIN's index rolled over size_t!" << std::endl;
     }
     barrier_ = last;
-//    barrier_duration_.push_back(hits_);
-    trim_to_barrier();
+    std::vector<Key> evict_set = trim_to_barrier();
     return true;  // hit
   }
   else {
@@ -138,17 +143,17 @@ bool SimMIN<Key>::update(const Key& k, const Time& t) {
 // - Update trim offset to number of columns 'deleted'
 // -- 'time' moves on, but capacity vector's index is adjusted back to 0
 template<typename Key>
-void SimMIN<Key>::trim_to_barrier() {
+std::vector<Key> SimMIN<Key>::trim_to_barrier() {
+  std::vector<Key> evict_set;
   size_t advance = barrier_ - trim_offset_;
   if (advance == 0) {
-    return;
+    return evict_set;
   }
 
-  std::vector<Key> evict_set;
   max_elements_ = std::max(max_elements_, reserved_.size());
   // For all reservations in history, delete if reservation.end < barrier:
   for (auto& element : reserved_) {
-    const Key& key = element.first;
+    const Key key = element.first;
     History& hist = element.second;
     auto cut = hist.begin();
     for (auto it = hist.begin(); it != hist.end(); it++) {
@@ -181,6 +186,7 @@ void SimMIN<Key>::trim_to_barrier() {
   std::cout << "MIN: Barrier hit at " << trim_offset_
             << ", advanced by " << advance << " demands." << std::endl;
 #endif
+  return evict_set;
 }
 
 

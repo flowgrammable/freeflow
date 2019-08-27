@@ -137,9 +137,9 @@ public:
   const auto& get_stack() const {return stack_;}
 
   // Stats:
-  uint64_t get_hits() const {return hits_;}
-  uint64_t get_capacity_miss() const {return capacityMiss_;}
-  uint64_t get_compulsory_miss() const {return compulsoryMiss_;}
+  int64_t get_hits() const {return hits_;}
+  int64_t get_capacity_miss() const {return capacityMiss_;}
+  int64_t get_compulsory_miss() const {return compulsoryMiss_;}
 
   // Stack comparison for debugging:
   bool operator==(const AssociativeSet<Key>& other);
@@ -160,9 +160,9 @@ private:
   absl::flat_hash_map<Key, Stack_it> lookup_;
 
   // Stats:
-  uint64_t hits_ = 0;
-  uint64_t compulsoryMiss_ = 0;
-  uint64_t capacityMiss_ = 0;
+  int64_t hits_ = 0;
+  int64_t compulsoryMiss_ = 0;
+  int64_t capacityMiss_ = 0;
 };
 
 
@@ -183,18 +183,20 @@ public:
   bool demote(const Key& k);
 
   size_t get_size() const {return MAX_;}
+  size_t get_associativity() const {return MAX_/sets_.size();}
+  size_t num_sets() const {return sets_.size();}
   AssociativeSet<Key>& get_set(size_t i) const {return sets_.at(i);}
 
   void set_insert_policy(Policy& insert);
   void set_replacement_policy(Policy& insert);
 
   // Stats:
-  uint64_t get_hits() const {return fa_ref_.get_hits();}
-  uint64_t get_compulsory_miss() const {return fa_ref_.get_compulsory_miss();}
-  uint64_t get_capacity_miss() const {return fa_ref_.get_capacity_miss();}
-  uint64_t get_conflict_miss() const {
+  int64_t get_hits() const {return fa_ref_.get_hits();}
+  int64_t get_compulsory_miss() const {return fa_ref_.get_compulsory_miss();}
+  int64_t get_capacity_miss() const {return fa_ref_.get_capacity_miss();}
+  int64_t get_conflict_miss() const {
     // SUM(set_[].misses()) - FA.misses()
-    uint64_t conflict_sum = -fa_ref_.get_capacity_miss();
+    int64_t conflict_sum = -fa_ref_.get_capacity_miss();
     for (const auto& set : sets_) {
       conflict_sum += set.get_capacity_miss();
     }
@@ -207,7 +209,7 @@ private:
 
   // Cache Containers:
   AssociativeSet<Key> fa_ref_;  // Conflict reference: Fully Associative
-  std::vector< AssociativeSet<Key> > sets_;  // Vector of associative sets (N-way)
+  std::vector< AssociativeSet<Key> > sets_;  // Vector of associative sets
 //  SimLRU<Key> test_ref_;
 };
 
@@ -381,8 +383,10 @@ template<typename Key>
 CacheSim<Key>::CacheSim(size_t entries, size_t ways) :
   MAX_(entries), fa_ref_(AssociativeSet<Key>(entries))/*, test_ref_(entries)*/ {
   // Sanity checks:
-  if (ways != 0) {
-    assert(entries%ways == 0);
+  if (ways > 1) {
+    if (entries%ways != 0) {
+      throw std::runtime_error("Cache associativity need to be power of 2.");
+    }
     sets_ = std::vector<AssociativeSet<Key>>(entries/ways, AssociativeSet<Key>(ways));
   }
 }
@@ -396,7 +400,7 @@ auto CacheSim<Key>::insert(const Key& k, const Time& t) {
 //  assert(fa_ref_ == test_ref_.get_stack());
 
   // Determine index->set mapping:
-  if (sets_.size() != 0) {
+  if (!sets_.empty()) {
     std::size_t hash = std::hash<Key>{}(k);
     hash %= sets_.size();
     auto way_victim = sets_[hash].insert(k, t);
@@ -415,7 +419,7 @@ auto CacheSim<Key>::update(const Key& k, const Time& t) {
 //  assert(fa_ref_.get_stack() == test_ref_.get_stack());
 
   // Determine index->set mapping:
-  if (sets_.size() != 0) {
+  if (!sets_.empty()) {
     std::size_t hash = std::hash<Key>{}(k);
     hash %= sets_.size();
     auto way_victim = sets_[hash].update(k, t);

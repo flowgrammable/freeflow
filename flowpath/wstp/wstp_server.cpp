@@ -127,7 +127,7 @@ void wstp_server_connection(WSLinkServer server, WSLINK wslink) {
   try {
     auto link_it = wstp_take_connection(wslink);
     link_it->install();
-    link_it->log("wstp.log");
+//    link_it->log("wstp.log");
   }
   catch (const std::runtime_error& e) {
     std::cerr << "Caught exception when initializing WSTP connection: "

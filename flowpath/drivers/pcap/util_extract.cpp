@@ -241,7 +241,7 @@ u64 FlowRecord::update(const u16 bytes, const timespec& ts) {
   timespec diff = ts - start_; // NEED TO VERIFY
   u64 diff_ns = diff.tv_sec * NS_IN_SEC + diff.tv_nsec;
 
-  if (MODE == MODE_EN::TIMESERIES) {
+  if (MODE_ == MODE_EN::TIMESERIES) {
     // Keep timeseries of all packets:
     byte_ts_.push_back(bytes);
     arrival_ns_ts_.push_back(diff_ns);

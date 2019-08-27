@@ -39,10 +39,11 @@ public:
   using pkt_id_t = int; // WSTP Packet ID
   // Return types:
   using ts_t = std::vector<wsint64>;  // WSTP's 64-bit integer type
+  using data_t = std::vector<ts_t>;
   using miss_t = std::pair<ts_t, ts_t>;
-  using return_t = std::variant<wsint64, ts_t>;
+  using arg_t = std::variant<wsint64, ts_t, data_t>;
   // Function signatures:
-  using fn_t = std::function<return_t(uint64_t)>;
+  using fn_t = std::function<arg_t(arg_t)>;
   using sig_t = std::tuple<std::string, std::string>;
   // - Mathematica Definition of Function: Foo[x_Integer]
   // - Mapping of argument name x to transfer type: x, {x}
