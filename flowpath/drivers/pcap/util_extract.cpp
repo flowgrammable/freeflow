@@ -1019,7 +1019,3 @@ void print_log(const EvalContext& e) {
 #endif
 }
 
-void print_log(const FlowRecord& flow) {
-  cerr << flow.getLog() << endl;
-}
-

@@ -14,6 +14,8 @@
 
 #include "util_view.hpp"
 
+#include <ostream>
+
 //#include "absl/utility/utility.h"
 //#include <utility>
 //#include <type_traits>
@@ -131,7 +133,6 @@ static_assert(!std::is_integral<FlowKeyTuple>::value, "FKT is integral?!");
 //static_assert(std::has_unique_object_representations_v<Ipv4Tuple>, "Ipv4Tuple has padding!");
 static_assert(std::has_unique_object_representations_v<TCPFlags>, "TCPFlags has padding!");
 
-
 class EvalContext;  // forward declaration
 
 class FlowRecord {
@@ -139,20 +140,10 @@ public:
   enum MODE_EN {NORMAL, TIMESERIES};
 
   FlowRecord(u64 flowID, const timespec& ts, MODE_EN m = NORMAL) :
-    MODE_(m), flowID_(flowID), flowTuple_{}, start_(ts),
-    arrival_ns_ts_{}, byte_ts_{}, protoFlags_{},
-    saw_open_(false), saw_close_(false), saw_reset_(false),
-    pkts_(0), bytes_(0), fragments_(0), retransmits_(0), directionality_(0),
-    ACK_count_(0), PSH_count_(0), URG_count_(0) {
-  }
+    MODE_(m), flowID_(flowID), flowTuple_{}, start_(ts) {}
 
   FlowRecord(u64 flowID, const FlowKeyTuple& flowTuple, const timespec& ts, MODE_EN m = NORMAL) :
-    MODE_(m), flowID_(flowID), flowTuple_(flowTuple), start_(ts),
-    arrival_ns_ts_{}, byte_ts_{}, protoFlags_{},
-    saw_open_(false), saw_close_(false), saw_reset_(false),
-    pkts_(0), bytes_(0), fragments_(0), retransmits_(0), directionality_(0),
-    ACK_count_(0), PSH_count_(0), URG_count_(0) {
-  }
+    MODE_(m), flowID_(flowID), flowTuple_(flowTuple), start_(ts) {}
 
 //  FlowRecord(FlowRecord&&) = default;
 //  FlowRecord(const FlowRecord&) = default;
@@ -165,7 +156,6 @@ public:
   FlowKeyTuple getFlowTuple() const { return flowTuple_; }
   size_t packets() const { return pkts_; }
   u64 bytes() const {return bytes_; }
-  const std::string& getLog() const { return log_; }
 
   std::pair<u64, timespec> last() const {
     constexpr auto NS_IN_SEC = 1000000000LL;
@@ -200,14 +190,14 @@ private:
   // Flow Identification:
   const u64 flowID_;
   const FlowKeyTuple flowTuple_;
-  ProtoFlags protoFlags_;
+  ProtoFlags protoFlags_ = {};
   // also useful to have IPFlags?
 
   // Time-series:
   const MODE_EN MODE_;
   timespec start_;
-  u64 pkts_;
-  u64 bytes_;
+  u64 pkts_ = 0;
+  u64 bytes_ = 0;
   std::vector<u64> arrival_ns_ts_;
   std::vector<u16> byte_ts_;
 
@@ -215,35 +205,35 @@ private:
   // - Frame Characteristics:
   // e.g. Max frame seen, fragment count, retransmit detection via checksum?
   //      directionality ratio (bytes forward vs. reverse)
-  u64 fragments_;
-  u64 retransmits_;
+  u64 fragments_ = 0;
+  u64 retransmits_ = 0;
   s64 directionality_; // counter: pure ACKs (dec), non-zero payload (inc)
   // - TCP Specific Characteristics:
-  u32 syn_seq_;
-  u32 fin_seq_;
-  u32 rst_seq_;
+  u32 syn_seq_ = 0;
+  u32 fin_seq_ = 0;
+  u32 rst_seq_ = 0;
 
-  u32 first_seq_;
-  u32 last_seq_;
-  u32 first_ack;
-  u32 last_ack;
-  u32 seq_rollover;
-  u32 ack_rollover;
+  u32 first_seq_ = 0;
+  u32 last_seq_ = 0;
+  u32 first_ack = 0;
+  u32 last_ack = 0;
+  u32 seq_rollover = 0;
+  u32 ack_rollover = 0;
 
   // - Session Characteristics:
   // e.g. directional initator and directional terminator/finisher?
   //      retransmits
   // todo: repalce bool with sequence numbers...
-  bool saw_open_;
-  bool saw_close_;
-  bool saw_reset_;
+  bool saw_open_ = false;
+  bool saw_close_ = false;
+  bool saw_reset_ = false;
   // - TCP Specific Characteristics:
-  u64 ACK_count_;
-  u64 PSH_count_;
-  u64 URG_count_;
+  u64 ACK_count_ = 0;
+  u64 PSH_count_ = 0;
+  u64 URG_count_ = 0;
 
   // Flow Processing Log:
-  std::string log_;
+//  std::ostream& log_;
 };
 
 

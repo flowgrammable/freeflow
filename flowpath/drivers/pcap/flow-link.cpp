@@ -7,7 +7,7 @@
 #include "sim_min.hpp"
 #include "sim_lru.hpp"
 #include "cache_sim.hpp"
-#include "util_mem.h"
+//#include "util_mem.h"
 
 #include <string>
 #include <sstream>
@@ -62,6 +62,7 @@ using opt_string_ = boost::optional<string>;
 struct global_config {
   // Trace File Generation:
   opt_string_ logFilename;
+  opt_string_ decodeLogFilename;
   opt_string_ flowsFilename;
   opt_string_ statsFilename;
   opt_string_ traceFilename;
@@ -107,7 +108,7 @@ po::variables_map parse_options(int argc, const char* argv[]) {
       po::value<opt_string_>(&CONFIG.logFilename)->implicit_value(startTime_str+".log"),
       "Output log file")
     ("decode-log,d",
-      po::value<opt_string_>(&CONFIG.logFilename)->implicit_value(startTime_str+".decode.log"),
+      po::value<opt_string_>(&CONFIG.decodeLogFilename)->implicit_value(startTime_str+".decode.log"),
       "Packet decode log file")
     ("stats,s",
       po::value<opt_string_>(&CONFIG.statsFilename)->implicit_value(startTime_str+".stats"),
@@ -230,10 +231,19 @@ int main(int argc, const char* argv[]) {
   }
   debugLog << '\n';
 
+  ostream& decodeLog = open_gzostream(CONFIG.decodeLogFilename);
+  if (CONFIG.decodeLogFilename) {
+    debugLog << "Packet Decode Log File: " << *CONFIG.decodeLogFilename << '\n';
+  }
+
   // Flow Stats Output Files:
   ostream& flowStats = open_gzostream(CONFIG.statsFilename);
   if (CONFIG.statsFilename) {
     debugLog << "Flow Stats File: " << *CONFIG.statsFilename << '\n';
+  }
+  ostream& flowLog = open_gzostream(CONFIG.flowsFilename);
+  if (CONFIG.flowsFilename) {
+    debugLog << "Flow Heuristic Log File: " << *CONFIG.flowsFilename << '\n';
   }
 
   // Trace Output Files:
@@ -277,16 +287,22 @@ int main(int argc, const char* argv[]) {
   // Maps flows to vector (from most-recent to least-recent) of flowIDs
   absl::flat_hash_map<FlowKeyTuple, absl::InlinedVector<flow_id_t,1>> flowIDs;
   std::map<flow_id_t, FlowRecord> flowRecords;
+
+  // Auxilary Flow State Tracking:
   std::unordered_set<flow_id_t> blacklistFlows;
   std::set<flow_id_t> touchedFlows;
 
   // Retired Records:
-  std::map<flow_id_t, const FlowRecord> retiredRecords;
   std::mutex mtx_RetiredFlows;
+  std::map<flow_id_t, const FlowRecord> retiredRecords;
 
   // Simulation bookeeping structures:
 #define ENABLE_SIM
 #ifdef ENABLE_SIM
+//  const bool enable_simMIN(config["sim.min"].as<bool>());
+//  const bool enable_simCache(config["sim.cache"].as<bool>());
+  constexpr bool enable_simMIN = true;
+  constexpr bool enable_simCache = true;
   SimMIN<flow_id_t> simMIN(config["sim.min.entries"].as<int>());
   // TODO: find way of defining polices...
   CacheSim<flow_id_t> simCache(config["sim.cache.entries"].as<int>(),
@@ -296,11 +312,11 @@ int main(int argc, const char* argv[]) {
   std::map<flow_id_t, std::vector<uint64_t>> missesCache;
 #endif
 
-  auto print_mem = [&]() {
-    PRINT_MEM_USAGE(flowIDs);
-    PRINT_MEM_USAGE(flowRecords);
-    PRINT_MEM_USAGE(retiredRecords);
-  };
+//  auto print_mem = [&]() {
+//    PRINT_MEM_USAGE(flowIDs);
+//    PRINT_MEM_USAGE(flowRecords);
+//    PRINT_MEM_USAGE(retiredRecords);
+//  };
 
   // Lamba function interface for reporting misses:
   auto f_sort_by_misses = [&mtx_RetiredFlows, &retiredRecords]
@@ -344,20 +360,24 @@ int main(int argc, const char* argv[]) {
       [&](flow_id_t flowID, const std::pair<uint64_t,timespec>&& pktTime) {
 #ifdef ENABLE_SIM
     auto [ns, ts] = pktTime;
-    simMIN.insert(flowID, ts);
+    if (enable_simMIN) {
+      simMIN.insert(flowID, ts);
+    }
 
-    auto victim = simCache.insert(flowID, ts);
-    if (victim) {
-      // If victim exists (something was replaced).
-      // victim: std::pair<Key, Reservation>
-      flow_id_t id = victim->first;
-      std::pair<size_t,size_t>& reservation = victim->second;
+    if (enable_simCache) {
+      auto victim = simCache.insert(flowID, ts);
+      if (victim) {
+        // If victim exists (something was replaced).
+        // victim: std::pair<Key, Reservation>
+        flow_id_t id = victim->first;
+        std::pair<size_t,size_t>& reservation = victim->second;
+      }
     }
-    { // TODO: revisit clearning misses on new flow insert...
-      std::lock_guard lock(mtx_misses);
-      missesMIN.erase(flowID);
-      missesCache.erase(flowID);
-    }
+//    { // TODO: undeeded?
+//      std::lock_guard lock(mtx_misses);
+//      missesMIN.erase(flowID);
+//      missesCache.erase(flowID);
+//    }
 #endif
   };
   // - Update called on each subsequent packet
@@ -365,20 +385,23 @@ int main(int argc, const char* argv[]) {
       [&](flow_id_t flowID, const std::pair<uint64_t,timespec>&& pktTime) {
 #ifdef ENABLE_SIM
     auto [ns, ts] = pktTime;
-    if (!simMIN.update(flowID, ts)) {
+    if (enable_simMIN && !simMIN.update(flowID, ts)) {
       std::lock_guard lock(mtx_misses);
       missesMIN[flowID].emplace_back(ns);
     }
 
-    auto [hit, victim] = simCache.update(flowID, ts);
-    if (!hit) {
-      // TODO: take note of miss statistics...
-      missesCache[flowID].emplace_back(ns);
-      if (victim) {
-        // If victim exists (something was replaced).
-        // victim: std::pair<Key, Reservation>
-        flow_id_t id = victim->first;
-        std::pair<size_t,size_t>& reservation = victim->second;
+    if (enable_simCache) {
+      auto [hit, victim] = simCache.update(flowID, ts);
+      if (!hit) {
+        // TODO: take note of miss statistics...
+        std::lock_guard lock(mtx_misses);
+        missesCache[flowID].emplace_back(ns);
+        if (victim) {
+          // If victim exists (something was replaced).
+          // victim: std::pair<Key, Reservation>
+          flow_id_t id = victim->first;
+          std::pair<size_t,size_t>& reservation = victim->second;
+        }
       }
     }
 #endif
@@ -404,11 +427,11 @@ int main(int argc, const char* argv[]) {
       if ( min_it != missesMIN.end() && min_ts.size() >= 8 ) {
         missesLock.unlock();
         // Flow looks interesting, add to retiredRecords:
-        std::cout << "+ FlowID: " << r.getFlowID()
-                  << ", Packets: " << r.packets()
-                  << ", Misses: " << min_ts.size()
-                  << "; " << print_flow_key_string( r.getFlowTuple() )
-                  << std::endl;
+//        std::cout << "+ FlowID: " << r.getFlowID()
+//                  << ", Packets: " << r.packets()
+//                  << ", Misses: " << min_ts.size()
+//                  << "; " << print_flow_key_string( r.getFlowTuple() )
+//                  << std::endl;
         { std::lock_guard lock(mtx_RetiredFlows);
           retiredRecords.emplace(std::make_pair(r.getFlowID(), r));
         }
@@ -613,7 +636,7 @@ int main(int argc, const char* argv[]) {
         ss << dump_packet(p).str() << '\n';
         print_eval(ss, evalCxt);
         ss << "> Exception occured during extract: " << e.what();
-        cerr << ss.str() << endl;
+        decodeLog << ss.str() << endl;
         malformedPackets++;
       }
 
@@ -669,15 +692,15 @@ int main(int argc, const char* argv[]) {
           // Ensure packet doesn't correspond to a new flow (port-reuse):
           if ( evalCxt.fields.fProto & ProtoFlags::isTCP &&
                (evalCxt.fields.fTCP & TCPFlags::SYN) == TCPFlags::SYN &&
-               evalCxt.fields.tcpSeqNum != flowR.get().lastSeq() ) {
+                evalCxt.fields.tcpSeqNum != flowR.get().lastSeq() ) {
             // Packet indicates new flow:
             timespec sinceLast = pktTime - flowR.get().last().second;
-            debugLog << (flowR.get().isTCP()?"TCP":"???") << " flow " << flowID
-                     << " considered terminated after new SYN, "
-                     << flowR.get().packets()
-                     << " packets and " << sinceLast.tv_sec
-                     << " seconds before port reuse; "
-                     << print_flow_key_string(k) << endl;
+            flowLog << (flowR.get().isTCP()?"TCP":"???") << " flow " << flowID
+                    << " considered terminated after new SYN, "
+                    << flowR.get().packets()
+                    << " packets and " << sinceLast.tv_sec
+                    << " seconds before port reuse; "
+                    << print_flow_key_string(k) << endl;
 
             // Retire old record:
             flowStats << print_flow(flowR).str();
@@ -742,8 +765,8 @@ int main(int argc, const char* argv[]) {
               f_sim_insert(flowID, flowR.get().last());
             }
             else {
-              debugLog << "FlowID " << flowID << " is no longer being tracked; "
-                       << print_flow_key_string(k) << endl;
+              flowLog << "FlowID " << flowID << " is no longer being tracked; "
+                      << print_flow_key_string(k) << endl;
               timeoutPackets++;
               f_sim_update(flowID, std::make_pair(0, pktTime)); // FlowRecord was reclaimed!...
             }
@@ -824,47 +847,47 @@ int main(int argc, const char* argv[]) {
 
             timespec sinceLast = pktTime - flowR.last().second;
             if (flowR.sawRST() && sinceLast.tv_sec >= RST_TIMEOUT) {
-              debugLog << (flowR.isTCP()?"TCP":"???") << " flow " << i
-                       << " considered terminated after RST, "
-    //                     << (flowR.sawFIN()?"FIN, ":"RST, ")
-                       << flowR.packets()
-                       << " packets and " << sinceLast.tv_sec
-                       << " seconds of inactivity; "
-                       << print_flow_key_string( flowR.getFlowTuple() ) << endl;
+              flowLog << (flowR.isTCP()?"TCP":"???") << " flow " << i
+                      << " considered terminated after RST, "
+    //                    << (flowR.sawFIN()?"FIN, ":"RST, ")
+                      << flowR.packets()
+                      << " packets and " << sinceLast.tv_sec
+                      << " seconds of inactivity; "
+                      << print_flow_key_string( flowR.getFlowTuple() ) << endl;
               flowStats << print_flow(flowR).str();
               delete_flow(flowR_i);
             }
             else if (flowR.sawFIN() && sinceLast.tv_sec >= FIN_TIMEOUT) {
-              debugLog << (flowR.isTCP()?"TCP":"???") << " flow " << i
-                       << " considered terminated after FIN, "
-    //                     << (flowR.sawFIN()?"FIN, ":"RST, ")
-                       << flowR.packets()
-                       << " packets and " << sinceLast.tv_sec
-                       << " seconds of inactivity; "
-                       << print_flow_key_string( flowR.getFlowTuple() ) << endl;
+              flowLog << (flowR.isTCP()?"TCP":"???") << " flow " << i
+                      << " considered terminated after FIN, "
+    //                    << (flowR.sawFIN()?"FIN, ":"RST, ")
+                      << flowR.packets()
+                      << " packets and " << sinceLast.tv_sec
+                      << " seconds of inactivity; "
+                      << print_flow_key_string( flowR.getFlowTuple() ) << endl;
               flowStats << print_flow(flowR).str();
               delete_flow(flowR_i);
             }
             else if (flowR.isTCP() && sinceLast.tv_sec >= TCP_TIMEOUT) {
-              debugLog << (flowR.isTCP()?"TCP":"???") << " flow " << i
-                       << " considered dormant after " << flowR.packets()
-                       << " packets and " << sinceLast.tv_sec
-                       << " seconds of inactivity; "
-                       << print_flow_key_string( flowR.getFlowTuple() ) << endl;
+              flowLog << (flowR.isTCP()?"TCP":"???") << " flow " << i
+                      << " considered dormant after " << flowR.packets()
+                      << " packets and " << sinceLast.tv_sec
+                      << " seconds of inactivity; "
+                      << print_flow_key_string( flowR.getFlowTuple() ) << endl;
               flowStats << print_flow(flowR).str();
               delete_flow(flowR_i);
             }
             else if (sinceLast.tv_sec >= LONG_TIMEOUT) {
-              debugLog << (flowR.isUDP()?"UDP":"???") << " flow " << i
-                       << " considered dormant afer " << flowR.packets()
-                       << " packets and " << sinceLast.tv_sec
-                       << " seconds of inactivity; "
-                       << print_flow_key_string( flowR.getFlowTuple() ) << endl;
+              flowLog << (flowR.isUDP()?"UDP":"???") << " flow " << i
+                      << " considered dormant afer " << flowR.packets()
+                      << " packets and " << sinceLast.tv_sec
+                      << " seconds of inactivity; "
+                      << print_flow_key_string( flowR.getFlowTuple() ) << endl;
               flowStats << print_flow(flowR).str();
               delete_flow(flowR_i);
             }
           }
-          print_mem();
+//          print_mem();
         } // end flow cleanup
       }
     } // end per-packet processing
@@ -917,13 +940,16 @@ int main(int argc, const char* argv[]) {
   debugLog << " - Miss (Capacity): " << simMIN.get_capacity_miss() << '\n';
   debugLog << " - Max elements between barrier: " << simMIN.get_max_elements() << '\n';
 
-  debugLog << "SimCache Size: " << simCache.get_size();
-  debugLog << " (" << simCache.get_associativity() << "-way)\n";
+  debugLog << "SimCache Size: " << simCache.get_size() << '\n';
+  debugLog << " - Associativity: " << simCache.get_associativity() << "-way\n";
   debugLog << " - Sets: " << simCache.num_sets() << '\n';
   debugLog << " - Hits: " << simCache.get_hits() << '\n';
   debugLog << " - Miss (Compulsory): " << simCache.get_compulsory_miss() << '\n';
   debugLog << " - Miss (Capacity): " << simCache.get_capacity_miss() << '\n';
   debugLog << " - Miss (Conflict): " << simCache.get_conflict_miss() << '\n';
+  debugLog << " - Hits FA: " << simCache.get_fa_hits() << '\n';
+  debugLog << " - Miss FA (Capacity): " << simCache.get_fa_capacity_miss() << '\n';
+  debugLog << " - Hits (SA over FA): " << simCache.get_alias_hits() << '\n';
 #endif
 
   chrono::system_clock::time_point end_time = chrono::system_clock::now();
@@ -938,7 +964,7 @@ int main(int argc, const char* argv[]) {
 //           << "Capture End: " << packet_time2 << '\n'
 //           << "Capture Duration: " << packet_time2-packet_time << endl;
 
-  print_mem();
+//  print_mem();
 
 
   for (auto& h : gz_handles) {

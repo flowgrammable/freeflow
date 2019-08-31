@@ -16,7 +16,7 @@ target_link_libraries(caida-pcap flowpath-rt flowpath-applib ${PCAP_LIBRARY} ${C
 target_link_libraries(flow-count flowpath-rt flowpath-applib absl::container ${PCAP_LIBRARY} ${CMAKE_DL_LIBS})
 target_link_libraries(flow-records flowpath-rt flowpath-applib absl::container ${PCAP_LIBRARY} ${CMAKE_DL_LIBS})
 target_link_libraries(flow-min flowpath-rt flowpath-applib absl::container ${PCAP_LIBRARY} ${CMAKE_DL_LIBS})
-target_link_libraries(flow-link flowpath-rt flowpath-applib wstp-link  absl::container ${PCAP_LIBRARY} ${CMAKE_DL_LIBS})
+target_link_libraries(flow-link flowpath-rt flowpath-applib wstp-link absl::container ${PCAP_LIBRARY} ${CMAKE_DL_LIBS})
 
 #if (ENABLE_ODP)
 #  add_definitions(-DFP_ENABLE_ODP)

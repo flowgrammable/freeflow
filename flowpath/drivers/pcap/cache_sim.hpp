@@ -191,16 +191,47 @@ public:
   void set_replacement_policy(Policy& insert);
 
   // Stats:
-  int64_t get_hits() const {return fa_ref_.get_hits();}
-  int64_t get_compulsory_miss() const {return fa_ref_.get_compulsory_miss();}
-  int64_t get_capacity_miss() const {return fa_ref_.get_capacity_miss();}
+  int64_t get_hits() const {
+    std::cout << "FA Hits: " << fa_ref_.get_hits() << std::endl;
+    int64_t hits = 0;
+    for (const auto& set : sets_) {
+      hits += set.get_hits();
+    }
+    std::cout << "SA Hits: " << capacityMiss_ << std::endl;
+    return hits;
+  }
+  int64_t get_fa_hits() const {
+    return fa_ref_.get_hits();
+  }
+  int64_t get_compulsory_miss() const {
+    int64_t sum = 0;
+    for (const auto& set : sets_) {
+      sum += set.get_compulsory_miss();
+    }
+    assert(sum == fa_ref_.get_compulsory_miss());
+    return fa_ref_.get_compulsory_miss();
+  }
+  int64_t get_capacity_miss() const {
+    std::cout << "FA Capacity Miss: " << fa_ref_.get_capacity_miss() << std::endl;
+    std::cout << "SA Capacity Miss: " << capacityMiss_ << std::endl;
+    return capacityMiss_;
+  }
+  int64_t get_fa_capacity_miss() const {
+    return fa_ref_.get_capacity_miss();
+  }
   int64_t get_conflict_miss() const {
     // SUM(set_[].misses()) - FA.misses()
     int64_t conflict_sum = -fa_ref_.get_capacity_miss();
     for (const auto& set : sets_) {
       conflict_sum += set.get_capacity_miss();
     }
-    return conflict_sum;
+    std::cout << "Calculated Conflict Miss: " << conflict_sum << std::endl;
+    std::cout << "Incremental Conflict Miss: " << conflictMiss_ << std::endl;
+    std::cout << "Alias Conflict Hit: " << aliasHit_ << std::endl;
+    return conflictMiss_;
+  }
+  int64_t get_alias_hits() const {
+    return aliasHit_;
   }
 
 private:
@@ -211,6 +242,11 @@ private:
   AssociativeSet<Key> fa_ref_;  // Conflict reference: Fully Associative
   std::vector< AssociativeSet<Key> > sets_;  // Vector of associative sets
 //  SimLRU<Key> test_ref_;
+
+  // Sanity check stats:
+  int64_t capacityMiss_ = 0;
+  int64_t conflictMiss_ = 0;
+  int64_t aliasHit_ = 0;
 };
 
 
@@ -423,6 +459,14 @@ auto CacheSim<Key>::update(const Key& k, const Time& t) {
     std::size_t hash = std::hash<Key>{}(k);
     hash %= sets_.size();
     auto way_victim = sets_[hash].update(k, t);
+    // sanity check (true=hit, false=miss):
+    if (ref_victim.first && !way_victim.first)
+      conflictMiss_++;
+    else if (!ref_victim.first && !way_victim.first)
+      capacityMiss_++;
+    else if (!ref_victim.first && way_victim.first)
+      aliasHit_++;
+
     return way_victim;
   }
   return ref_victim;
