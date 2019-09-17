@@ -5,6 +5,7 @@
 #include <iostream>
 #include <algorithm>
 #include <chrono>
+#include <type_traits>
 
 #include "types.hpp"
 #include "util_container.hpp"
@@ -32,7 +33,7 @@ private:
 
 public:
   void insert(const Key& k, const Time& t);
-  bool update(const Key& k, const Time& t);
+  auto update(const Key& k, const Time& t);
   void remove(const Key& k);  // does nothing...
 
   size_t get_size() const {return MAX_;}
@@ -94,7 +95,7 @@ __attribute__((always_inline)) inline void DoNotOptimize(const T &value) {
 // If !present, generate pull & advance set.
 // - Pull:  Mark 1 at (k, t)
 template<typename Key>
-bool SimMIN<Key>::update(const Key& k, const Time& t) {
+auto SimMIN<Key>::update(const Key& k, const Time& t) {
   History& hist = reserved_[k];
   if (hist.size() > 0 && barrier_ <= hist.back().second) {
     hits_++;
@@ -123,8 +124,8 @@ bool SimMIN<Key>::update(const Key& k, const Time& t) {
       std::cerr << "WARNING: SIM_MIN's index rolled over size_t!" << std::endl;
     }
     barrier_ = last;
-    std::vector<Key> evict_set = trim_to_barrier();
-    return true;  // hit
+    std::vector<Key> evictSet = trim_to_barrier();
+    return std::make_pair(true, evictSet);  // hit
   }
   else {
     size_t column = compulsoryMiss_ + capacityMiss_;  // t
@@ -132,7 +133,9 @@ bool SimMIN<Key>::update(const Key& k, const Time& t) {
     hist.emplace_back(std::make_pair(column,column));
     capacity_.emplace_back(1);
     assert(capacity_.size() == compulsoryMiss_ + capacityMiss_ - trim_offset_);
-    return false; // miss
+
+//    using evictSet_t = typename std::invoke_result_t<decltype(&SimMIN<Key>::trim_to_barrier)>;
+    return std::make_pair(false, std::vector<Key>{}); // miss
   }
 }
 
@@ -152,9 +155,7 @@ std::vector<Key> SimMIN<Key>::trim_to_barrier() {
 
   max_elements_ = std::max(max_elements_, reserved_.size());
   // For all reservations in history, delete if reservation.end < barrier:
-  for (auto& element : reserved_) {
-    const Key key = element.first;
-    History& hist = element.second;
+  for (auto& [key, hist] : reserved_) {
     auto cut = hist.begin();
     for (auto it = hist.begin(); it != hist.end(); it++) {
       if (barrier_ > it->second) {

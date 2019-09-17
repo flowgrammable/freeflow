@@ -113,12 +113,13 @@ class AssociativeSet {
 public:
   using Time = timespec;  // maybe throw out?
   using MIN_Time = size_t;
+  using Count = int;
   using Reservation = std::pair<MIN_Time, MIN_Time>; // refactor to Time?
+  using HitStats = absl::InlinedVector<Count,1>;  // mru burst hit counter
 
-  using Stack = std::list< std::pair<Key, Reservation> >;
+  using Stack = std::list< std::tuple<Key, Reservation, HitStats> >;
   using Stack_it = typename Stack::iterator;
   using Stack_value = typename Stack::value_type;
-//  using Policy_ptr = std::unique_ptr<Policy<Stack_it>>;
 
   AssociativeSet(size_t entries,
                  Policy&& insert = Policy(Policy::MRU),
@@ -127,6 +128,8 @@ public:
   auto insert(const Key& k, const Time& t);
   auto update(const Key& k, const Time& t);
   bool demote(const Key& k);
+  auto flush(const Key& k);
+  auto flush();
 
   auto insert_find();
   auto replace_find();
@@ -169,22 +172,25 @@ private:
 template<typename Key>
 class CacheSim {
 public:
-//  using Count = uint32_t;
   using Time = timespec;  // maybe throw out?
-//  using Point = std::pair<size_t,Time>;  // miss-index, real-time
-//  using Reservation = std::pair<Point,Point>;
-//  using Reservation = std::pair<size_t,size_t>;
-//  using History = absl::InlinedVector<Reservation,1>;
   using Stack_value = typename AssociativeSet<Key>::Stack_value;
+  using Reservation = typename AssociativeSet<Key>::Reservation;
+  using HitStats = typename AssociativeSet<Key>::HitStats;
 
   CacheSim(size_t entries, size_t ways = 0);
   auto insert(const Key& k, const Time& t);
   auto update(const Key& k, const Time& t);
   bool demote(const Key& k);
+  auto flush(const Key& k);
+  auto flush();
 
   size_t get_size() const {return MAX_;}
-  size_t get_associativity() const {return MAX_/sets_.size();}
-  size_t num_sets() const {return sets_.size();}
+  size_t get_associativity() const {return MAX_/num_sets();}
+  size_t num_sets() const {
+    if (!sets_.empty())
+      return sets_.size();
+    return 1;
+  }
   AssociativeSet<Key>& get_set(size_t i) const {return sets_.at(i);}
 
   void set_insert_policy(Policy& insert);
@@ -274,11 +280,16 @@ auto AssociativeSet<Key>::update(const Key& k, const Time& t) {
   if (status != lookup_.end()) {
     hits_++;
     Stack_it it = status->second;
-    Reservation& r = it->second;
+    Reservation& r = std::get<Reservation>(*it);
+    HitStats& s = std::get<HitStats>(*it);
     r.second = column;
     // TODO: factor out into promotion function if modularity is needed:
-    if (it != stack_.begin()) {
+    if (it == stack_.begin()) {
+      s[0]++; // at MRU (continuting burst)
+    }
+    else {
       // Move element from current position to front of list (MSP):
+      s.insert(s.begin(), 1); // moving up to MRU (new burst)
       stack_.splice(stack_.begin(), stack_, it, std::next(it));
     }
     return std::make_pair(true, std::optional<Stack_value>{});  // hit
@@ -290,6 +301,30 @@ auto AssociativeSet<Key>::update(const Key& k, const Time& t) {
   }
 }
 
+// Flushes entry (indexed by Key):
+template<typename Key>
+auto AssociativeSet<Key>::flush(const Key& k) {
+  auto status = lookup_.find(k);
+  if (status != lookup_.end()) {
+    Stack_it it = status->second;
+    return std::optional<Stack_value>(*it);
+  }
+  else {
+    return std::optional<Stack_value>{};
+  }
+  // TODO: Delete from lookup and stack...
+}
+
+// Flushes entire cache:
+template<typename Key>
+auto AssociativeSet<Key>::flush() {
+  Stack s;
+  std::swap(stack_, s);
+  lookup_.clear();
+  return s;
+}
+
+
 // Internal function to manage insertion into a generic reciency stack.
 // - Returns evicted std::pair<Key, Reservation> if stack >= MAX.
 // - Returns default constructed std::pair<Key(0), Reservation()> if < MAX
@@ -297,13 +332,13 @@ template<typename Key>
 auto AssociativeSet<Key>::internal_insert(const Key& k, const Time& t) {
   MIN_Time column = compulsoryMiss_ + capacityMiss_;  // Comparable to Min's t
   Reservation res = std::make_pair(column,column);
-  auto item = std::make_pair(k,res);
+  auto item = std::make_tuple(k, res, HitStats{1});
 
   // Replacement Policy:
   std::optional<Stack_value> evicted;
   if (stack_.size() >= MAX_) {
     auto victim_it = replace_find();
-    lookup_.erase(victim_it->first);
+    lookup_.erase(std::get<Key>(*victim_it));
     evicted = std::move(*victim_it);
     stack_.erase(victim_it);
   }
@@ -419,7 +454,7 @@ template<typename Key>
 CacheSim<Key>::CacheSim(size_t entries, size_t ways) :
   MAX_(entries), fa_ref_(AssociativeSet<Key>(entries))/*, test_ref_(entries)*/ {
   // Sanity checks:
-  if (ways > 1) {
+  if (ways > 0) {
     if (entries%ways != 0) {
       throw std::runtime_error("Cache associativity need to be power of 2.");
     }
@@ -470,6 +505,35 @@ auto CacheSim<Key>::update(const Key& k, const Time& t) {
     return way_victim;
   }
   return ref_victim;
+}
+
+
+// Flush entry (indexed by key):
+template<typename Key>
+auto CacheSim<Key>::flush(const Key& k) {
+  auto ref_victim = fa_ref_.flush(k);
+
+  // Determine index->set mapping:
+  if (!sets_.empty()) {
+    std::size_t hash = std::hash<Key>{}(k);
+    hash %= sets_.size();
+    auto way_victim = sets_[hash].flush(k);
+    return way_victim;
+  }
+  return ref_victim;
+}
+
+template<typename Key>
+auto CacheSim<Key>::flush() {
+  using Stack = typename AssociativeSet<Key>::Stack;
+  Stack elements;
+  for (auto& s : sets_) {
+    elements.insert(elements.end(), sets_.flush());
+  }
+  if (sets_.empty()) {
+    elements.insert(elements.end(), fa_ref_.flush());
+  }
+  return elements;
 }
 
 

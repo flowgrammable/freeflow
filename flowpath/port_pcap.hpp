@@ -162,8 +162,8 @@ class PcapFile {
          }
 
          std::stringstream ss(line);
-         uint64_t sec;
-         uint64_t subsec;
+         int64_t sec;
+         int64_t subsec;
          ss >> sec;
          ss.ignore(1);  // "."
          int precision = ss.tellg();

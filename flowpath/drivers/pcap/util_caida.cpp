@@ -4,6 +4,7 @@
 #include <iostream>
 #include <map>
 #include <queue>
+#include <exception>
 
 using namespace std;
 
@@ -58,7 +59,7 @@ void caidaHandler::open_list(int id, string listFile) {
   lf.open(listFile);
   if (!lf.is_open()) {
     cerr << "Failed to open_list(" << id << ", " << listFile << endl;
-    return;
+    throw std::runtime_error("Failed to open_list");
   }
 
   // Find directory component of listFile:
