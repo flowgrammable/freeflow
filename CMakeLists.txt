@@ -19,9 +19,18 @@ endif()
 
 # C/C++ build flags.
 # - Use CMAKE_BUILD_TYPE={Debug, Release, RelWithDebInfo} to set optimization.
-set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -g -Wall")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -std=c++17 -Wall -Werror=return-type -pthread")
+set(OPT_FLAGS "-march=native")
+set(ASAN_FLAGS "-fsanatize=address")
+set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} ${OPT_FLAGS} -Wall")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 ${OPT_FLAGS} -Wall -Werror=return-type")
 
+# Extra build flag for link-time optimization.
+# - LTO can mess with gdb pretty-printing.
+option(ENABLE_LTO "Enables Link-time Optimization" OFF)
+if (ENABLE_LTO)
+  set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -flto")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto")
+endif()
 
 # Extra build flags for profiling.
 option(ENABLE_PERF "Enables frame-pointer for profiling with Perf" OFF)
@@ -30,6 +39,12 @@ if (ENABLE_PERF)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-omit-frame-pointer")
 endif()
 
+# Extra build flags for address sanitation.
+option(ENABLE_ASAN "Enables address sanitization checks" OFF)
+if (ENABLE_ASAN)
+  set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -fsanitize=address")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
+endif()
 
 # CMAKE find package modules.
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")

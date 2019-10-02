@@ -29,7 +29,7 @@ Simple::Simple(const uint8_t* data, int bytes) {
 // Dtor for simple packet buffer must release
 //  before allowing Base to zero pointers.
 Simple::~Simple() {
-  delete data_;
+  delete[] data_;
 }
 
 

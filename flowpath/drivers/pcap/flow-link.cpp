@@ -221,7 +221,7 @@ int main(int argc, const char* argv[]) {
   };
 
   // Configuration:
-  constexpr bool enable_wstp = true;
+  constexpr bool ENABLE_WSTP = false;
 //  constexpr bool enable_sim = true;
 
   // Log/Trace Output Files:
@@ -311,12 +311,15 @@ int main(int argc, const char* argv[]) {
   // TODO: find way of defining polices...
   CacheSim<flow_id_t> simCache(config["sim.cache.entries"].as<int>(),
                                config["sim.cache.associativity"].as<int>());
+  Policy burstCountReplacement(Policy::PolicyType::BURST_LRU);
+  simCache.set_replacement_policy(burstCountReplacement);
+
   std::mutex mtx_misses; // covers both missesMIN and missesCache
   std::map<flow_id_t, std::vector<uint64_t>> missesMIN;
   std::map<flow_id_t, std::vector<uint64_t>> missesCache;
 
-  using Reservation = typename CacheSim<flow_id_t>::Reservation;
-  using HitStats = typename CacheSim<flow_id_t>::HitStats;
+//  using Reservation = typename CacheSim<flow_id_t>::Reservation;
+//  using HitStats = typename CacheSim<flow_id_t>::HitStats;
   using Lifetime = std::tuple<Reservation, HitStats>;
   std::map<flow_id_t, std::vector<Lifetime>> minLifetimes;
   std::map<flow_id_t, std::vector<Lifetime>> cacheLifetimes;
@@ -458,8 +461,8 @@ int main(int argc, const char* argv[]) {
   /// Filtering function to find 'interesting' flows once they retire: /////////
   std::function<void(FlowRecord&&)> f_sample = [&](FlowRecord&& r) {
     // Only consider semi-large flows:
-    auto duration = r.last();
-    if (duration.second.tv_sec > 1 && r.packets() >= 32) {
+    const auto duration = r.last();
+    if (ENABLE_WSTP && duration.second.tv_sec > 1 && r.packets() >= 32) {
 //    if (r.packets() > 512) {
       std::unique_lock missesLock(mtx_misses);
       auto cache_it = missesCache.find(r.getFlowID());
@@ -487,6 +490,7 @@ int main(int argc, const char* argv[]) {
       missesCache.erase(r.getFlowID());
       missesMIN.erase(r.getFlowID());
       cacheLifetimes.erase(r.getFlowID());
+      // FlowRecord: r is implicitly destroyed (r-value reference)
     }
   };
 
@@ -637,7 +641,7 @@ int main(int argc, const char* argv[]) {
 
   // Instantiate Mathematica Link:
   wstp_singleton& wstp = wstp_singleton::getInstance();
-  if (enable_wstp) {
+  if (ENABLE_WSTP) {
     using def_t = wstp_link::def_t;
     using fn_t = wstp_link::fn_t;
     using sig_t = wstp_link::sig_t;
@@ -985,16 +989,7 @@ int main(int argc, const char* argv[]) {
   debugLog << " - Miss (Capacity): " << simMIN.get_capacity_miss() << '\n';
   debugLog << " - Max elements between barrier: " << simMIN.get_max_elements() << '\n';
 
-  debugLog << "SimCache Size: " << simCache.get_size() << '\n';
-  debugLog << " - Associativity: " << simCache.get_associativity() << "-way\n";
-  debugLog << " - Sets: " << simCache.num_sets() << '\n';
-  debugLog << " - Hits: " << simCache.get_hits() << '\n';
-  debugLog << " - Miss (Compulsory): " << simCache.get_compulsory_miss() << '\n';
-  debugLog << " - Miss (Capacity): " << simCache.get_capacity_miss() << '\n';
-  debugLog << " - Miss (Conflict): " << simCache.get_conflict_miss() << '\n';
-  debugLog << " - Hits FA: " << simCache.get_fa_hits() << '\n';
-  debugLog << " - Miss FA (Capacity): " << simCache.get_fa_capacity_miss() << '\n';
-  debugLog << " - Hits (SA over FA): " << simCache.get_alias_hits() << '\n';
+  debugLog << simCache.print_stats() << '\n';
 #endif
 
 //  debugLog << "Burst Histogram:\n";
