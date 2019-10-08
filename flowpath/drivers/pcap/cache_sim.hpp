@@ -14,6 +14,7 @@
 #include "types.hpp"
 #include "util_container.hpp"
 //#include "sim_lru.hpp"
+//#include "sim_min.hpp"
 
 // Google's Abseil C++ library:
 #include "absl/container/flat_hash_map.h"
@@ -122,30 +123,30 @@ using HitStats = std::vector<int>;  // mru burst hit counter
 
 // Defines cache entry:
 struct Stack_entry {
-  Stack_entry(Reservation r, HitStats h) : res(r), hits(h) {}
+  Stack_entry(Reservation r) : res(r) {}
 
   // Lifetime Prediction Counters:
-//  int refCount = 0;   // counts hits at MRU position
+  int64_t refCount = 1;   // counts hits at MRU position
 //  int burstCount = 0; // counts bursts from non-MRU to MRU position
   bool eol = false;   // indicates predicted to be end-of-lifetime
 
   // Statistics:
   Reservation res;
-  HitStats hits;
+  HitStats hits = {1};
 };
 
 // Defines prediciton table entry:
 struct PT_entry {
-  // BurstCount
-  int BC_saved = -1;  // indicates 1st insertion
-  int BC_confidence = 0;   // psudo confience metric (++, match; --, unmatched)
-
-  // RefCount
-  int RC_saved = -1;
-  int RC_confidence = 0;
+  int64_t BC_saved = -1;  // BurstCount (-1 indicates 1st insertion)
+  int64_t RC_saved = -1;  // RefCount
+  ClampedInt<3> BC_confidence = -1; // 3-bit saturating counter.
+  ClampedInt<3> RC_confidence = -1;
+//  short BC_confidence = -2;  // psudo confience metric (++, match; --, unmatched)
+//  short RC_confidence = -2;
 
   // Statistics:
-//  HitStats history;
+  HitStats history_hits;
+  std::vector<Reservation> history_res;
 };
 
 
@@ -185,6 +186,7 @@ public:
   int64_t get_prediction_bc() const {return predictionBC_;}
   int64_t get_prediction_rc() const {return predictionRC_;}
   int64_t get_prediction_rc_better() const {return predictionRC_better_;}
+  int64_t get_prediction_too_early() const {return predictionTooEarly_;}
 
   // Stack comparison for debugging:
   bool operator==(const AssociativeSet<Key>& other);
@@ -208,15 +210,16 @@ private:
   Stack stack_;   // Reciency stack: MRU at front, LRU at back
   absl::flat_hash_map<Key, Stack_it> lookup_;
 
-  // Stats:
+  // Hit Stats:
   int64_t hits_ = 0;
   int64_t compulsoryMiss_ = 0;
   int64_t capacityMiss_ = 0;
+  // Predictor Stats
   int64_t replacementLRU_ = 0;
-  int64_t predictionTooEarly_ = 0;
   int64_t predictionBC_ = 0;
   int64_t predictionRC_ = 0;
   int64_t predictionRC_better_ = 0;
+  int64_t predictionTooEarly_ = 0;
 
   // Burst Prediction:
   std::map<Key, PT_entry> pt_;  // Prediction metadata independent of cache.
@@ -263,6 +266,7 @@ public:
   int64_t get_prediction_bc() const;
   int64_t get_prediction_rc() const;
   int64_t get_prediction_rc_better() const;
+  int64_t get_prediction_too_early() const;
   std::string print_stats() const;
 
 private:
@@ -308,14 +312,16 @@ auto AssociativeSet<Key>::update(const Key& k, const Time& t) {
     Stack_entry& e = std::get<Stack_entry>(*it);
     Reservation& r = e.res;
     HitStats& s = e.hits;
+    e.refCount++;
     r.second = column;
     // TODO: factor out into promotion function if modularity is needed:
     if (it == stack_.begin()) {
-      s[0]++; // at MRU (continuting burst)
+      s.back()++; // at MRU (continuting burst)
     }
     else {
       // Move element from current position to front of list (MSP):
-      s.insert(s.begin(), 1); // moving up to MRU (new burst)
+//      s.insert(s.end(), 1); // moving up to MRU (new burst)
+      s.emplace_back(1);  // new burst
       Stack_it demotion = stack_.begin(); // let naturally demote by 1 position
       stack_.splice(stack_.begin(), stack_, it, std::next(it));
       event_mru_demotion(demotion);
@@ -335,7 +341,7 @@ auto AssociativeSet<Key>::update(const Key& k, const Time& t) {
 template<typename Key>
 auto AssociativeSet<Key>::internal_insert(const Key& k, const Time& t) {
   MIN_Time column = compulsoryMiss_ + capacityMiss_;  // Comparable to Min's t
-  Stack_entry new_e = Stack_entry(Reservation(column,column), HitStats{1});
+  Stack_entry new_e = Stack_entry(Reservation(column,column));
 
   // Replacement Policy:
   std::optional<Evict_t> eviction;
@@ -393,36 +399,39 @@ template<typename Key>
 void AssociativeSet<Key>::event_eviction(Stack_it eviction) {
   const auto& [key, entry] = *eviction;
   const HitStats& hitStats = entry.hits;
+  const Reservation& res = entry.res;
 
   // Calculate burst & reference count:
-  int burstCount = hitStats.size();
-  int refCount = std::accumulate(hitStats.begin(), hitStats.end(), 0);
+  const int64_t burstCount = hitStats.size();
+//  int refCount = std::accumulate(hitStats.begin(), hitStats.end(), 0);
+  const auto refCount = entry.refCount;
 
   // Create/Update Pattern Table entry.  (Note: only PT creation event)
   PT_entry& pte = pt_[key];
 
   // Update BurstCount pattern table:
   if (burstCount == pte.BC_saved) {
-    pte.BC_confidence++;
+    ++pte.BC_confidence;
   }
   else {
-    pte.BC_confidence--;
     pte.BC_saved = burstCount;  // update to last burst count.
-//  pte.savedCount = std::max(pte.savedCount, burstCount);
-//  pte.BC_confidence = std::clamp(pte.BC_confidence, -4, 7);
+    --pte.BC_confidence;
   }
 
   // Update ReferenceCount pattern table:
   if (refCount == pte.RC_saved) {
-    pte.RC_confidence++;
+    ++pte.RC_confidence;
   }
+  // TODO: else if rc is in tolerable delta, don't penalize?
   else {
-    pte.RC_confidence--;
     pte.RC_saved = refCount;
+    --pte.RC_confidence;
   }
 
   // Update statistics:
-//  pte.history.insert(pte.history.end(), hitStats.begin(), hitStats.end());
+//  auto MINLifetime = res.second - res.first;  // how many misses did this element survive?
+  pte.history_hits.insert(pte.history_hits.end(), hitStats.begin(), hitStats.end());
+  pte.history_res.push_back(res);
 }
 
 
@@ -434,21 +443,22 @@ void AssociativeSet<Key>::event_mru_demotion(Stack_it demoted) {
     auto& [key, entry] = *demoted;
     const HitStats& hitStats = entry.hits;
 
-    int burstCount = hitStats.size();
-    int refCount = std::accumulate(hitStats.begin(), hitStats.end(), 0);
+    const int64_t burstCount = hitStats.size();
+//    int refCount = std::accumulate(hitStats.begin(), hitStats.end(), 0);
+    const auto refCount = entry.refCount;
     PT_entry& pte = pt_[key];
 
     assert(!entry.eol); // sanity check
-    if (pte.BC_confidence >= 3 && burstCount >= pte.BC_saved) {
+    if (pte.BC_confidence >= 0 && burstCount >= pte.BC_saved) {
       predictionBC_++;
-//      entry.eol = true;   // mark as candidate for replacement
+      entry.eol = true;   // mark as candidate for replacement
     }
-    if (pte.RC_confidence >= 3 && refCount >= pte.RC_saved) {
+    if (pte.RC_confidence >= 0 && refCount >= pte.RC_saved) {
+      if (!entry.eol) {   // hack to count if RC > BC
+        predictionRC_better_++;
+      }
       predictionRC_++;
       entry.eol = true;   // mark as candidate for replacement
-//      if (!entry.eol) {   // hack to count if RC > BC
-//        predictionRC_better_++;
-//      }
     }
   }
 
@@ -707,12 +717,12 @@ void CacheSim<Key>::set_replacement_policy(Policy& replace) {
 // CacheSim stats calculations:
 template<typename Key>
 int64_t CacheSim<Key>::get_hits() const {
-  std::cout << "FA Hits: " << fa_ref_.get_hits() << std::endl;
+//  std::cout << "FA Hits: " << fa_ref_.get_hits() << std::endl;
   int64_t hits = 0;
   for (const auto& set : sets_) {
     hits += set.get_hits();
   }
-  std::cout << "SA Hits: " << capacityMiss_ << std::endl;
+//  std::cout << "SA Hits: " << capacityMiss_ << std::endl;
   return hits;
 }
 
@@ -733,8 +743,8 @@ int64_t CacheSim<Key>::get_compulsory_miss() const {
 
 template<typename Key>
 int64_t CacheSim<Key>::get_capacity_miss() const {
-  std::cout << "FA Capacity Miss: " << fa_ref_.get_capacity_miss() << std::endl;
-  std::cout << "SA Capacity Miss: " << capacityMiss_ << std::endl;
+//  std::cout << "FA Capacity Miss: " << fa_ref_.get_capacity_miss() << std::endl;
+//  std::cout << "SA Capacity Miss: " << capacityMiss_ << std::endl;
   return capacityMiss_;
 }
 
@@ -750,9 +760,9 @@ int64_t CacheSim<Key>::get_conflict_miss() const {
   for (const auto& set : sets_) {
     conflict_sum += set.get_capacity_miss();
   }
-  std::cout << "Calculated Conflict Miss: " << conflict_sum << std::endl;
-  std::cout << "Incremental Conflict Miss: " << conflictMiss_ << std::endl;
-  std::cout << "Alias Conflict Hit: " << aliasHit_ << std::endl;
+//  std::cout << "Calculated Conflict Miss: " << conflict_sum << std::endl;
+//  std::cout << "Incremental Conflict Miss: " << conflictMiss_ << std::endl;
+//  std::cout << "Alias Conflict Hit: " << aliasHit_ << std::endl;
   return conflictMiss_;
 }
 
@@ -809,6 +819,15 @@ int64_t CacheSim<Key>::get_prediction_rc_better() const {
 }
 
 template<typename Key>
+int64_t CacheSim<Key>::get_prediction_too_early() const {
+  int64_t sum = 0;
+  for (const auto& set : sets_) {
+    sum += set.get_prediction_too_early();
+  }
+  return sum;
+}
+
+template<typename Key>
 std::string CacheSim<Key>::print_stats() const {
   std::stringstream ss;
   ss << "SimCache Size: " << get_size() << '\n';
@@ -825,7 +844,12 @@ std::string CacheSim<Key>::print_stats() const {
   ss << " - Replacements Early: " << get_replacements_early() << '\n';
   ss << " - Confident BurstCount: " << get_prediction_bc() << '\n';
   ss << " - Confident RefCount: " << get_prediction_rc() << '\n';
-  ss << " - RefCount tops BurstCount: " << get_prediction_rc_better();
+  ss << " - RefCount tops BurstCount: " << get_prediction_rc_better() << '\n';
+  ss << " - Prediction too Early: " << get_prediction_too_early();
+  // TODO:
+  // print incorrect prediction
+  // dont penalize on prediction too much, bound confidence for flexibility?
+  // way to leverage min for replacement insight?
   return ss.str();
 }
 

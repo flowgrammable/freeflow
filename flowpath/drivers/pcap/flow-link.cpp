@@ -78,6 +78,7 @@ struct global_config {
 //  opt_port_ wstp_port;
 } CONFIG;
 
+
 string get_time(chrono::system_clock::time_point tp) {
   stringstream ss;
   time_t time_c = chrono::system_clock::to_time_t(tp);
@@ -221,8 +222,12 @@ int main(int argc, const char* argv[]) {
   };
 
   // Configuration:
+  constexpr bool ENABLE_simMIN = false;
+  constexpr bool ENABLE_simCache = true;
   constexpr bool ENABLE_WSTP = false;
-//  constexpr bool enable_sim = true;
+  //  const bool enable_simMIN(config["sim.min"].as<bool>());
+  //  const bool enable_simCache(config["sim.cache"].as<bool>());
+
 
   // Log/Trace Output Files:
   ofstream debugLog(*CONFIG.logFilename); // TODO: Allow no log?
@@ -301,12 +306,6 @@ int main(int argc, const char* argv[]) {
 
   //////////////////////////////////////////////////////////////////////////////
   /// Simulation bookeeping structures:
-#define ENABLE_SIM
-#ifdef ENABLE_SIM
-//  const bool enable_simMIN(config["sim.min"].as<bool>());
-//  const bool enable_simCache(config["sim.cache"].as<bool>());
-  constexpr bool enable_simMIN = true;
-  constexpr bool enable_simCache = true;
   SimMIN<flow_id_t> simMIN(config["sim.min.entries"].as<int>());
   // TODO: find way of defining polices...
   CacheSim<flow_id_t> simCache(config["sim.cache.entries"].as<int>(),
@@ -320,17 +319,11 @@ int main(int argc, const char* argv[]) {
 
 //  using Reservation = typename CacheSim<flow_id_t>::Reservation;
 //  using HitStats = typename CacheSim<flow_id_t>::HitStats;
+  // TODO, place these cache sim / stats types in a namespace
   using Lifetime = std::tuple<Reservation, HitStats>;
   std::map<flow_id_t, std::vector<Lifetime>> minLifetimes;
   std::map<flow_id_t, std::vector<Lifetime>> cacheLifetimes;
-#endif
 
-
-//  auto print_mem = [&]() {
-//    PRINT_MEM_USAGE(flowIDs);
-//    PRINT_MEM_USAGE(flowRecords);
-//    PRINT_MEM_USAGE(retiredRecords);
-//  };
 
   // Lamba function interface for reporting misses:
   auto f_sort_by_misses = [&mtx_RetiredFlows, &retiredRecords]
@@ -383,71 +376,48 @@ int main(int argc, const char* argv[]) {
   // - Insert called once (first packet on flow startup)
   std::function<void(flow_id_t, const std::pair<uint64_t,timespec>&&)> f_sim_insert =
       [&](flow_id_t flowID, const std::pair<uint64_t,timespec>&& pktTime) {
-#ifdef ENABLE_SIM
     auto [ns, ts] = pktTime;
-    if (enable_simMIN) {
+    if (ENABLE_simMIN) {
       simMIN.insert(flowID, ts);
     }
 
-    if (enable_simCache) {
+    if (ENABLE_simCache) {
       auto victim = simCache.insert(flowID, ts);
-      if (victim) {
+      if (ENABLE_WSTP && victim) {
         // If victim exists (something was replaced).
         // victim: std::tuple<Key, Reservation, HitStats>
         auto& [id, res, hits] = *victim;
-//        burstHistogram(hits);
         cacheLifetimes[id].emplace_back(res, hits);
-//        if (hits.size() > 1) {
-//          cout << id << " (" << res.second - res.first << "): ";
-//          for (auto burst : hits) {
-//            cout << burst << ", ";
-//          }
-//          cout << '\n';
-//        }
       }
     }
-#endif
   };
+
   // - Update called on each subsequent packet
   std::function<void(flow_id_t, const std::pair<uint64_t,timespec>&&)> f_sim_update =
       [&](flow_id_t flowID, const std::pair<uint64_t,timespec>&& pktTime) {
-#ifdef ENABLE_SIM
     auto [ns, ts] = pktTime;
-    if (enable_simMIN) {
+    if (ENABLE_simMIN) {
       auto [hit, evictSet] = simMIN.update(flowID, ts);
-      if (!hit) {
+      if (ENABLE_WSTP && !hit) {
         std::lock_guard lock(mtx_misses);
         missesMIN[flowID].emplace_back(ns);
       }
-//      for (auto& [id, history] : evictSet) {
-//        int totalHits = 0;
-//        HitStats hs;
-//        for (auto& [res, hits] : history) {
-//          hs.push_back(hits);
-//          totalHits += hits;
-//        }
-//        Reservation res = std::get<Reservation>(history.front());
-//        res.second = std::get<Reservation>(history.back()).second;
-//        minLifetimes[id].emplace_back(res, hs);
-//      }
     }
 
-    if (enable_simCache) {
+    if (ENABLE_simCache) {
       auto [hit, victim] = simCache.update(flowID, ts);
-      if (!hit) {
-        // TODO: take note of miss statistics...
+      if (ENABLE_WSTP && !hit) {
+      // TODO: take note of miss statistics...
         std::lock_guard lock(mtx_misses);
         missesCache[flowID].emplace_back(ns);
         if (victim) {
           // If victim exists (something was replaced).
           // victim: std::tuple<Key, Reservation, HitStats>
           auto& [id, res, hits] = *victim;
-//          burstHistogram(hits);
           cacheLifetimes[id].emplace_back(res, hits);
         }
       }
     }
-#endif
   };
 
 
@@ -461,37 +431,41 @@ int main(int argc, const char* argv[]) {
   /// Filtering function to find 'interesting' flows once they retire: /////////
   std::function<void(FlowRecord&&)> f_sample = [&](FlowRecord&& r) {
     // Only consider semi-large flows:
-    const auto duration = r.last();
-    if (ENABLE_WSTP && duration.second.tv_sec > 1 && r.packets() >= 32) {
-//    if (r.packets() > 512) {
-      std::unique_lock missesLock(mtx_misses);
-      auto cache_it = missesCache.find(r.getFlowID());
-      auto min_it = missesMIN.find(r.getFlowID());
-      missesLock.unlock();
-      const auto& cache_ts = cache_it->second;
-      const auto& min_ts = min_it->second;
-      // Only record multiple misses within MIN:
-      if ( min_it != missesMIN.end() && min_ts.size() >= 8 ) {
-        // Flow looks interesting, add to retiredRecords:
-//        std::cout << "+ FlowID: " << r.getFlowID()
-//                  << ", Packets: " << r.packets()
-//                  << ", Misses: " << min_ts.size()
-//                  << "; " << print_flow_key_string( r.getFlowTuple() )
-//                  << std::endl;
-        { std::lock_guard lock(mtx_RetiredFlows);
-          retiredRecords.emplace(r.getFlowID(), r);
-          // keep flow in missesCache, missesMIN, and cacheLifetimes
+    if (ENABLE_WSTP) {
+      const auto duration = r.last();
+      if (duration.second.tv_sec > 1 && r.packets() >= 32) {
+  //    if (r.packets() > 512) {
+        std::unique_lock missesLock(mtx_misses);
+        auto cache_it = missesCache.find(r.getFlowID());
+        auto min_it = missesMIN.find(r.getFlowID());
+        missesLock.unlock();
+        const auto& cache_ts = cache_it->second;
+        const auto& min_ts = min_it->second;
+
+        // Only record multiple misses within MIN:
+        if ( min_it != missesMIN.end() && min_ts.size() >= 8 ) {
+          // Flow looks interesting, add to retiredRecords:
+  //        std::cout << "+ FlowID: " << r.getFlowID()
+  //                  << ", Packets: " << r.packets()
+  //                  << ", Misses: " << min_ts.size()
+  //                  << "; " << print_flow_key_string( r.getFlowTuple() )
+  //                  << std::endl;
+          { std::lock_guard lock(mtx_RetiredFlows);
+            retiredRecords.emplace(r.getFlowID(), r);
+            // keep flow in missesCache, missesMIN, and cacheLifetimes
+          }
+          return;
         }
-        return;
+      }
+      // Flow behaved unremarkibly, delete metadata:
+      {
+        std::lock_guard lock(mtx_misses);
+        missesCache.erase(r.getFlowID());
+        missesMIN.erase(r.getFlowID());
+        cacheLifetimes.erase(r.getFlowID());
       }
     }
-    // Flow behaved unremarkibly, delete metadata:
-    { std::lock_guard lock(mtx_misses);
-      missesCache.erase(r.getFlowID());
-      missesMIN.erase(r.getFlowID());
-      cacheLifetimes.erase(r.getFlowID());
-      // FlowRecord: r is implicitly destroyed (r-value reference)
-    }
+    // FlowRecord: r is implicitly destroyed (r-value reference)
   };
 
 
@@ -879,6 +853,7 @@ int main(int argc, const char* argv[]) {
 
           // Scan flows which have signaled FIN/RST:
           for (auto i : dormantFlows) {
+            // Timeout units in seconds.
             constexpr int64_t RST_TIMEOUT = 10;
             constexpr int64_t FIN_TIMEOUT = 60;
             constexpr int64_t TCP_TIMEOUT = 600;
@@ -936,7 +911,6 @@ int main(int argc, const char* argv[]) {
               delete_flow(flowR_i);
             }
           }
-//          print_mem();
         } // end flow cleanup
       }
     } // end per-packet processing
@@ -980,17 +954,14 @@ int main(int argc, const char* argv[]) {
   debugLog << "Malformed packets: " << malformedPackets << '\n';
   debugLog << "Flow port reuse: " << flowPortReuse << '\n';
 
-  // Print Locality Simulation:
-#ifdef ENABLE_SIM
+  // Print Cache Simulation Stats:
   // TODO: move print into class function...
-  debugLog << "SimMIN Cache Size: " << simMIN.get_size() << '\n';
-  debugLog << " - Hits: " << simMIN.get_hits() << '\n';
-  debugLog << " - Miss (Compulsory): " << simMIN.get_compulsory_miss() << '\n';
-  debugLog << " - Miss (Capacity): " << simMIN.get_capacity_miss() << '\n';
-  debugLog << " - Max elements between barrier: " << simMIN.get_max_elements() << '\n';
-
-  debugLog << simCache.print_stats() << '\n';
-#endif
+  if (ENABLE_simMIN) {
+    debugLog << simMIN.print_stats() << '\n';
+  }
+  if (ENABLE_simCache) {
+    debugLog << simCache.print_stats() << '\n';
+  }
 
 //  debugLog << "Burst Histogram:\n";
 //  for (auto it = histBurst.begin(); it != histBurst.end(); it++) {
@@ -1009,8 +980,6 @@ int main(int argc, const char* argv[]) {
 //  debugLog << "Capture Start: " << packet_time << '\n'
 //           << "Capture End: " << packet_time2 << '\n'
 //           << "Capture Duration: " << packet_time2-packet_time << endl;
-
-//  print_mem();
 
 
   for (auto& h : gz_handles) {

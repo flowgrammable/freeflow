@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <chrono>
 #include <type_traits>
+#include <sstream>
 
 #include "types.hpp"
 #include "util_container.hpp"
@@ -23,7 +24,8 @@ class SimMIN {
 //  using Point = std::pair<size_t,Time>;  // miss-index, real-time
 //  using Reservation = std::pair<Point,Point>;
   using Reservation = std::pair<size_t,size_t>;
-  using History = absl::InlinedVector<Reservation,1>;
+//  using History = absl::InlinedVector<Reservation,1>;
+  using History = std::vector<Reservation>;
 
 public:
   SimMIN(size_t entries);
@@ -42,6 +44,7 @@ public:
   uint64_t get_compulsory_miss() const {return compulsoryMiss_;}
   size_t get_max_elements() const {return max_elements_;}
   auto get_barrier_duration() const {return barrier_duration_;}
+  std::string print_stats() const;
 
 private:
   const size_t MAX_;
@@ -54,7 +57,6 @@ private:
   uint64_t hits_ = 0;
   uint64_t capacityMiss_ = 0;
   uint64_t compulsoryMiss_ = 0;
-//  uint64_t invalidates_ = 0;
   size_t max_elements_ = 0;
   std::vector<size_t> barrier_duration_;  // number of hits when barrier was moved.
 };
@@ -83,10 +85,6 @@ void SimMIN<Key>::insert(const Key& k, const Time& t) {
   assert(capacity_.size() == compulsoryMiss_ + capacityMiss_ - trim_offset_);
 }
 
-template <class T>
-__attribute__((always_inline)) inline void DoNotOptimize(const T &value) {
-  asm volatile("" : "+m"(const_cast<T &>(value)));
-}
 
 // Key has been accessed again (not first occurance)
 // Reserve or determine if capacity conflict.
@@ -105,7 +103,6 @@ auto SimMIN<Key>::update(const Key& k, const Time& t) {
     size_t column = compulsoryMiss_ + capacityMiss_ - 1;  // t-1
 
     // Update history to reserve item to t:
-//      hist.back().second.second = t;
     res.second = column;
 
     // Determine if barrier moved:
@@ -115,7 +112,7 @@ auto SimMIN<Key>::update(const Key& k, const Time& t) {
       assert(idx < capacity_.size());
       // Update count (scoreboard):
       if (++capacity_[idx] >= MAX_) {
-        // Take note if barrier moved:
+        // Note if barrier moved:
         last = i;
       }
     }
@@ -123,6 +120,8 @@ auto SimMIN<Key>::update(const Key& k, const Time& t) {
     if (last < barrier_) {
       std::cerr << "WARNING: SIM_MIN's index rolled over size_t!" << std::endl;
     }
+
+    // Gain insight to eviciton/s (if barrier moved):
     barrier_ = last;
     std::vector<Key> evictSet = trim_to_barrier();
     return std::make_pair(true, evictSet);  // hit
@@ -169,7 +168,7 @@ std::vector<Key> SimMIN<Key>::trim_to_barrier() {
       evict_set.push_back(key);
     }
     else if (cut != hist.begin()){
-      // should only happen if failed to trim on barrier move...
+      // FIXME: dead code?  should only happen if failed to trim on barrier move...
       hist.erase(hist.begin(), cut);
     }
   }
@@ -188,6 +187,22 @@ std::vector<Key> SimMIN<Key>::trim_to_barrier() {
             << ", advanced by " << advance << " demands." << std::endl;
 #endif
   return evict_set;
+}
+
+
+template<typename Key>
+std::string SimMIN<Key>::print_stats() const {
+  std::stringstream ss;
+  ss << "SimMIN Cache Size: " << get_size() << '\n';
+  ss << " - Hits: " << get_hits() << '\n';
+  ss << " - Miss (Compulsory): " << get_compulsory_miss() << '\n';
+  ss << " - Miss (Capacity): " << get_capacity_miss() << '\n';
+  ss << " - Max elements between barrier: " << get_max_elements();
+  // TODO:
+  // print stats on element lifetime, average + std-dev hits over lifetime
+  // print distribution on ref count over lifetime
+  // print distribution on time count over lifetime
+  return ss.str();
 }
 
 

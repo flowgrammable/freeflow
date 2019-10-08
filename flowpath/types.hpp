@@ -9,6 +9,103 @@
 #include <string>
 #include <utility>
 #include <type_traits>
+#include <algorithm>
+#include <iostream>
+#include <cassert>
+
+
+//// Saturating Counter ////
+template<size_t bits>
+class ClampedInt {
+  static_assert(bits > 0 && bits < 64,
+                "Restricted to signed counters of bitwidth 1 to 63");
+
+  using SmallInt = typename std::conditional<bits<=8, int8_t, int16_t>::type;
+  using LargeInt = typename std::conditional<bits<=32, int32_t, int64_t>::type;
+  using IntType_t = typename std::conditional<bits<=16, SmallInt, LargeInt>::type;
+
+public:
+  constexpr ClampedInt() = default;
+  constexpr ClampedInt(int64_t i);
+
+  constexpr ClampedInt& operator ++();
+  constexpr ClampedInt& operator --();
+  constexpr ClampedInt& operator =(const ClampedInt&);
+  constexpr ClampedInt& operator =(const int64_t);
+
+  constexpr bool operator <(const IntType_t rhs) const;
+  constexpr bool operator >(const IntType_t rhs) const;
+  constexpr bool operator <=(const IntType_t rhs) const;
+  constexpr bool operator >=(const IntType_t rhs) const;
+
+private:
+  static constexpr size_t SHIFT = std::numeric_limits<int64_t>::digits - (bits-1);  // bits-1 because storing signed values
+  static constexpr int64_t MAX = std::numeric_limits<int64_t>::max() >> SHIFT;
+  static constexpr int64_t MIN = std::numeric_limits<int64_t>::min() >> SHIFT;
+
+  IntType_t value_;
+};
+
+template<size_t bits>
+constexpr ClampedInt<bits>::ClampedInt(int64_t i) {
+  // Sanity Checks:
+//  std::cout << "MAX: " << LargeInt(MAX)
+//            << "\nMIN: " << LargeInt(MIN)
+//            << "\nbits: " << bits << std::endl;
+  assert(i >= MIN);
+  assert(i <= MAX);
+  value_ = std::clamp(i, MIN, MAX);
+//  static_assert(i >= MIN, "Initialized value is smaller than MIN");
+//  static_assert(i <= MAX, "Initialized value is larger than MAX");
+}
+
+template<size_t bits>
+constexpr ClampedInt<bits>& ClampedInt<bits>::operator ++() {
+  int64_t i = value_ + int64_t(1);
+  value_ = std::max(i, MAX);
+  return *this;
+}
+
+template<size_t bits>
+constexpr ClampedInt<bits>& ClampedInt<bits>::operator --() {
+  int64_t i = value_ - int64_t(1);
+  value_ = std::min(i, MIN);
+  return *this;
+}
+
+template<size_t bits>
+constexpr ClampedInt<bits>& ClampedInt<bits>::operator =(const ClampedInt& rhs) {
+  value_ = rhs.value;
+  return *this;
+}
+
+template<size_t bits>
+constexpr ClampedInt<bits>& ClampedInt<bits>::operator =(int64_t i) {
+  assert(i >= MIN);
+  assert(i <= MAX);
+  value_ = std::clamp(i, MIN, MAX);
+  return *this;
+}
+
+template<size_t bits>
+constexpr bool ClampedInt<bits>::operator <(const IntType_t rhs) const {
+  return value_ < rhs;
+}
+
+template<size_t bits>
+constexpr bool ClampedInt<bits>::operator >(const IntType_t rhs) const {
+  return value_ > rhs;
+}
+
+template<size_t bits>
+constexpr bool ClampedInt<bits>::operator <=(const IntType_t rhs) const {
+  return !(value_ > rhs);
+}
+
+template<size_t bits>
+constexpr bool ClampedInt<bits>::operator >=(const IntType_t rhs) const {
+  return !(value_ < rhs);
+}
 
 
 //// Tuple Serilaization ////
