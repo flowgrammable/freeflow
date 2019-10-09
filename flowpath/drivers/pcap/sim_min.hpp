@@ -31,19 +31,19 @@ public:
   SimMIN(size_t entries);
 
 private:
-  std::vector<Key> trim_to_barrier();
+  std::set<Key> trim_to_barrier();
 
 public:
   void insert(const Key& k, const Time& t);
-  auto update(const Key& k, const Time& t);
+  bool update(const Key& k, const Time& t);
   void remove(const Key& k);  // does nothing...
+  std::set<Key> evictions() {return trim_to_barrier();}
 
   size_t get_size() const {return MAX_;}
   uint64_t get_hits() const {return hits_;}
   uint64_t get_capacity_miss() const {return capacityMiss_;}
   uint64_t get_compulsory_miss() const {return compulsoryMiss_;}
   size_t get_max_elements() const {return max_elements_;}
-  auto get_barrier_duration() const {return barrier_duration_;}
   std::string print_stats() const;
 
 private:
@@ -58,7 +58,6 @@ private:
   uint64_t capacityMiss_ = 0;
   uint64_t compulsoryMiss_ = 0;
   size_t max_elements_ = 0;
-  std::vector<size_t> barrier_duration_;  // number of hits when barrier was moved.
 };
 
 
@@ -93,7 +92,7 @@ void SimMIN<Key>::insert(const Key& k, const Time& t) {
 // If !present, generate pull & advance set.
 // - Pull:  Mark 1 at (k, t)
 template<typename Key>
-auto SimMIN<Key>::update(const Key& k, const Time& t) {
+bool SimMIN<Key>::update(const Key& k, const Time& t) {
   History& hist = reserved_[k];
   if (hist.size() > 0 && barrier_ <= hist.back().second) {
     hits_++;
@@ -123,8 +122,7 @@ auto SimMIN<Key>::update(const Key& k, const Time& t) {
 
     // Gain insight to eviciton/s (if barrier moved):
     barrier_ = last;
-    std::vector<Key> evictSet = trim_to_barrier();
-    return std::make_pair(true, evictSet);  // hit
+    return true;  // hit
   }
   else {
     size_t column = compulsoryMiss_ + capacityMiss_;  // t
@@ -132,9 +130,7 @@ auto SimMIN<Key>::update(const Key& k, const Time& t) {
     hist.emplace_back(std::make_pair(column,column));
     capacity_.emplace_back(1);
     assert(capacity_.size() == compulsoryMiss_ + capacityMiss_ - trim_offset_);
-
-//    using evictSet_t = typename std::invoke_result_t<decltype(&SimMIN<Key>::trim_to_barrier)>;
-    return std::make_pair(false, std::vector<Key>{}); // miss
+    return false; // miss
   }
 }
 
@@ -145,8 +141,8 @@ auto SimMIN<Key>::update(const Key& k, const Time& t) {
 // - Update trim offset to number of columns 'deleted'
 // -- 'time' moves on, but capacity vector's index is adjusted back to 0
 template<typename Key>
-std::vector<Key> SimMIN<Key>::trim_to_barrier() {
-  std::vector<Key> evict_set;
+std::set<Key> SimMIN<Key>::trim_to_barrier() {
+  std::set<Key> evict_set;
   size_t advance = barrier_ - trim_offset_;
   if (advance == 0) {
     return evict_set;
@@ -165,7 +161,7 @@ std::vector<Key> SimMIN<Key>::trim_to_barrier() {
       }
     }
     if (cut == hist.end()) {
-      evict_set.push_back(key);
+      evict_set.insert(key);
     }
     else if (cut != hist.begin()){
       // FIXME: dead code?  should only happen if failed to trim on barrier move...

@@ -14,7 +14,7 @@
 #include "types.hpp"
 #include "util_container.hpp"
 //#include "sim_lru.hpp"
-//#include "sim_min.hpp"
+#include "sim_min.hpp"
 
 // Google's Abseil C++ library:
 #include "absl/container/flat_hash_map.h"
@@ -106,7 +106,7 @@
 
 
 struct Policy {
-  enum PolicyType {LRU, MRU, BURST_LRU};
+  enum PolicyType {LRU, MRU, BURST_LRU, SRRIP, SHIP};
   Policy(PolicyType type) : type_(type) {}
 
   PolicyType type_;
@@ -125,10 +125,17 @@ using HitStats = std::vector<int>;  // mru burst hit counter
 struct Stack_entry {
   Stack_entry(Reservation r) : res(r) {}
 
-  // Lifetime Prediction Counters:
-  int64_t refCount = 1;   // counts hits at MRU position
-//  int burstCount = 0; // counts bursts from non-MRU to MRU position
+  // Reference Prediciton Mechanism (RefCount & BurstCount):
+  int refCount = 1;   // counts hits until eviction (equivalent to sum of HitStats)
+//  int burstCount = 0; // counts bursts from non-MRU to MRU position (equivalent to HitStats.size())
   bool eol = false;   // indicates predicted to be end-of-lifetime
+
+  // Re-reference Interval Prediction (RRIP):
+  int8_t reuse = 2;   // Range 0: near ... 3: distant;  Init: 2 slightly distant
+
+  // Signature-based Hit Predictor (SHiP):
+  // signature (key, already stored)
+  // re-reference boolean (equivalent to sum of HitStats > 1)
 
   // Statistics:
   Reservation res;
@@ -137,16 +144,24 @@ struct Stack_entry {
 
 // Defines prediciton table entry:
 struct PT_entry {
-  int64_t BC_saved = -1;  // BurstCount (-1 indicates 1st insertion)
-  int64_t RC_saved = -1;  // RefCount
-  ClampedInt<3> BC_confidence = -1; // 3-bit saturating counter.
-  ClampedInt<3> RC_confidence = -1;
+  // Reference Prediciton Mechanism (RefCount & BurstCount):
+  static const int64_t C_delta = 2;  // tolerable delta to avoid penalizing RC/BC; 0: for exact
+  int BC_saved = -1;  // BurstCount (-1 indicates 1st insertion)
+  int RC_saved = -1;  // RefCount (rolls over after 2.7s at line rate, 10G)
+  ClampedInt<5> BC_confidence = -1; // 5-bit saturating counter.
+  ClampedInt<5> RC_confidence = -1; // >0 indicates confident
 //  short BC_confidence = -2;  // psudo confience metric (++, match; --, unmatched)
 //  short RC_confidence = -2;
 
+  // Re-reference Interval Prediction (RRIP):
+
+
+  // Signature-based Hit Predictor (SHiP):
+
+
   // Statistics:
-  HitStats history_hits;
-  std::vector<Reservation> history_res;
+//  HitStats history_hits;
+//  std::vector<Reservation> history_res;
 };
 
 
@@ -223,6 +238,14 @@ private:
 
   // Burst Prediction:
   std::map<Key, PT_entry> pt_;  // Prediction metadata independent of cache.
+
+  // Belady's algorithm:
+  static constexpr bool ENABLE_Belady = false;
+  SimMIN<Key> belady_;
+//  std::set<Key> beladyEvictions_;
+  int64_t perfectHits_;         // count when cache and belady agreed
+//  int64_t perfectEvictions_;    // count when chosen eviciton was considered perfect
+//  int64_t imperfectEvictions_;
 };
 
 
@@ -290,11 +313,17 @@ private:
 /////////////////////////////////////
 template<typename Key>
 AssociativeSet<Key>::AssociativeSet(size_t entries, Policy&& insert, Policy&& replace) :
-  MAX_(entries), lookup_(entries), p_insert_(insert), p_replace_(replace) {}
+  MAX_(entries), lookup_(entries), p_insert_(insert), p_replace_(replace), belady_(entries) {}
 
 // Key has been created (first occurance)
 template<typename Key>
 auto AssociativeSet<Key>::insert(const Key& k, const Time& t) {
+  // Consult Belady's Algorithm:
+  if (ENABLE_Belady) {
+    belady_.insert(k, t);
+  }
+
+  // Cache Simulation:
   compulsoryMiss_++;
   return internal_insert(k, t);
 }
@@ -304,6 +333,17 @@ auto AssociativeSet<Key>::insert(const Key& k, const Time& t) {
 // - Returns {hit/miss, eviction (if necessary)}
 template<typename Key>
 auto AssociativeSet<Key>::update(const Key& k, const Time& t) {
+  // Consult Belady's Algorithm:
+  bool beladyHit;
+  if (ENABLE_Belady) {
+    bool beladyHit = belady_.update(k, t);
+    if (beladyHit) {
+      // Potentially new information on capacity hit:
+      belady_.evictions();
+    }
+  }
+
+  // Cache Simulation:
   MIN_Time column = compulsoryMiss_ + capacityMiss_;  // Comparable to Min's t
   auto status = lookup_.find(k);
   if (status != lookup_.end()) {
@@ -320,12 +360,12 @@ auto AssociativeSet<Key>::update(const Key& k, const Time& t) {
     }
     else {
       // Move element from current position to front of list (MSP):
-//      s.insert(s.end(), 1); // moving up to MRU (new burst)
       s.emplace_back(1);  // new burst
       Stack_it demotion = stack_.begin(); // let naturally demote by 1 position
       stack_.splice(stack_.begin(), stack_, it, std::next(it));
       event_mru_demotion(demotion);
     }
+    if (ENABLE_Belady && beladyHit) { perfectHits_++; }
     return std::make_pair(true, std::optional<Evict_t>{});  // hit
   }
   else {
@@ -347,15 +387,27 @@ auto AssociativeSet<Key>::internal_insert(const Key& k, const Time& t) {
   std::optional<Evict_t> eviction;
   if (stack_.size() >= MAX_) {
     auto victim_it = replace_find();
-    Key key = std::get<Key>(*victim_it);
+    Key victim_key = std::get<Key>(*victim_it);
     Stack_entry& victim_e = std::get<Stack_entry>(*victim_it);
 
     // Note: calling event_eviction before evicting to preserve stack...
     event_eviction(victim_it);
-    lookup_.erase(key);
+    lookup_.erase(victim_key);
 
-    eviction = Evict_t(key, std::move(victim_e.res), std::move(victim_e.hits));
+    eviction = Evict_t(victim_key, std::move(victim_e.res), std::move(victim_e.hits));
     stack_.erase(victim_it);
+
+    // Consult Belady's Algorithm:
+//    // ISSUE: perfect knowledge is delayed...  how to sync?
+//    auto it = beladyEvictions_.find(victim_key);
+//    if (it != beladyEvictions_.end()) {
+//      ++perfectEvictions_;
+//      beladyEvictions_.erase(it);
+//    }
+//    else {
+//      ++imperfectEvictions_;
+//      // ISSUE: not keeping track of set of imperfect evictions...
+//    }
   }
   // else evicted (std::optional) is left default constructed.
 
@@ -363,9 +415,8 @@ auto AssociativeSet<Key>::internal_insert(const Key& k, const Time& t) {
   auto insert_it = insert_find();
   auto item_it = stack_.emplace(insert_it, Stack_value(k, new_e));
   lookup_.insert( std::make_pair(k,item_it) );
-
   assert(lookup_.size() == stack_.size());
-  return eviction;   // default constructed
+  return eviction;
 }
 
 
@@ -402,36 +453,45 @@ void AssociativeSet<Key>::event_eviction(Stack_it eviction) {
   const Reservation& res = entry.res;
 
   // Calculate burst & reference count:
-  const int64_t burstCount = hitStats.size();
-//  int refCount = std::accumulate(hitStats.begin(), hitStats.end(), 0);
-  const auto refCount = entry.refCount;
+  const int burstCount = hitStats.size();
 
   // Create/Update Pattern Table entry.  (Note: only PT creation event)
   PT_entry& pte = pt_[key];
 
   // Update BurstCount pattern table:
-  if (burstCount == pte.BC_saved) {
+  const auto BC_delta = pte.BC_saved - burstCount;   // +: less pkts than saved
+  if (BC_delta == 0) {
     ++pte.BC_confidence;
   }
   else {
-    pte.BC_saved = burstCount;  // update to last burst count.
-    --pte.BC_confidence;
+    if (abs(BC_delta) > PT_entry::C_delta) {
+      --pte.BC_confidence;
+      pte.BC_saved = burstCount;
+    }
+    else {
+      pte.BC_saved = std::min(burstCount, pte.BC_saved);
+    }
   }
 
   // Update ReferenceCount pattern table:
-  if (refCount == pte.RC_saved) {
+  const auto RC_delta = pte.RC_saved - entry.refCount; // +: less pkts than saved
+  if (RC_delta == 0) {
     ++pte.RC_confidence;
   }
-  // TODO: else if rc is in tolerable delta, don't penalize?
   else {
-    pte.RC_saved = refCount;
-    --pte.RC_confidence;
+    if (abs(RC_delta) > PT_entry::C_delta) {
+      --pte.RC_confidence;
+      pte.RC_saved = entry.refCount;
+    }
+    else {
+      pte.RC_saved = std::min(entry.refCount, pte.RC_saved);
+    }
   }
 
   // Update statistics:
 //  auto MINLifetime = res.second - res.first;  // how many misses did this element survive?
-  pte.history_hits.insert(pte.history_hits.end(), hitStats.begin(), hitStats.end());
-  pte.history_res.push_back(res);
+//  pte.history_hits.insert(pte.history_hits.end(), hitStats.begin(), hitStats.end());
+//  pte.history_res.push_back(res);
 }
 
 
@@ -444,19 +504,17 @@ void AssociativeSet<Key>::event_mru_demotion(Stack_it demoted) {
     const HitStats& hitStats = entry.hits;
 
     const int64_t burstCount = hitStats.size();
-//    int refCount = std::accumulate(hitStats.begin(), hitStats.end(), 0);
-    const auto refCount = entry.refCount;
     PT_entry& pte = pt_[key];
 
     assert(!entry.eol); // sanity check
     if (pte.BC_confidence >= 0 && burstCount >= pte.BC_saved) {
       predictionBC_++;
-      entry.eol = true;   // mark as candidate for replacement
+//      entry.eol = true;   // mark as candidate for replacement
     }
-    if (pte.RC_confidence >= 0 && refCount >= pte.RC_saved) {
-      if (!entry.eol) {   // hack to count if RC > BC
-        predictionRC_better_++;
-      }
+    if (pte.RC_confidence >= 0 && entry.refCount >= pte.RC_saved) {
+//      if (!entry.eol) {   // hack to count if RC > BC
+//        predictionRC_better_++;
+//      }
       predictionRC_++;
       entry.eol = true;   // mark as candidate for replacement
     }
@@ -465,8 +523,11 @@ void AssociativeSet<Key>::event_mru_demotion(Stack_it demoted) {
   { // Take notes on new MRU:
     Stack_it mru = stack_.begin();
     auto& [key, entry] = *mru;
-    entry.eol = false;  // ensure not marked for replacement
-    predictionTooEarly_++;
+    // Ensure not marked for replacement:
+    if (entry.eol) {
+      entry.eol = false;
+      predictionTooEarly_++;
+    }
   }
 }
 
@@ -477,7 +538,7 @@ auto AssociativeSet<Key>::find_MRU(size_t pos) {
     return stack_.end();
   }
   if (stack_.size() <= pos) {
-    return std::next( stack_.rbegin() ).base(); // untested
+    return std::next(stack_.rbegin()).base(); // untested
   }
   return std::next(stack_.begin(), pos);
 }
@@ -489,7 +550,7 @@ auto AssociativeSet<Key>::find_LRU(size_t pos) {
     return stack_.end();
   }
   if (stack_.size() <= pos) {
-    return std::next( stack_.rbegin() ).base(); // untested
+    return std::next(stack_.rbegin()).base(); // untested
   }
   return std::next(stack_.rbegin(), pos+1).base();
 }
@@ -497,12 +558,12 @@ auto AssociativeSet<Key>::find_LRU(size_t pos) {
 
 template<typename Key>
 auto AssociativeSet<Key>::find_Expired(size_t pos) {
+  // Finds oldest candidate marked expired:
   auto lifetime_expired = [](const Stack_value& s) {
     return std::get<Stack_entry>(s).eol;
   };
 
   // Find first (oldest referenced) replacement candidate:
-  // TODO: explore oldest {detected, stack position, confidence}
   auto eol_rit = std::find_if(stack_.rbegin(), stack_.rend(), lifetime_expired);
   // Convert to forward iterator.
   auto eol_it = (eol_rit == stack_.rend()) ?
@@ -553,6 +614,9 @@ auto AssociativeSet<Key>::replace_find() {
       it = find_LRU(p_replace_.offset_);
       replacementLRU_++;
     }
+    break;
+  case Policy::SRRIP:
+  case Policy::SHIP:
     break;
   default:
     throw std::runtime_error("Unknown Replace Policy.");

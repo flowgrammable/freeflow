@@ -397,7 +397,9 @@ int main(int argc, const char* argv[]) {
       [&](flow_id_t flowID, const std::pair<uint64_t,timespec>&& pktTime) {
     auto [ns, ts] = pktTime;
     if (ENABLE_simMIN) {
-      auto [hit, evictSet] = simMIN.update(flowID, ts);
+//      auto [hit, evictSet] = simMIN.update(flowID, ts);
+      bool hit = simMIN.update(flowID, ts);
+      auto evictSet = simMIN.evictions();
       if (ENABLE_WSTP && !hit) {
         std::lock_guard lock(mtx_misses);
         missesMIN[flowID].emplace_back(ns);

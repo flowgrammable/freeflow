@@ -26,17 +26,17 @@ class ClampedInt {
 
 public:
   constexpr ClampedInt() = default;
-  constexpr ClampedInt(int64_t i);
+  constexpr ClampedInt(int64_t);
 
   constexpr ClampedInt& operator ++();
   constexpr ClampedInt& operator --();
   constexpr ClampedInt& operator =(const ClampedInt&);
-  constexpr ClampedInt& operator =(const int64_t);
 
-  constexpr bool operator <(const IntType_t rhs) const;
-  constexpr bool operator >(const IntType_t rhs) const;
-  constexpr bool operator <=(const IntType_t rhs) const;
-  constexpr bool operator >=(const IntType_t rhs) const;
+  constexpr bool operator <(const ClampedInt&) const;
+  constexpr bool operator >(const ClampedInt&) const;
+  constexpr bool operator <=(const ClampedInt&) const;
+  constexpr bool operator >=(const ClampedInt&) const;
+  constexpr bool operator ==(const ClampedInt&) const;
 
 private:
   static constexpr size_t SHIFT = std::numeric_limits<int64_t>::digits - (bits-1);  // bits-1 because storing signed values
@@ -45,6 +45,7 @@ private:
 
   IntType_t value_;
 };
+
 
 template<size_t bits>
 constexpr ClampedInt<bits>::ClampedInt(int64_t i) {
@@ -80,31 +81,28 @@ constexpr ClampedInt<bits>& ClampedInt<bits>::operator =(const ClampedInt& rhs) 
 }
 
 template<size_t bits>
-constexpr ClampedInt<bits>& ClampedInt<bits>::operator =(int64_t i) {
-  assert(i >= MIN);
-  assert(i <= MAX);
-  value_ = std::clamp(i, MIN, MAX);
-  return *this;
+constexpr bool ClampedInt<bits>::operator <(const ClampedInt& rhs) const {
+  return value_ < rhs.value_;
 }
 
 template<size_t bits>
-constexpr bool ClampedInt<bits>::operator <(const IntType_t rhs) const {
-  return value_ < rhs;
+constexpr bool ClampedInt<bits>::operator >(const ClampedInt& rhs) const {
+  return value_ > rhs.value_;
 }
 
 template<size_t bits>
-constexpr bool ClampedInt<bits>::operator >(const IntType_t rhs) const {
-  return value_ > rhs;
+constexpr bool ClampedInt<bits>::operator <=(const ClampedInt& rhs) const {
+  return !(value_ > rhs.value_);
 }
 
 template<size_t bits>
-constexpr bool ClampedInt<bits>::operator <=(const IntType_t rhs) const {
-  return !(value_ > rhs);
+constexpr bool ClampedInt<bits>::operator >=(const ClampedInt& rhs) const {
+  return !(value_ < rhs.value_);
 }
 
 template<size_t bits>
-constexpr bool ClampedInt<bits>::operator >=(const IntType_t rhs) const {
-  return !(value_ < rhs);
+constexpr bool ClampedInt<bits>::operator ==(const ClampedInt& rhs) const {
+  return value_ == rhs.value_;
 }
 
 
