@@ -204,7 +204,6 @@ int main(int argc, const char* argv[]) {
   po::variables_map config = parse_options(argc, argv);
 
   // Output Files:
-  // - unique_ptr to prevent resizing vector moving gz_ostream.
   ofstream NULL_OFSTREAM;
   vector<gz_ostream> gz_handles;
 
@@ -225,6 +224,7 @@ int main(int argc, const char* argv[]) {
   constexpr bool ENABLE_simMIN = false;
   constexpr bool ENABLE_simCache = true;
   constexpr bool ENABLE_WSTP = false;
+//  constexpr bool ENABLE_FLOW_LOG = false;
   //  const bool enable_simMIN(config["sim.min"].as<bool>());
   //  const bool enable_simCache(config["sim.cache"].as<bool>());
 
@@ -310,8 +310,14 @@ int main(int argc, const char* argv[]) {
   // TODO: find way of defining polices...
   CacheSim<flow_id_t> simCache(config["sim.cache.entries"].as<int>(),
                                config["sim.cache.associativity"].as<int>());
-  Policy burstCountReplacement(Policy::PolicyType::BURST_LRU);
-  simCache.set_replacement_policy(burstCountReplacement);
+//  Policy replacePolicy(Policy::PolicyType::BURST_LRU);
+  Policy replacePolicy(Policy::PolicyType::SRRIP);
+  simCache.set_replacement_policy(replacePolicy);
+
+//  Policy insertPolicy(Policy::MRU);
+//  insertPolicy.offset_ = 2;
+//  Policy insertPolicy(Policy::PolicyType::SHIP);
+//  simCache.set_insert_policy(insertPolicy);
 
   std::mutex mtx_misses; // covers both missesMIN and missesCache
   std::map<flow_id_t, std::vector<uint64_t>> missesMIN;

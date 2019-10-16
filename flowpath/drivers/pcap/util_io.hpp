@@ -6,6 +6,12 @@
 #include <boost/iostreams/filtering_streambuf.hpp>
 
 
+// Compile-time Output Disable:
+static struct NULL_OFS {} NULL_OFS_i;
+template<typename T> NULL_OFS& operator <<(NULL_OFS& os, const T& x) {return os;}
+NULL_OFS& operator <<(NULL_OFS& os, std::ostream&(*)(std::ostream&));
+
+
 /// OUTPUT GZ STREAM ///
 class gz_ostream {
 public:

@@ -106,7 +106,7 @@
 
 
 struct Policy {
-  enum PolicyType {LRU, MRU, BURST_LRU, SRRIP, SHIP};
+  enum PolicyType {LRU, MRU, BURST_LRU, SRRIP, SRRIP_CB, SHIP};
   Policy(PolicyType type) : type_(type) {}
 
   PolicyType type_;
@@ -131,7 +131,8 @@ struct Stack_entry {
   bool eol = false;   // indicates predicted to be end-of-lifetime
 
   // Re-reference Interval Prediction (RRIP):
-  int8_t reuse = 2;   // Range 0: near ... 3: distant;  Init: 2 slightly distant
+//  int8_t RR_distance = 2;   // Range 0: near ... 3: distant;  Init: 2 slightly distant
+  ClampedInt<2> RR_distance = 0; // Range -2: distant  .. 1: recient
 
   // Signature-based Hit Predictor (SHiP):
   // signature (key, already stored)
@@ -145,7 +146,7 @@ struct Stack_entry {
 // Defines prediciton table entry:
 struct PT_entry {
   // Reference Prediciton Mechanism (RefCount & BurstCount):
-  static const int64_t C_delta = 2;  // tolerable delta to avoid penalizing RC/BC; 0: for exact
+  static const int64_t C_delta = 0;  // tolerable delta to avoid penalizing RC/BC; 0: for exact
   int BC_saved = -1;  // BurstCount (-1 indicates 1st insertion)
   int RC_saved = -1;  // RefCount (rolls over after 2.7s at line rate, 10G)
   ClampedInt<5> BC_confidence = -1; // 5-bit saturating counter.
@@ -153,11 +154,8 @@ struct PT_entry {
 //  short BC_confidence = -2;  // psudo confience metric (++, match; --, unmatched)
 //  short RC_confidence = -2;
 
-  // Re-reference Interval Prediction (RRIP):
-
-
   // Signature-based Hit Predictor (SHiP):
-
+  ClampedInt<2> SHiP_reuse = -1;   // 2-bit saturating coutner (-2..1); -2: distant
 
   // Statistics:
 //  HitStats history_hits;
@@ -185,7 +183,7 @@ public:
   auto flush(const Key& k);
   auto flush();
 
-  auto insert_find();
+  auto insert_find(Key k);
   auto replace_find();
 
   void set_insert_policy(Policy insert);
@@ -202,6 +200,8 @@ public:
   int64_t get_prediction_rc() const {return predictionRC_;}
   int64_t get_prediction_rc_better() const {return predictionRC_better_;}
   int64_t get_prediction_too_early() const {return predictionTooEarly_;}
+  int64_t get_insert_predict_distant() const {return insertPedictDistant_;}
+  int64_t get_replacement_reciency() const {return replacementReciency_;}
 
   // Stack comparison for debugging:
   bool operator==(const AssociativeSet<Key>& other);
@@ -212,9 +212,16 @@ private:
   void event_eviction(Stack_it eviction);
   void event_mru_demotion(Stack_it demoted);
 
+  // Generic Policies:
   auto find_MRU(size_t pos);
   auto find_LRU(size_t pos);
+
+  //  Replacement Policies:
+  auto find_RRIP_Distance(size_t pos);
   auto find_Expired(size_t pos);
+
+  // Insertion Policies:
+  auto find_SHiP_Reuse(Key k, size_t pos);
 
   // Way Config:
   const size_t MAX_;
@@ -229,12 +236,15 @@ private:
   int64_t hits_ = 0;
   int64_t compulsoryMiss_ = 0;
   int64_t capacityMiss_ = 0;
-  // Predictor Stats
+  // Replacement Predictor Stats
   int64_t replacementLRU_ = 0;
   int64_t predictionBC_ = 0;
   int64_t predictionRC_ = 0;
   int64_t predictionRC_better_ = 0;
   int64_t predictionTooEarly_ = 0;
+  // Insert Predictor Stats
+  int64_t insertPedictDistant_ = 0;
+  int64_t replacementReciency_ = 0;
 
   // Burst Prediction:
   std::map<Key, PT_entry> pt_;  // Prediction metadata independent of cache.
@@ -243,8 +253,8 @@ private:
   static constexpr bool ENABLE_Belady = false;
   SimMIN<Key> belady_;
 //  std::set<Key> beladyEvictions_;
-  int64_t perfectHits_;         // count when cache and belady agreed
-//  int64_t perfectEvictions_;    // count when chosen eviciton was considered perfect
+  int64_t perfectHits_ = 0;   // count when cache and belady agreed
+  int64_t perfectEvictions_ = 0;    // count when chosen eviciton was considered perfect
 //  int64_t imperfectEvictions_;
 };
 
@@ -290,6 +300,8 @@ public:
   int64_t get_prediction_rc() const;
   int64_t get_prediction_rc_better() const;
   int64_t get_prediction_too_early() const;
+  int64_t get_insert_predict_distant() const;
+  double get_replacement_reciency() const;
   std::string print_stats() const;
 
 private:
@@ -334,9 +346,9 @@ auto AssociativeSet<Key>::insert(const Key& k, const Time& t) {
 template<typename Key>
 auto AssociativeSet<Key>::update(const Key& k, const Time& t) {
   // Consult Belady's Algorithm:
-  bool beladyHit;
+  bool beladyHit = false;
   if (ENABLE_Belady) {
-    bool beladyHit = belady_.update(k, t);
+    beladyHit = belady_.update(k, t);
     if (beladyHit) {
       // Potentially new information on capacity hit:
       belady_.evictions();
@@ -352,14 +364,15 @@ auto AssociativeSet<Key>::update(const Key& k, const Time& t) {
     Stack_entry& e = std::get<Stack_entry>(*it);
     Reservation& r = e.res;
     HitStats& s = e.hits;
-    e.refCount++;
+
+    ++e.refCount;
     r.second = column;
     // TODO: factor out into promotion function if modularity is needed:
     if (it == stack_.begin()) {
       s.back()++; // at MRU (continuting burst)
     }
     else {
-      // Move element from current position to front of list (MSP):
+      // Update LRU Stack:
       s.emplace_back(1);  // new burst
       Stack_it demotion = stack_.begin(); // let naturally demote by 1 position
       stack_.splice(stack_.begin(), stack_, it, std::next(it));
@@ -412,7 +425,7 @@ auto AssociativeSet<Key>::internal_insert(const Key& k, const Time& t) {
   // else evicted (std::optional) is left default constructed.
 
   // Insert Policy:
-  auto insert_it = insert_find();
+  auto insert_it = insert_find(k);
   auto item_it = stack_.emplace(insert_it, Stack_value(k, new_e));
   lookup_.insert( std::make_pair(k,item_it) );
   assert(lookup_.size() == stack_.size());
@@ -455,7 +468,7 @@ void AssociativeSet<Key>::event_eviction(Stack_it eviction) {
   // Calculate burst & reference count:
   const int burstCount = hitStats.size();
 
-  // Create/Update Pattern Table entry.  (Note: only PT creation event)
+  // Create/Update Pattern Table entry.
   PT_entry& pte = pt_[key];
 
   // Update BurstCount pattern table:
@@ -488,6 +501,14 @@ void AssociativeSet<Key>::event_eviction(Stack_it eviction) {
     }
   }
 
+  // Update SHIP re-reference interval on eviction:
+  if (entry.refCount == 1) {
+    --pte.SHiP_reuse;     // Not re-referenced before eviction, decrement.
+  }
+  else {
+    ++pte.SHiP_reuse;   // BurstCount like increment.
+  }
+
   // Update statistics:
 //  auto MINLifetime = res.second - res.first;  // how many misses did this element survive?
 //  pte.history_hits.insert(pte.history_hits.end(), hitStats.begin(), hitStats.end());
@@ -506,7 +527,7 @@ void AssociativeSet<Key>::event_mru_demotion(Stack_it demoted) {
     const int64_t burstCount = hitStats.size();
     PT_entry& pte = pt_[key];
 
-    assert(!entry.eol); // sanity check
+///    assert(!entry.eol); // sanity check
     if (pte.BC_confidence >= 0 && burstCount >= pte.BC_saved) {
       predictionBC_++;
 //      entry.eol = true;   // mark as candidate for replacement
@@ -528,6 +549,12 @@ void AssociativeSet<Key>::event_mru_demotion(Stack_it demoted) {
       entry.eol = false;
       predictionTooEarly_++;
     }
+    // Update RRIP re-reference interval on promition:
+    if (entry.refCount > 1) {
+      /* This threshold is rather arbitrary and 'easy' to achive.
+       * Starting from whats in RRIP/SHiP paper. */
+      ++entry.RR_distance;  // Re-referenced within Burst.
+    }
   }
 }
 
@@ -538,7 +565,7 @@ auto AssociativeSet<Key>::find_MRU(size_t pos) {
     return stack_.end();
   }
   if (stack_.size() <= pos) {
-    return std::next(stack_.rbegin()).base(); // untested
+    return std::next(stack_.rbegin()).base();
   }
   return std::next(stack_.begin(), pos);
 }
@@ -550,9 +577,74 @@ auto AssociativeSet<Key>::find_LRU(size_t pos) {
     return stack_.end();
   }
   if (stack_.size() <= pos) {
-    return std::next(stack_.rbegin()).base(); // untested
+    return std::next(stack_.rbegin()).base();
   }
   return std::next(stack_.rbegin(), pos+1).base();
+}
+
+
+template<typename Key>
+auto AssociativeSet<Key>::find_RRIP_Distance(size_t pos) {
+  // Helper lambda to find most distant reuse distance.
+  auto find_distant = [this, &stack = stack_]() {
+    int i = 0;
+    for (auto it = stack.begin(); it != stack.end(); ++it) {
+      const auto& entry = std::get<Stack_entry>(*it);
+      if (entry.RR_distance == decltype(entry.RR_distance)::MIN) {
+        replacementReciency_ += i;
+        return it;
+      }
+      ++i;
+    }
+    return stack.end();
+  };
+
+  // Helper lambda to decrement a given reuse distance for a stack entry.
+  auto age_distance = [](Stack_value& s) {
+    auto& entry = std::get<Stack_entry>(s);
+    --entry.RR_distance;
+  };
+
+  // Edge cases:
+  if (stack_.empty()) {
+    return stack_.end();
+  }
+  if (stack_.size() <= pos) {
+    return std::next(stack_.rbegin()).base();
+  }
+
+  // RRIP's distance search & counter adjust loop:
+  do {
+    const auto it = find_distant();
+    if (it != stack_.end()) {
+      return it;
+    }
+    std::for_each(stack_.begin(), stack_.end(), age_distance);
+  } while (true);
+}
+
+
+template<typename Key>
+auto AssociativeSet<Key>::find_SHiP_Reuse(Key k, size_t pos) {
+  // Edge cases:
+  if (stack_.empty()) {
+    return stack_.end();
+  }
+  if (stack_.size() <= pos) {
+    return std::next(stack_.rbegin()).base();
+  }
+
+  PT_entry& pte = pt_[k];
+  auto offset = pte.SHiP_reuse.get() - decltype(pte.SHiP_reuse)::MIN;
+  assert(offset == pte.SHiP_reuse.unsignedDistance());
+  if (pte.SHiP_reuse == decltype(pte.SHiP_reuse)::MIN) {
+    // Predict distant reuse, insert at LRU:
+    ++insertPedictDistant_;
+    return std::next(stack_.rbegin()).base();
+  }
+//  size_t insert_pos = stack_.size()/2;
+//  return std::next(stack_.begin(), insert_pos); // default insert to middle of stack.
+  return std::next(stack_.begin(), pos);  // default insert at MRU
 }
 
 
@@ -574,7 +666,7 @@ auto AssociativeSet<Key>::find_Expired(size_t pos) {
 
 // Returns iterator to one past insert position.
 template<typename Key>
-auto AssociativeSet<Key>::insert_find() {
+auto AssociativeSet<Key>::insert_find(Key k) {
   if (stack_.empty()) {
     return stack_.end();
   }
@@ -586,8 +678,11 @@ auto AssociativeSet<Key>::insert_find() {
   case Policy::MRU:
     it = find_MRU(p_insert_.offset_);
     break;
+  case Policy::SHIP:
+    it = find_SHiP_Reuse(k, p_insert_.offset_);
+    break;
   default:
-    throw std::runtime_error("Unknown Insert Policy.");
+    throw std::runtime_error("Unknown Insertion Policy.");
   }
   return it;
 }
@@ -616,10 +711,12 @@ auto AssociativeSet<Key>::replace_find() {
     }
     break;
   case Policy::SRRIP:
-  case Policy::SHIP:
+    it = find_RRIP_Distance(p_replace_.offset_);
+    /* NOTE: implicitly sorts by LRU when multiple elemnts have identical reuse
+     * distances.  This may skew results in favor of rrip... */
     break;
   default:
-    throw std::runtime_error("Unknown Replace Policy.");
+    throw std::runtime_error("Unknown Replacement Policy.");
   }
   return it;
 }
@@ -892,6 +989,25 @@ int64_t CacheSim<Key>::get_prediction_too_early() const {
 }
 
 template<typename Key>
+int64_t CacheSim<Key>::get_insert_predict_distant() const {
+  int64_t sum = 0;
+  for (const auto& set : sets_) {
+    sum += set.get_insert_predict_distant();
+  }
+  return sum;
+}
+
+template<typename Key>
+double CacheSim<Key>::get_replacement_reciency() const {
+  int64_t sum = 0, misses = 0;
+  for (const auto& set : sets_) {
+    sum += set.get_insert_predict_distant();
+    misses += set.get_compulsory_miss() + set.get_capacity_miss();
+  }
+  return double(sum) / double(misses);
+}
+
+template<typename Key>
 std::string CacheSim<Key>::print_stats() const {
   std::stringstream ss;
   ss << "SimCache Size: " << get_size() << '\n';
@@ -909,7 +1025,9 @@ std::string CacheSim<Key>::print_stats() const {
   ss << " - Confident BurstCount: " << get_prediction_bc() << '\n';
   ss << " - Confident RefCount: " << get_prediction_rc() << '\n';
   ss << " - RefCount tops BurstCount: " << get_prediction_rc_better() << '\n';
-  ss << " - Prediction too Early: " << get_prediction_too_early();
+  ss << " - Prediction too Early: " << get_prediction_too_early() << '\n';
+  ss << " - Insert Predict Distant: " << get_insert_predict_distant() << '\n';
+  ss << " - Replacement Reciency: " << get_replacement_reciency();
   // TODO:
   // print incorrect prediction
   // dont penalize on prediction too much, bound confidence for flexibility?

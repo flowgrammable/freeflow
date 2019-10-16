@@ -10,6 +10,7 @@
 
 using namespace std;
 
+NULL_OFS& operator <<(NULL_OFS& os, std::ostream&(*)(std::ostream&)) {return os;}
 
 /// OUTPUT GZ STREAM ///
 gz_ostream::gz_ostream(const std::string& filename) {

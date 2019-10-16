@@ -24,13 +24,20 @@ class ClampedInt {
   using LargeInt = typename std::conditional<bits<=32, int32_t, int64_t>::type;
   using IntType_t = typename std::conditional<bits<=16, SmallInt, LargeInt>::type;
 
+  static constexpr size_t SHIFT = std::numeric_limits<int64_t>::digits - (bits-1);  // bits-1 because storing signed values
+
 public:
+  static constexpr int64_t MAX = std::numeric_limits<int64_t>::max() >> SHIFT;
+  static constexpr int64_t MIN = std::numeric_limits<int64_t>::min() >> SHIFT;
+
   constexpr ClampedInt() = default;
   constexpr ClampedInt(int64_t);
 
   constexpr ClampedInt& operator ++();
   constexpr ClampedInt& operator --();
   constexpr ClampedInt& operator =(const ClampedInt&);
+  constexpr int64_t get() const;
+  constexpr uint64_t unsignedDistance() const;
 
   constexpr bool operator <(const ClampedInt&) const;
   constexpr bool operator >(const ClampedInt&) const;
@@ -39,10 +46,6 @@ public:
   constexpr bool operator ==(const ClampedInt&) const;
 
 private:
-  static constexpr size_t SHIFT = std::numeric_limits<int64_t>::digits - (bits-1);  // bits-1 because storing signed values
-  static constexpr int64_t MAX = std::numeric_limits<int64_t>::max() >> SHIFT;
-  static constexpr int64_t MIN = std::numeric_limits<int64_t>::min() >> SHIFT;
-
   IntType_t value_;
 };
 
@@ -62,15 +65,21 @@ constexpr ClampedInt<bits>::ClampedInt(int64_t i) {
 
 template<size_t bits>
 constexpr ClampedInt<bits>& ClampedInt<bits>::operator ++() {
-  int64_t i = value_ + int64_t(1);
-  value_ = std::max(i, MAX);
+  if (value_ < MAX) {
+    ++value_;
+  }
+  assert(value_ >= MIN);
+  assert(value_ <= MAX);
   return *this;
 }
 
 template<size_t bits>
 constexpr ClampedInt<bits>& ClampedInt<bits>::operator --() {
-  int64_t i = value_ - int64_t(1);
-  value_ = std::min(i, MIN);
+  if (value_ > MIN) {
+    --value_;
+  }
+  assert(value_ >= MIN);
+  assert(value_ <= MAX);
   return *this;
 }
 
@@ -78,6 +87,16 @@ template<size_t bits>
 constexpr ClampedInt<bits>& ClampedInt<bits>::operator =(const ClampedInt& rhs) {
   value_ = rhs.value;
   return *this;
+}
+
+template<size_t bits>
+constexpr int64_t ClampedInt<bits>::get() const {
+  return int64_t(value_);
+}
+
+template<size_t bits>
+constexpr uint64_t ClampedInt<bits>::unsignedDistance() const {
+  return uint64_t(value_) - uint64_t(MIN);
 }
 
 template<size_t bits>
@@ -104,6 +123,7 @@ template<size_t bits>
 constexpr bool ClampedInt<bits>::operator ==(const ClampedInt& rhs) const {
   return value_ == rhs.value_;
 }
+
 
 
 //// Tuple Serilaization ////
