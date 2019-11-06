@@ -11,6 +11,8 @@
 #include "port_pcap.hpp"
 #include "context.hpp"
 #include "types.hpp"
+#include "vector"
+#include "bitset"
 
 #include "util_view.hpp"
 
@@ -63,6 +65,7 @@ timespec operator-(const timespec& lhs, const timespec& rhs);
 // - Union of all possible flags our huristic cares about...
 // - Flags are not limited to header bits, but can also be metadata...
 enum class ProtoFlags {
+  // add DNS, ICMP, etc?
   isUDP =1<<3,
   isTCP =1<<2,
   isIPv6=1<<1,
@@ -118,6 +121,7 @@ struct Fields {
   // TCP Sequence:
   u32 tcpSeqNum;
   u32 tcpAckNum;
+  // todo, delta in sequence number?
 };
 
 std::string print_ip(uint32_t);
@@ -185,6 +189,17 @@ public:
   bool sawRST() const { return saw_reset_; }
   bool isAlive() const { return !(saw_close_ || saw_reset_); }
   u32 lastSeq() const { return last_seq_; }
+
+  // TCP flow features:
+//  auto tcp_state() const {return std::vector{isTCP(), saw_open_, saw_close_, saw_reset_};}
+  auto tcp_state() const {
+    std::bitset<4> bits;
+    bits.set(0, isTCP());
+    bits.set(1, saw_open_);
+    bits.set(2, saw_close_);
+    bits.set(3, saw_reset_);
+    return uint8_t(bits.to_ulong());
+  }
 
 private:
   // Flow Identification:

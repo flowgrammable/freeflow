@@ -221,9 +221,9 @@ int main(int argc, const char* argv[]) {
   };
 
   // Configuration:
-  constexpr bool ENABLE_simMIN = false;
   constexpr bool ENABLE_simCache = true;
-  constexpr bool ENABLE_WSTP = false;
+  constexpr bool ENABLE_simMIN = true;
+  constexpr bool ENABLE_WSTP = true;
 //  constexpr bool ENABLE_FLOW_LOG = false;
   //  const bool enable_simMIN(config["sim.min"].as<bool>());
   //  const bool enable_simCache(config["sim.cache"].as<bool>());
@@ -311,12 +311,12 @@ int main(int argc, const char* argv[]) {
   CacheSim<flow_id_t> simCache(config["sim.cache.entries"].as<int>(),
                                config["sim.cache.associativity"].as<int>());
 //  Policy replacePolicy(Policy::PolicyType::BURST_LRU);
-  Policy replacePolicy(Policy::PolicyType::SRRIP);
-  simCache.set_replacement_policy(replacePolicy);
+//  Policy replacePolicy(Policy::PolicyType::BURST_LRU);
+//  simCache.set_replacement_policy(replacePolicy);
 
 //  Policy insertPolicy(Policy::MRU);
 //  insertPolicy.offset_ = 2;
-//  Policy insertPolicy(Policy::PolicyType::SHIP);
+//  Policy insertPolicy(Policy::PolicyType::BYPASS);
 //  simCache.set_insert_policy(insertPolicy);
 
   std::mutex mtx_misses; // covers both missesMIN and missesCache
@@ -368,18 +368,89 @@ int main(int argc, const char* argv[]) {
   };
 
 
-//  std::vector<int64_t> histBurst;
-//  auto burstHistogram = [&histBurst](const auto& ts) {
-//    for (auto burst : ts) {
-//      if (burst >= histBurst.size()) {
-//        histBurst.resize(burst*2);
-//      }
-//      histBurst[burst]++;
+  /////////////////////////////////////////////////////////////////////////////
+  /// Helper functions to interact with cache simulations: ////////////////////
+
+  // Perceptron Features:
+  struct Features {
+    auto operator()(const Fields& k, const FlowRecord& r) const {
+      // all tables < 64k in size
+      std::array<uint16_t, 10> f;
+
+      // Stateless Flow Features:
+      // Mix ip proto to upper 8 bits of meaningful port:
+      // min(src, dst): smallest port number tends to provide meaning
+      f[0] = (uint16_t(k.ipProto) << 8) ^ std::min(k.srcPort, k.dstPort);
+      // Mix dst_ip/16 and dest_port:
+      f[1] = (k.ipv4Dst >> 16) ^ k.dstPort;
+      f[2] = (k.ipv4Src >> 16) ^ k.srcPort;
+      // Useful flags from IP and TCP headers:
+      f[3] = make_flags_bitset(k);
+      f[4] = k.srcPort ^ k.dstPort;
+      f[5] = uint16_t(k.ipProto) ^ (uint16_t(k.fTCP) << 7) ^ std::min(k.srcPort, k.dstPort);
+      f[6] = (k.ipv4Dst >> 16) ^ (k.ipv4Src >> 16);
+      f[7] = (k.ipv4Dst >> 8) ^ (k.ipv4Src >> 8);
+      f[8] = (k.ipv4Dst) ^ (k.ipv4Src);
+
+      // Stateful Flow Features:
+      f[9] = r.tcp_state();
+      return f;
+    }
+  };
+
+//  template<size_t Features, typename T>
+//  class FeatureGen {
+//    std::array<size_t, Features> operator()(const T& s) const {
+//      std::array<size_t, Features> f;
 //    }
 //  };
 
-  /// Helper functions to interact with cache simulations: /////////////////////
-  // - Insert called once (first packet on flow startup)
+  auto make_feature_1 = [](const Fields& k) {
+    return std::make_tuple(k.ipProto, std::min(k.srcPort, k.dstPort));
+  };
+  auto make_feature_2 = [](const Fields& k) {
+    return std::make_tuple(k.ipv4Dst >> 8, k.dstPort);
+  };
+  auto make_feature_3 = [](const Fields& k) {
+    return std::make_tuple(k.ipv4Src >> 8, k.srcPort);
+  };
+  auto make_feature_4 = [](const Fields& k) {
+    Flags flags = make_flags_bitset(k);
+    return std::make_tuple(flags);
+  };
+  auto make_feature_5 = [](const Fields& k) {
+    return std::make_tuple(uint16_t(k.ipv4Dst >> 16),
+                           uint16_t(k.ipv4Src >> 16));
+  };
+  auto make_feature_6 = [](const Fields& k) {
+    return std::make_tuple(k.srcPort, k.dstPort);
+  };
+  auto make_feature_7 = [](const Fields& k) {
+    return std::make_tuple(k.ipProto, std::min(k.srcPort, k.dstPort), k.fTCP);
+  };
+  auto make_feature_8 = [](const FlowRecord& r) {
+    return std::make_tuple(r.tcp_state());
+  };
+  auto make_feature_9 = [](const FlowRecord& r) {
+    return std::make_tuple(r.packets());
+  };
+  auto make_feature_10 = [](const FlowRecord& r) {
+    return std::make_tuple(r.isTCP(), r.packets());
+  };
+//  auto make_feature_8 = [](const FlowRecord& r) {
+//    using V = decltype(r.getByteV());
+//    constexpr size_t N = 8;
+//    size_t n = std::min(N, r.getByteV().size());
+////    V lastNBytes = V(r.getByteV().rbegin());
+//    return std::make_tuple(r.getByteV());
+//  };
+  // feature 5: delta in seq /ack number?
+  // feature 6: pps?
+  // feature 7: burst/ref count?
+  // feature 8:
+
+
+  // Insert called once (first packet on flow startup)
   std::function<void(flow_id_t, const std::pair<uint64_t,timespec>&&)> f_sim_insert =
       [&](flow_id_t flowID, const std::pair<uint64_t,timespec>&& pktTime) {
     auto [ns, ts] = pktTime;
@@ -436,12 +507,13 @@ int main(int argc, const char* argv[]) {
       blacklistPackets = 0, malformedPackets = 0, timeoutPackets = 0, \
       flowPortReuse = 0;
 
-  /// Filtering function to find 'interesting' flows once they retire: /////////
+
+  // Filtering function to find 'interesting' flows once they retire:
   std::function<void(FlowRecord&&)> f_sample = [&](FlowRecord&& r) {
     // Only consider semi-large flows:
     if (ENABLE_WSTP) {
       const auto duration = r.last();
-      if (duration.second.tv_sec > 1 && r.packets() >= 32) {
+//      if (duration.second.tv_sec > 1 && r.packets() >= 32) {
   //    if (r.packets() > 512) {
         std::unique_lock missesLock(mtx_misses);
         auto cache_it = missesCache.find(r.getFlowID());
@@ -451,22 +523,26 @@ int main(int argc, const char* argv[]) {
         const auto& min_ts = min_it->second;
 
         // Only record multiple misses within MIN:
-        if ( min_it != missesMIN.end() && min_ts.size() >= 8 ) {
+        auto unfriendly = int64_t(cache_ts.size()) - int64_t(min_ts.size());
+        if (unfriendly > 0) {
+//        if ( min_it != missesMIN.end() && min_ts.size() >= 8 ) {
           // Flow looks interesting, add to retiredRecords:
-  //        std::cout << "+ FlowID: " << r.getFlowID()
-  //                  << ", Packets: " << r.packets()
-  //                  << ", Misses: " << min_ts.size()
-  //                  << "; " << print_flow_key_string( r.getFlowTuple() )
-  //                  << std::endl;
+          std::cout << "+ FlowID: " << r.getFlowID()
+                    << ", Packets: " << r.packets()
+                    << ", Misses: " << min_ts.size()
+                    << ", Unfriendly: " << unfriendly
+                    << "; " << print_flow_key_string( r.getFlowTuple() )
+                    // also print detected flow start time...
+                    << std::endl;
           { std::lock_guard lock(mtx_RetiredFlows);
             retiredRecords.emplace(r.getFlowID(), r);
             // keep flow in missesCache, missesMIN, and cacheLifetimes
           }
-          return;
+//          return;
         }
-      }
+//      }
       // Flow behaved unremarkibly, delete metadata:
-      {
+      else {
         std::lock_guard lock(mtx_misses);
         missesCache.erase(r.getFlowID());
         missesMIN.erase(r.getFlowID());
@@ -477,7 +553,9 @@ int main(int argc, const char* argv[]) {
   };
 
 
-  /// WSTP interface functions used for exploration ////////////////////////////
+  /////////////////////////////////////////////////////////////////////////////
+  /// WSTP INTERFACE FUNCTIONS/////////////////////////////////////////////////
+  // WSTP interface functions used for exploration
   wstp_link::fn_t f_get_misses_MIN = [&](wstp_link::arg_t) {
     static auto sorted_queue = f_sort_by_misses(missesMIN);
     static size_t update_triger = sorted_queue.size();
@@ -562,18 +640,24 @@ int main(int argc, const char* argv[]) {
     wstp_link::ts_t deltas(ts.size());
     std::adjacent_difference(ts.begin(), ts.end(), deltas.begin());
 
-    // Search for miss vector:
-    std::unique_lock lck2(mtx_misses);
-    auto miss_ts = missesMIN.at(fid);
-    lck2.unlock();
-    if (miss_ts.empty()) {
-      return wstp_link::arg_t(deltas);
-    }
+    try {
+      // Search for miss vector:
+      std::unique_lock lck2(mtx_misses);
+      auto miss_ts = missesMIN.at(fid);
+      lck2.unlock();
+      if (miss_ts.empty()) {
+        return wstp_link::arg_t(deltas);
+      }
 
-    // Mark miss by returning netagive distances:
-    for (auto miss : miss_ts) {
-      auto x = std::find(ts.begin(), ts.end(), miss);
-      deltas[std::distance(ts.begin(), x)] *= -1;
+      // Mark miss by returning netagive distance:
+      for (auto miss : miss_ts) {
+        auto x = std::find(ts.begin(), ts.end(), miss);
+        deltas[std::distance(ts.begin(), x)] *= -1;
+      }
+    }
+    catch (std::out_of_range) {
+      std::cerr << "Caught std::out_of_range exception missesMIN.at(" << fid
+                << ") in " << __func__ << std::endl;
     }
     return wstp_link::arg_t(deltas);
   };
@@ -594,7 +678,10 @@ int main(int argc, const char* argv[]) {
       auto miss_ts = missesMIN.at(fid);
       ts = wstp_link::ts_t(miss_ts.begin(), miss_ts.end());
     }
-    catch (std::out_of_range) {}
+    catch (std::out_of_range) {
+      std::cerr << "Caught std::out_of_range exception missesMIN.at(" << fid
+                << ") in " << __func__ << std::endl;
+    }
     return ts;
   };
 
@@ -606,16 +693,31 @@ int main(int argc, const char* argv[]) {
       auto miss_ts = missesCache.at(fid);
       ts = wstp_link::ts_t(miss_ts.begin(), miss_ts.end());
     }
-    catch (std::out_of_range) {}
+    catch (std::out_of_range) {
+      std::cerr << "Caught std::out_of_range exception missesCache.at(" << fid
+                << ") in " << __func__ << std::endl;
+    }
     return ts;
   };
 
+  // depricated:
   wstp_link::fn_t f_get_samples = [&](wstp_link::arg_t v) {
     auto n = std::get<int64_t>(v);
-    wstp_link::data_t samples;
+    wstp_link::vector_t samples;
     for (const auto& [key, value] : retiredRecords) {
       if (n-- == 0) { break; }
       wstp_link::ts_t s = std::get<wstp_link::ts_t>(f_get_ts_deltas(key));
+      samples.push_back(s);
+    }
+    return samples;
+  };
+
+  wstp_link::fn_t f_get_SIM_misses = [&](wstp_link::arg_t v) {
+    auto n = std::get<int64_t>(v);
+    wstp_link::vector_t samples;
+    for (const auto& [key, value] : retiredRecords) {
+      if (n-- == 0) { break; }
+      wstp_link::ts_t s = std::get<wstp_link::ts_t>(f_get_ts_miss_SIM(key));
       samples.push_back(s);
     }
     return samples;
@@ -631,11 +733,12 @@ int main(int argc, const char* argv[]) {
     wstp_link::register_fn( def_t(sig_t("FFSampleFlow[]", ""), fn_t(f_get_arrival)) );
     wstp_link::register_fn( def_t(sig_t("FFGetMisses[]", ""), fn_t(f_get_misses_MIN)) );
     wstp_link::register_fn( def_t(sig_t("FFGetFlowIDs[]", ""), fn_t(f_get_ids)) );
-    wstp_link::register_fn( def_t(sig_t("FFGetFlowTS[x_Integer]", "x"), fn_t(f_get_ts)) );
-    wstp_link::register_fn( def_t(sig_t("FFGetFlowDelta[x_Integer]", "x"), fn_t(f_get_ts_deltas)) );
-    wstp_link::register_fn( def_t(sig_t("FFGetFlowMissMIN[x_Integer]", "x"), fn_t(f_get_ts_miss_MIN)) );
-    wstp_link::register_fn( def_t(sig_t("FFGetFlowMissSIM[x_Integer]", "x"), fn_t(f_get_ts_miss_SIM)) );
-    wstp_link::register_fn( def_t(sig_t("FFGetSamples[x_Integer]", "x"), fn_t(f_get_samples)) );
+    wstp_link::register_fn( def_t(sig_t("FFGetFlowTS[fid_Integer]", "fid"), fn_t(f_get_ts)) );
+    wstp_link::register_fn( def_t(sig_t("FFGetFlowDelta[fid_Integer]", "fid"), fn_t(f_get_ts_deltas)) );
+    wstp_link::register_fn( def_t(sig_t("FFGetFlowMissMIN[fid_Integer]", "fid"), fn_t(f_get_ts_miss_MIN)) );
+    wstp_link::register_fn( def_t(sig_t("FFGetFlowMissSIM[fid_Integer]", "fid"), fn_t(f_get_ts_miss_SIM)) );
+    wstp_link::register_fn( def_t(sig_t("FFGetSamples[n_Integer]", "n"), fn_t(f_get_samples)) );
+    wstp_link::register_fn( def_t(sig_t("FFGetMissesSIM[n_Integer]", "n"), fn_t(f_get_SIM_misses)) );
     string interface = wstp.listen();
     debugLog << "WSTP Server listening on " << interface << endl;
   }
@@ -682,7 +785,6 @@ int main(int argc, const char* argv[]) {
       totalBytes += wireBytes;
       totalPackets++;
 
-
       // Perform initial flowID lookup:
       auto flowID_it = flowIDs.find(fkt);
       flowID = (flowID_it != flowIDs.end()) ? flowID_it->second.front() : 0;
@@ -690,8 +792,8 @@ int main(int argc, const char* argv[]) {
       ////////////////////////////////////
       // Trace output generation lambda:
       auto tracePoint = [&]() {
-        const auto& fields = evalCxt.fields;
-        const auto& proto = fields.fProto;
+        const Fields& fields = evalCxt.fields;
+        const ProtoFlags& proto = fields.fProto;
 
         // if flow is established?...
         // TODO: how to punt suspected scans to seperate trace file?

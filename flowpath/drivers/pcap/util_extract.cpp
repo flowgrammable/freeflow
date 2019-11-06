@@ -150,9 +150,11 @@ std::string make_flow_key_string(const Fields& k) {
 }
 
 FlowKeyTuple make_flow_key_tuple(const Fields& k) {
-  Ipv4Tuple ipt {k.ipv4Src, k.ipv4Dst};
-  PortTuple pt {k.srcPort, k.dstPort};
-  FlowKeyTuple fkt {move(ipt), move(pt), k.ipProto};
+  FlowKeyTuple fkt {
+    Ipv4Tuple{k.ipv4Src, k.ipv4Dst},
+    PortTuple{k.srcPort, k.dstPort},
+    k.ipProto
+  };
   return fkt;
 }
 

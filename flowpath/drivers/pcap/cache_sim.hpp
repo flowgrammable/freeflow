@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <string>
 #include <sstream>
+#include <random>
 
 #include "types.hpp"
 #include "util_container.hpp"
@@ -21,95 +22,14 @@
 #include "absl/container/flat_hash_set.h"
 #include "absl/container/inlined_vector.h"
 
-//template<typename InputIt>
-//InputIt find_LRU(InputIt first, InputIt last, size_t pos) {
-//  auto r_first = std::make_reverse_iterator(last);
-//  auto r_last = std::make_reverse_iterator(first);
-//  auto r_it = r_first;
-//  for (size_t i = 0; i < pos; i++) {
-//    auto next = std::next(r_it);
-//    if (next == r_last) {
-//      return std::next(r_it).base();
-//    }
-//    r_it = next;
-//  }
-//  return std::next(r_it).base();
-//}
-
-//template<typename InputIt>
-//InputIt find_MRU(InputIt first, InputIt last, size_t pos) {
-//  auto it = first;
-//  for (size_t i = 0; i < pos; i++) {
-//    auto next = std::next(it);
-//    if (next == last) {
-//      return it;
-//    }
-//    it = next;
-//  }
-//  return it;
-//}
-
-//// Requires InputIt to be reverse iterable and ordered from MRU to LRU:
-//template<typename InputIt>
-//class Policy {
-//public:
-//  virtual InputIt find(InputIt first, InputIt last) = 0;
-//};
-
-//template<typename InputIt>
-//class Policy_LRU : public Policy<InputIt> {
-//public:
-//  Policy_LRU(size_t pos = 0) : pos_(pos) {}
-//  InputIt find(InputIt first, InputIt last) {
-//    auto r_first = std::make_reverse_iterator(last);
-//    auto r_last = std::make_reverse_iterator(first);
-//    auto r_it = r_first;
-//    for (size_t i = 0; i < pos_; i++) {
-//      auto next = std::next(r_it);
-//      if (next == r_last) {
-//        return std::next(r_it).base();
-//      }
-//      r_it = next;
-//    }
-//    return std::next(r_it).base();
-////    if (s.size() <= pos_) {
-////      return s.rbegin().base();
-////    }
-////    return (s.rbegin() + pos_).base();
-//  }
-//private:
-//  const size_t pos_;
-//};
-
-//template<typename InputIt>
-//class Policy_MRU : public Policy<InputIt> {
-//public:
-//  Policy_MRU(size_t pos = 0) : pos_(pos) {}
-//  InputIt find(InputIt first, InputIt last) {
-//    auto it = first;
-//    for (size_t i = 0; i < pos_; i++) {
-//      auto next = std::next(it);
-//      if (next == last) {
-//        return it;
-//      }
-//      it = next;
-//    }
-//    return it;
-////    if (s.size() <= pos_) {
-////      return s.rbegin().base();
-////    }
-////    return (s.begin() + pos_).base();
-//  }
-//private:
-//  const size_t pos_;
-//};
-
+// Global Random Number Generator:
+std::mt19937 rE{std::random_device{}()};
 
 struct Policy {
-  enum PolicyType {LRU, MRU, BURST_LRU, SRRIP, SRRIP_CB, SHIP};
-  Policy(PolicyType type) : type_(type) {}
+  enum PolicyType {LRU, MRU, BURST_LRU, SRRIP, SRRIP_CB, SHIP, BYPASS, RANDOM};
+  Policy(PolicyType type) : p_(type) {}
 
-  PolicyType type_;
+  PolicyType p_;
   size_t offset_ = 0;
 };
 
@@ -132,7 +52,7 @@ struct Stack_entry {
 
   // Re-reference Interval Prediction (RRIP):
 //  int8_t RR_distance = 2;   // Range 0: near ... 3: distant;  Init: 2 slightly distant
-  ClampedInt<2> RR_distance = 0; // Range -2: distant  .. 1: recient
+  ClampedInt<3> RR_distance = ClampedInt<3>::MAX; // Range -2: distant  .. 1: recient
 
   // Signature-based Hit Predictor (SHiP):
   // signature (key, already stored)
@@ -155,7 +75,7 @@ struct PT_entry {
 //  short RC_confidence = -2;
 
   // Signature-based Hit Predictor (SHiP):
-  ClampedInt<2> SHiP_reuse = -1;   // 2-bit saturating coutner (-2..1); -2: distant
+  ClampedInt<1> SHiP_reuse = ClampedInt<1>::MAX;   // 2-bit saturating coutner (-2..1); -2: distant
 
   // Statistics:
 //  HitStats history_hits;
@@ -209,12 +129,15 @@ public:
 
 private:
   auto internal_insert(const Key& k, const Time& t);
+
   void event_eviction(Stack_it eviction);
   void event_mru_demotion(Stack_it demoted);
+  void event_mru_hit(Stack_it hit);
 
   // Generic Policies:
   auto find_MRU(size_t pos);
   auto find_LRU(size_t pos);
+  auto find_Random(size_t pos);
 
   //  Replacement Policies:
   auto find_RRIP_Distance(size_t pos);
@@ -222,6 +145,7 @@ private:
 
   // Insertion Policies:
   auto find_SHiP_Reuse(Key k, size_t pos);
+  auto find_Bypass(Key k, size_t pos);
 
   // Way Config:
   const size_t MAX_;
@@ -325,7 +249,8 @@ private:
 /////////////////////////////////////
 template<typename Key>
 AssociativeSet<Key>::AssociativeSet(size_t entries, Policy&& insert, Policy&& replace) :
-  MAX_(entries), lookup_(entries), p_insert_(insert), p_replace_(replace), belady_(entries) {}
+  MAX_(entries), lookup_(entries), p_insert_(insert), p_replace_(replace), belady_(entries)
+{}
 
 // Key has been created (first occurance)
 template<typename Key>
@@ -550,10 +475,27 @@ void AssociativeSet<Key>::event_mru_demotion(Stack_it demoted) {
       predictionTooEarly_++;
     }
     // Update RRIP re-reference interval on promition:
-    if (entry.refCount > 1) {
+    if (p_replace_.p_ == Policy::SRRIP_CB && entry.refCount > 1) {
       /* This threshold is rather arbitrary and 'easy' to achive.
        * Starting from whats in RRIP/SHiP paper. */
       ++entry.RR_distance;  // Re-referenced within Burst.
+    }
+  }
+}
+
+
+// MRU hit event triggers this function to note metadata as needed.
+// - Called with iterator pointing to hit entry.
+template<typename Key>
+void AssociativeSet<Key>::event_mru_hit(Stack_it hit) {
+  { // Take notes on hit:
+    auto& [key, entry] = *hit;
+
+    // Update RRIP re-reference interval on hit:
+    if (p_replace_.p_ == Policy::SRRIP) {
+      /* This threshold is rather arbitrary and 'easy' to achive.
+       * Starting from whats in RRIP/SHiP paper. */
+      ++entry.RR_distance;  // Re-referenced on hit.
     }
   }
 }
@@ -580,6 +522,20 @@ auto AssociativeSet<Key>::find_LRU(size_t pos) {
     return std::next(stack_.rbegin()).base();
   }
   return std::next(stack_.rbegin(), pos+1).base();
+}
+
+
+template<typename Key>
+auto AssociativeSet<Key>::find_Random(size_t pos) {
+  if (stack_.empty()) {
+    return stack_.end();
+  }
+  if (stack_.size() <= pos) {
+    return std::next(stack_.rbegin()).base();
+  }
+  std::uniform_int_distribution<size_t> dist(0, MAX_ - pos);
+  size_t n = dist(rE);
+  return std::next(stack_.begin(), n);
 }
 
 
@@ -640,10 +596,29 @@ auto AssociativeSet<Key>::find_SHiP_Reuse(Key k, size_t pos) {
   if (pte.SHiP_reuse == decltype(pte.SHiP_reuse)::MIN) {
     // Predict distant reuse, insert at LRU:
     ++insertPedictDistant_;
-    return std::next(stack_.rbegin()).base();
+    return std::next(stack_.rbegin(), pos+1).base();
   }
 //  size_t insert_pos = stack_.size()/2;
 //  return std::next(stack_.begin(), insert_pos); // default insert to middle of stack.
+  return std::next(stack_.begin(), pos);  // default insert at MRU
+}
+
+
+template<typename Key>
+auto AssociativeSet<Key>::find_Bypass(Key k, size_t pos) {
+  // Edge cases:
+  if (stack_.empty()) {
+    return stack_.end();
+  }
+  if (stack_.size() <= pos) {
+    return std::next(stack_.rbegin()).base();
+  }
+
+  if (pt_.count(k) == 0) {
+    // Not seen before; predict distant reuse, insert at LRU:
+    ++insertPedictDistant_;
+    return std::next(stack_.rbegin(), pos+1).base();
+  }
   return std::next(stack_.begin(), pos);  // default insert at MRU
 }
 
@@ -670,16 +645,23 @@ auto AssociativeSet<Key>::insert_find(Key k) {
   if (stack_.empty()) {
     return stack_.end();
   }
+  const Policy& policy = p_insert_;
   Stack_it it;
-  switch (p_insert_.type_) {
+  switch (policy.p_) {
   case Policy::LRU:
-    it = find_LRU(p_insert_.offset_);
+    it = find_LRU(policy.offset_);
     break;
   case Policy::MRU:
-    it = find_MRU(p_insert_.offset_);
+    it = find_MRU(policy.offset_);
     break;
   case Policy::SHIP:
-    it = find_SHiP_Reuse(k, p_insert_.offset_);
+    it = find_SHiP_Reuse(k, policy.offset_);
+    break;
+  case Policy::BYPASS:
+    it = find_Bypass(k, policy.offset_);
+    break;
+  case Policy::RANDOM:
+    it = find_Random(policy.offset_);
     break;
   default:
     throw std::runtime_error("Unknown Insertion Policy.");
@@ -694,26 +676,31 @@ auto AssociativeSet<Key>::replace_find() {
   if (stack_.empty()) {
     return stack_.end();
   }
+  const Policy& policy = p_replace_;
   Stack_it it;
-  switch (p_replace_.type_) {
+  switch (policy.p_) {
   case Policy::LRU:
-    it = find_LRU(p_replace_.offset_);
+    it = find_LRU(policy.offset_);
     replacementLRU_++;
     break;
   case Policy::MRU:
-    it = find_MRU(p_replace_.offset_);
+    it = find_MRU(policy.offset_);
     break;
   case Policy::BURST_LRU:
-    it = find_Expired(p_replace_.offset_);
+    it = find_Expired(policy.offset_);
     if (it == stack_.end()) {
-      it = find_LRU(p_replace_.offset_);
+      it = find_LRU(policy.offset_);
       replacementLRU_++;
     }
     break;
   case Policy::SRRIP:
-    it = find_RRIP_Distance(p_replace_.offset_);
+  case Policy::SRRIP_CB:
+    it = find_RRIP_Distance(policy.offset_);
     /* NOTE: implicitly sorts by LRU when multiple elemnts have identical reuse
      * distances.  This may skew results in favor of rrip... */
+    break;
+  case Policy::RANDOM:
+    it = find_Random(policy.offset_);
     break;
   default:
     throw std::runtime_error("Unknown Replacement Policy.");

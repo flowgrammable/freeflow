@@ -362,8 +362,8 @@ int wstp_link::decode_call() {
 //    std::cerr << "Returning list of size: " << list.size() << std::endl;
     WSPutInteger64List(link_, list.data(), static_cast<int>(list.size()));
   }
-  else if (std::holds_alternative<data_t>(v)) {
-    const data_t& data = std::get<data_t>(v);
+  else if (std::holds_alternative<vector_t>(v)) {
+    const vector_t& data = std::get<vector_t>(v);
 //    std::cerr << "Creating outer list of size: " << data.size() << std::endl;
     put_function("List", data.size());
     for (const ts_t& list : data) {
