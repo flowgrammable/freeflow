@@ -5,6 +5,7 @@
 #include "util_bitmask.hpp"
 #include "util_io.hpp"
 #include "sim_min.hpp"
+#include "sim_opt.hpp"
 #include "sim_lru.hpp"
 #include "cache_sim.hpp"
 //#include "util_mem.h"
@@ -307,6 +308,7 @@ int main(int argc, const char* argv[]) {
   //////////////////////////////////////////////////////////////////////////////
   /// Simulation bookeeping structures:
   SimMIN<flow_id_t> simMIN(config["sim.min.entries"].as<int>());
+  SimOPT<flow_id_t> simOPT(config["sim.min.entries"].as<int>());
   // TODO: find way of defining polices...
   CacheSim<flow_id_t> simCache(config["sim.cache.entries"].as<int>(),
                                config["sim.cache.associativity"].as<int>());
@@ -456,6 +458,7 @@ int main(int argc, const char* argv[]) {
     auto [ns, ts] = pktTime;
     if (ENABLE_simMIN) {
       simMIN.insert(flowID, ts);
+      simOPT.insert(flowID, ts);
     }
 
     if (ENABLE_simCache) {
@@ -475,11 +478,21 @@ int main(int argc, const char* argv[]) {
     auto [ns, ts] = pktTime;
     if (ENABLE_simMIN) {
 //      auto [hit, evictSet] = simMIN.update(flowID, ts);
-      bool hit = simMIN.update(flowID, ts);
-      auto evictSet = simMIN.evictions();
-      if (ENABLE_WSTP && !hit) {
-        std::lock_guard lock(mtx_misses);
-        missesMIN[flowID].emplace_back(ns);
+      { // simMIN
+        bool hit = simMIN.update(flowID, ts);
+        auto evictSet = simMIN.evictions();
+        if (ENABLE_WSTP && !hit) {
+          std::lock_guard lock(mtx_misses);
+          missesMIN[flowID].emplace_back(ns);
+        }
+      }
+      { // simOPT
+        bool hit = simOPT.update(flowID, ts);
+        auto evictSet = simOPT.evictions();
+//        if (ENABLE_WSTP && !hit) {
+//          std::lock_guard lock(mtx_misses);
+//          missesMIN[flowID].emplace_back(ns);
+//        }
       }
     }
 
@@ -1068,6 +1081,7 @@ int main(int argc, const char* argv[]) {
   // TODO: move print into class function...
   if (ENABLE_simMIN) {
     debugLog << simMIN.print_stats() << '\n';
+    debugLog << simOPT.print_stats() << '\n';
   }
   if (ENABLE_simCache) {
     debugLog << simCache.print_stats() << '\n';
