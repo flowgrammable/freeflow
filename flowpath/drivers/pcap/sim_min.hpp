@@ -40,7 +40,7 @@ public:
   void remove(const Key& k);  // does nothing...
   std::set<Key> evictions() {return trim_to_barrier();}
 
-  size_t get_size() const {return MAX_;}
+  size_t get_size() const {return ENTRIES_;}
   uint64_t get_hits() const {return hits_;}
   uint64_t get_capacity_miss() const {return capacityMiss_;}
   uint64_t get_compulsory_miss() const {return compulsoryMiss_;}
@@ -48,7 +48,7 @@ public:
   std::string print_stats() const;
 
 private:
-  const size_t MAX_;
+  const size_t ENTRIES_;
   size_t barrier_ = 0;      // absolute indexing (adjust with trim_offset)
   size_t trim_offset_ = 0;  // offset for relative indexing
   absl::flat_hash_map<Key, History> reserved_;
@@ -67,8 +67,8 @@ private:
 /////////////////////////////
 
 template<typename Key>
-SimMIN<Key>::SimMIN(size_t entries) : MAX_(entries) {
-  reserved_.reserve(entries*16);  // prepare for roughly 10:1 flow:active ratio
+SimMIN<Key>::SimMIN(size_t entries) : ENTRIES_(entries) {
+  reserved_.reserve(entries*2);
 }
 
 
@@ -111,7 +111,7 @@ bool SimMIN<Key>::update(const Key& k, const Time& t) {
       const size_t idx = i - trim_offset_;
       assert(idx < capacity_.size());
       // Update count (scoreboard):
-      if (++capacity_[idx] >= MAX_) {
+      if (++capacity_[idx] >= ENTRIES_) {
         // Note if barrier moved:
         last = i;
       }
