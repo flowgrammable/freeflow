@@ -230,8 +230,8 @@ main(int argc, const char* argv[])
     }
 
     // Associate packet with flow:
-    const Fields& k = evalCxt.fields;
-    const FlowKeyTuple fkt = make_flow_key_tuple(k);
+    const std::shared_ptr<const Fields> k = evalCxt.fields;
+    const FlowKeyTuple fkt = make_flow_key_tuple(*k);
 
     u16 wireBytes = evalCxt.origBytes;
     maxPacketSize = std::max(maxPacketSize, wireBytes);
@@ -249,14 +249,13 @@ main(int argc, const char* argv[])
     ////////////////////////////////////
     // Trace output generation lambda:
     auto tracePoint = [&]() {
-      const auto& fields = evalCxt.fields;
-      const auto& proto = fields.fProto;
+      const auto& proto = k->fProto;
 
       // if flow is established?...
 
       if (proto & ProtoFlags::isTCP) {
         serialize(tcpFlowTrace, fkt);
-        serialize(tcpFlowTrace, make_flags_bitset(k));
+        serialize(tcpFlowTrace, make_flags_bitset(*k));
       }
       else if (proto & ProtoFlags::isUDP) {
         serialize(udpFlowTrace, fkt);

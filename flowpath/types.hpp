@@ -13,6 +13,12 @@
 #include <iostream>
 #include <cassert>
 
+//// Simple saturating conversion helper ////
+template<typename T, typename U>
+constexpr T ClampDown(U u) {
+  return std::clamp(u, U(std::numeric_limits<T>::min()), U(std::numeric_limits<T>::max()));
+}
+
 
 //// Saturating Counter ////
 template<size_t bits>
@@ -29,6 +35,7 @@ class ClampedInt {
 public:
   static constexpr int64_t MAX = std::numeric_limits<int64_t>::max() >> SHIFT;
   static constexpr int64_t MIN = std::numeric_limits<int64_t>::min() >> SHIFT;
+  static constexpr size_t RANGE = MAX - MIN;
 
   constexpr ClampedInt() = default;
   constexpr ClampedInt(int64_t);

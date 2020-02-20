@@ -256,8 +256,8 @@ main(int argc, const char* argv[])
       }
 
       // Associate packet with flow:
-      const Fields& k = evalCxt.fields;
-      const FlowKeyTuple fkt = make_flow_key_tuple(k);
+      const std::shared_ptr<const Fields> k = evalCxt.fields;
+      const FlowKeyTuple fkt = make_flow_key_tuple(*k);
 
       // Update global stats:
       u16 wireBytes = evalCxt.origBytes;
@@ -274,15 +274,13 @@ main(int argc, const char* argv[])
       ////////////////////////////////////
       // Trace output generation lambda:
       auto tracePoint = [&]() {
-        const auto& fields = evalCxt.fields;
-        const auto& proto = fields.fProto;
+        const auto& proto = k->fProto;
 
         // if flow is established?...
         // TODO: how to punt suspected scans to seperate trace file?
-
         if (proto & ProtoFlags::isTCP) {
           serialize(tcpFlowTrace, fkt);
-          serialize(tcpFlowTrace, make_flags_bitset(k));
+          serialize(tcpFlowTrace, make_flags_bitset(*k));
         }
         else if (proto & ProtoFlags::isUDP) {
           serialize(udpFlowTrace, fkt);
@@ -306,9 +304,9 @@ main(int argc, const char* argv[])
 
           // TODO: ignore syn retransmits...?
           // Ensure packet doesn't correspond to a new flow (port-reuse):
-          if ( evalCxt.fields.fProto & ProtoFlags::isTCP &&
-               (evalCxt.fields.fTCP & TCPFlags::SYN) == TCPFlags::SYN &&
-               evalCxt.fields.tcpSeqNum != flowR.get().lastSeq() ) {
+          if ( k->fProto & ProtoFlags::isTCP &&
+              (k->fTCP & TCPFlags::SYN) == TCPFlags::SYN &&
+               k->tcpSeqNum != flowR.get().lastSeq() ) {
             // Packet indicates new flow:
             timespec sinceLast = pktTime - flowR.get().last().second;
             debugLog << (flowR.get().isTCP()?"TCP":"???") << " flow " << flowID
@@ -316,7 +314,7 @@ main(int argc, const char* argv[])
                      << flowR.get().packets()
                      << " packets and " << sinceLast.tv_sec
                      << " seconds before port reuse; "
-                     << print_flow_key_string(k) << endl;
+                     << print_flow_key_string(*k) << endl;
 
             // Retire old record:
             flowStats << print_flow(flowR).str();
@@ -349,7 +347,7 @@ main(int argc, const char* argv[])
           // Flow was seen before but no longer tracked:
           if (blacklistFlows.find(flowID) != blacklistFlows.end()) {
             serialize(scanFlowTrace, fkt);
-            serialize(scanFlowTrace, make_flags_bitset(k));
+            serialize(scanFlowTrace, make_flags_bitset(*k));
             blacklistPackets++;
           }
           else {

@@ -32,13 +32,13 @@ public:
   SimMIN(size_t entries);
 
 private:
-  std::set<Key> trim_to_barrier();
+  std::pair<std::set<Key>, std::set<Key>> trim_to_barrier();
 
 public:
   void insert(const Key& k, const Time& t);
   bool update(const Key& k, const Time& t);
   void remove(const Key& k);  // does nothing...
-  std::set<Key> evictions() {return trim_to_barrier();}
+  std::pair<std::set<Key>, std::set<Key>> evictions() {return trim_to_barrier();}
 
   size_t get_size() const {return ENTRIES_;}
   uint64_t get_hits() const {return hits_;}
@@ -142,11 +142,11 @@ bool SimMIN<Key>::update(const Key& k, const Time& t) {
 // - Update trim offset to number of columns 'deleted'
 // -- 'time' moves on, but capacity vector's index is adjusted back to 0
 template<typename Key>
-std::set<Key> SimMIN<Key>::trim_to_barrier() {
-  std::set<Key> evict_set;
+std::pair<std::set<Key>, std::set<Key>> SimMIN<Key>::trim_to_barrier() {
+  std::set<Key> evict_set, keep_set;
   size_t advance = barrier_ - trim_offset_;
   if (advance == 0) {
-    return evict_set;
+    return std::make_pair(evict_set, keep_set);
   }
 
   max_elements_ = std::max(max_elements_, reserved_.size());
@@ -154,6 +154,9 @@ std::set<Key> SimMIN<Key>::trim_to_barrier() {
   for (auto& [key, hist] : reserved_) {
     auto cut = hist.begin();
     for (auto it = hist.begin(); it != hist.end(); it++) {
+      if (it->first <= barrier_ && it->second >= barrier_) {
+        keep_set.insert(key);
+      }
       if (barrier_ > it->second) {
         cut = it + 1;
       }
@@ -183,7 +186,7 @@ std::set<Key> SimMIN<Key>::trim_to_barrier() {
   std::cout << "MIN: Barrier hit at " << trim_offset_
             << ", advanced by " << advance << " demands." << std::endl;
 #endif
-  return evict_set;
+  return std::make_pair(evict_set, keep_set);
 }
 
 

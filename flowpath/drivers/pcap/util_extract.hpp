@@ -256,7 +256,7 @@ class EvalContext {
 public:
   util_view::View v;
   u16 origBytes;
-  Fields fields;
+  std::shared_ptr<Fields> fields;
 #ifdef DEBUG_LOG
   std::stringstream extractLog;
 #endif

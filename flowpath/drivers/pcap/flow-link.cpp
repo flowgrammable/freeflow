@@ -8,6 +8,7 @@
 #include "sim_opt.hpp"
 #include "sim_lru.hpp"
 #include "cache_sim.hpp"
+#include "util_features.hpp"
 //#include "util_mem.h"
 
 #include <string>
@@ -223,8 +224,9 @@ int main(int argc, const char* argv[]) {
 
   // Configuration:
   constexpr bool ENABLE_simCache = true;
-  constexpr bool ENABLE_simMIN = true;
-  constexpr bool ENABLE_WSTP = true;
+  constexpr bool ENABLE_simMIN = false;
+  constexpr bool ENABLE_WSTP = false;
+
 //  constexpr bool ENABLE_FLOW_LOG = false;
   //  const bool enable_simMIN(config["sim.min"].as<bool>());
   //  const bool enable_simCache(config["sim.cache"].as<bool>());
@@ -294,7 +296,7 @@ int main(int argc, const char* argv[]) {
   flow_id_t nextFlowID = 1; // flowID 0 is reserved for 'flow not found'
   // Maps flows to vector (from most-recent to least-recent) of flowIDs
   absl::flat_hash_map<FlowKeyTuple, absl::InlinedVector<flow_id_t,1>> flowIDs;
-  std::map<flow_id_t, FlowRecord> flowRecords;
+  std::map<flow_id_t, std::shared_ptr<FlowRecord>> flowRecords;
 
   // Auxilary Flow State Tracking:
   std::unordered_set<flow_id_t> blacklistFlows;
@@ -302,23 +304,24 @@ int main(int argc, const char* argv[]) {
 
   // Retired Records:
   std::mutex mtx_RetiredFlows;
-  std::map<flow_id_t, const FlowRecord> retiredRecords;
+  std::map<flow_id_t, std::shared_ptr<const FlowRecord>> retiredRecords;
 
 
   //////////////////////////////////////////////////////////////////////////////
   /// Simulation bookeeping structures:
   SimMIN<flow_id_t> simMIN(config["sim.min.entries"].as<int>());
-  SimOPT<flow_id_t> simOPT(config["sim.min.entries"].as<int>());
+//  SimOPT<flow_id_t> simOPT(config["sim.min.entries"].as<int>());
   // TODO: find way of defining polices...
   CacheSim<flow_id_t> simCache(config["sim.cache.entries"].as<int>(),
                                config["sim.cache.associativity"].as<int>());
 //  Policy replacePolicy(Policy::PolicyType::BURST_LRU);
-//  Policy replacePolicy(Policy::PolicyType::BURST_LRU);
-//  simCache.set_replacement_policy(replacePolicy);
+  ReplacementPolicy replacePolicy(ReplacementPolicy::P::HP_LRU);
+  simCache.set_replacement_policy(replacePolicy);
 
 //  Policy insertPolicy(Policy::MRU);
 //  insertPolicy.offset_ = 2;
 //  Policy insertPolicy(Policy::PolicyType::BYPASS);
+//  Policy insertPolicy(Policy::PolicyType::SHIP);
 //  simCache.set_insert_policy(insertPolicy);
 
   std::mutex mtx_misses; // covers both missesMIN and missesCache
@@ -328,7 +331,7 @@ int main(int argc, const char* argv[]) {
 //  using Reservation = typename CacheSim<flow_id_t>::Reservation;
 //  using HitStats = typename CacheSim<flow_id_t>::HitStats;
   // TODO, place these cache sim / stats types in a namespace
-  using Lifetime = std::tuple<Reservation, HitStats>;
+  using Lifetime = std::tuple<Reservation, BurstStats>;
   std::map<flow_id_t, std::vector<Lifetime>> minLifetimes;
   std::map<flow_id_t, std::vector<Lifetime>> cacheLifetimes;
 
@@ -372,41 +375,7 @@ int main(int argc, const char* argv[]) {
 
   /////////////////////////////////////////////////////////////////////////////
   /// Helper functions to interact with cache simulations: ////////////////////
-
-  // Perceptron Features:
-  struct Features {
-    auto operator()(const Fields& k, const FlowRecord& r) const {
-      // all tables < 64k in size
-      std::array<uint16_t, 10> f;
-
-      // Stateless Flow Features:
-      // Mix ip proto to upper 8 bits of meaningful port:
-      // min(src, dst): smallest port number tends to provide meaning
-      f[0] = (uint16_t(k.ipProto) << 8) ^ std::min(k.srcPort, k.dstPort);
-      // Mix dst_ip/16 and dest_port:
-      f[1] = (k.ipv4Dst >> 16) ^ k.dstPort;
-      f[2] = (k.ipv4Src >> 16) ^ k.srcPort;
-      // Useful flags from IP and TCP headers:
-      f[3] = make_flags_bitset(k);
-      f[4] = k.srcPort ^ k.dstPort;
-      f[5] = uint16_t(k.ipProto) ^ (uint16_t(k.fTCP) << 7) ^ std::min(k.srcPort, k.dstPort);
-      f[6] = (k.ipv4Dst >> 16) ^ (k.ipv4Src >> 16);
-      f[7] = (k.ipv4Dst >> 8) ^ (k.ipv4Src >> 8);
-      f[8] = (k.ipv4Dst) ^ (k.ipv4Src);
-
-      // Stateful Flow Features:
-      f[9] = r.tcp_state();
-      return f;
-    }
-  };
-
-//  template<size_t Features, typename T>
-//  class FeatureGen {
-//    std::array<size_t, Features> operator()(const T& s) const {
-//      std::array<size_t, Features> f;
-//    }
-//  };
-
+  /*
   auto make_feature_1 = [](const Fields& k) {
     return std::make_tuple(k.ipProto, std::min(k.srcPort, k.dstPort));
   };
@@ -450,19 +419,19 @@ int main(int argc, const char* argv[]) {
   // feature 6: pps?
   // feature 7: burst/ref count?
   // feature 8:
-
+*/
 
   // Insert called once (first packet on flow startup)
-  std::function<void(flow_id_t, const std::pair<uint64_t,timespec>&&)> f_sim_insert =
-      [&](flow_id_t flowID, const std::pair<uint64_t,timespec>&& pktTime) {
+  std::function<void(flow_id_t, const std::pair<uint64_t,timespec>&&, Features)> f_sim_insert =
+      [&](flow_id_t flowID, const std::pair<uint64_t,timespec>&& pktTime, Features&& features) {
     auto [ns, ts] = pktTime;
     if (ENABLE_simMIN) {
       simMIN.insert(flowID, ts);
-      simOPT.insert(flowID, ts);
+//      simOPT.insert(flowID, ts);
     }
 
     if (ENABLE_simCache) {
-      auto victim = simCache.insert(flowID, ts);
+      auto victim = simCache.insert(flowID, ts, std::move(features));
       if (ENABLE_WSTP && victim) {
         // If victim exists (something was replaced).
         // victim: std::tuple<Key, Reservation, HitStats>
@@ -473,31 +442,27 @@ int main(int argc, const char* argv[]) {
   };
 
   // - Update called on each subsequent packet
-  std::function<void(flow_id_t, const std::pair<uint64_t,timespec>&&)> f_sim_update =
-      [&](flow_id_t flowID, const std::pair<uint64_t,timespec>&& pktTime) {
+  std::function<void(flow_id_t, const std::pair<uint64_t,timespec>&&, Features)> f_sim_update =
+      [&](flow_id_t flowID, const std::pair<uint64_t,timespec>&& pktTime, Features&& features) {
     auto [ns, ts] = pktTime;
     if (ENABLE_simMIN) {
 //      auto [hit, evictSet] = simMIN.update(flowID, ts);
       { // simMIN
         bool hit = simMIN.update(flowID, ts);
-        auto evictSet = simMIN.evictions();
+        auto [evictSet, keepSet] = simMIN.evictions();
         if (ENABLE_WSTP && !hit) {
           std::lock_guard lock(mtx_misses);
           missesMIN[flowID].emplace_back(ns);
         }
       }
-      { // simOPT
-        bool hit = simOPT.update(flowID, ts);
-        auto evictSet = simOPT.evictions();
-//        if (ENABLE_WSTP && !hit) {
-//          std::lock_guard lock(mtx_misses);
-//          missesMIN[flowID].emplace_back(ns);
-//        }
-      }
+//      { // simOPT
+//        bool hit = simOPT.update(flowID, ts);
+//        auto evictSet = simOPT.evictions();
+//      }
     }
 
     if (ENABLE_simCache) {
-      auto [hit, victim] = simCache.update(flowID, ts);
+      auto [hit, victim] = simCache.update(flowID, ts, std::move(features));
       if (ENABLE_WSTP && !hit) {
       // TODO: take note of miss statistics...
         std::lock_guard lock(mtx_misses);
@@ -522,15 +487,15 @@ int main(int argc, const char* argv[]) {
 
 
   // Filtering function to find 'interesting' flows once they retire:
-  std::function<void(FlowRecord&&)> f_sample = [&](FlowRecord&& r) {
+  std::function<void(std::shared_ptr<FlowRecord>)> f_sample = [&](std::shared_ptr<FlowRecord> r) {
     // Only consider semi-large flows:
     if (ENABLE_WSTP) {
-      const auto duration = r.last();
-//      if (duration.second.tv_sec > 1 && r.packets() >= 32) {
-  //    if (r.packets() > 512) {
+      const auto duration = r->last();
+//      if (duration.second.tv_sec > 1 && r->packets() >= 32) {
+  //    if (r->packets() > 512) {
         std::unique_lock missesLock(mtx_misses);
-        auto cache_it = missesCache.find(r.getFlowID());
-        auto min_it = missesMIN.find(r.getFlowID());
+        auto cache_it = missesCache.find(r->getFlowID());
+        auto min_it = missesMIN.find(r->getFlowID());
         missesLock.unlock();
         const auto& cache_ts = cache_it->second;
         const auto& min_ts = min_it->second;
@@ -540,15 +505,15 @@ int main(int argc, const char* argv[]) {
         if (unfriendly > 0) {
 //        if ( min_it != missesMIN.end() && min_ts.size() >= 8 ) {
           // Flow looks interesting, add to retiredRecords:
-          std::cout << "+ FlowID: " << r.getFlowID()
-                    << ", Packets: " << r.packets()
+          std::cout << "+ FlowID: " << r->getFlowID()
+                    << ", Packets: " << r->packets()
                     << ", Misses: " << min_ts.size()
                     << ", Unfriendly: " << unfriendly
-                    << "; " << print_flow_key_string( r.getFlowTuple() )
+                    << "; " << print_flow_key_string( r->getFlowTuple() )
                     // also print detected flow start time...
                     << std::endl;
           { std::lock_guard lock(mtx_RetiredFlows);
-            retiredRecords.emplace(r.getFlowID(), r);
+            retiredRecords.emplace(r->getFlowID(), r);
             // keep flow in missesCache, missesMIN, and cacheLifetimes
           }
 //          return;
@@ -557,9 +522,9 @@ int main(int argc, const char* argv[]) {
       // Flow behaved unremarkibly, delete metadata:
       else {
         std::lock_guard lock(mtx_misses);
-        missesCache.erase(r.getFlowID());
-        missesMIN.erase(r.getFlowID());
-        cacheLifetimes.erase(r.getFlowID());
+        missesCache.erase(r->getFlowID());
+        missesMIN.erase(r->getFlowID());
+        cacheLifetimes.erase(r->getFlowID());
       }
     }
     // FlowRecord: r is implicitly destroyed (r-value reference)
@@ -594,13 +559,13 @@ int main(int argc, const char* argv[]) {
     update_triger--;
 
     // Calculate event deltas deltas:
-    const FlowRecord& flowR = record.mapped();
-    auto& ts = flowR.getArrivalV();
+    const std::shared_ptr<const FlowRecord> flowR = record.mapped();
+    auto& ts = flowR->getArrivalV();
     wstp_link::ts_t deltas(ts.size());
     std::adjacent_difference(ts.begin(), ts.end(), deltas.begin());
 
     // Lock and search for miss vector:
-    flow_id_t fid = flowR.getFlowID();
+    flow_id_t fid = flowR->getFlowID();
     std::unique_lock lck2(mtx_misses);
     auto miss_ts = missesMIN.extract(fid);
     lck2.unlock();
@@ -626,7 +591,7 @@ int main(int argc, const char* argv[]) {
     auto record = retiredRecords.extract(retiredRecords.begin());
     lck.unlock();
     // Calculate deltas and return:
-    auto& ts = record.mapped().getArrivalV();
+    auto& ts = record.mapped()->getArrivalV();
     wstp_link::ts_t deltas(ts.size());
     std::adjacent_difference(ts.begin(), ts.end(), deltas.begin());
     return deltas;
@@ -648,8 +613,8 @@ int main(int argc, const char* argv[]) {
   wstp_link::fn_t f_get_ts_deltas = [&](wstp_link::arg_t v) {
     auto fid = std::get<int64_t>(v);
     // Calculate event deltas deltas:
-    const FlowRecord& flowR = retiredRecords.at(fid);
-    const auto& ts = flowR.getArrivalV();
+    const std::shared_ptr<const FlowRecord> flowR = retiredRecords.at(fid);
+    const auto& ts = flowR->getArrivalV();
     wstp_link::ts_t deltas(ts.size());
     std::adjacent_difference(ts.begin(), ts.end(), deltas.begin());
 
@@ -677,8 +642,8 @@ int main(int argc, const char* argv[]) {
 
   wstp_link::fn_t f_get_ts = [&](wstp_link::arg_t v) {
     auto fid = std::get<int64_t>(v);
-    const FlowRecord& flowR = retiredRecords.at(fid);
-    const auto& ts = flowR.getArrivalV();
+    const std::shared_ptr<const FlowRecord> flowR = retiredRecords.at(fid);
+    const auto& ts = flowR->getArrivalV();
     wstp_link::ts_t ret(ts.begin(), ts.end());
     return ret;
   };
@@ -788,8 +753,8 @@ int main(int argc, const char* argv[]) {
       }
 
       // Associate packet with flow:
-      const Fields& k = evalCxt.fields;
-      const FlowKeyTuple fkt = make_flow_key_tuple(k);
+      const std::shared_ptr<const Fields> k = evalCxt.fields;
+      const FlowKeyTuple fkt = make_flow_key_tuple(*k);
 
       // Update global stats:
       u16 wireBytes = evalCxt.origBytes;
@@ -805,15 +770,14 @@ int main(int argc, const char* argv[]) {
       ////////////////////////////////////
       // Trace output generation lambda:
       auto tracePoint = [&]() {
-        const Fields& fields = evalCxt.fields;
-        const ProtoFlags& proto = fields.fProto;
+        const ProtoFlags& proto = k->fProto;
 
         // if flow is established?...
         // TODO: how to punt suspected scans to seperate trace file?
 
         if (proto & ProtoFlags::isTCP) {
           serialize(tcpFlowTrace, fkt);
-          serialize(tcpFlowTrace, make_flags_bitset(k));
+          serialize(tcpFlowTrace, make_flags_bitset(*k));
         }
         else if (proto & ProtoFlags::isUDP) {
           serialize(udpFlowTrace, fkt);
@@ -832,24 +796,24 @@ int main(int argc, const char* argv[]) {
         // Known Flow:
         auto flowRecord_it = flowRecords.find(flowID); // iterator to {key, value}
         if (flowRecord_it != flowRecords.end()) {
-          std::reference_wrapper<FlowRecord> flowR = flowRecord_it->second;
+          std::shared_ptr<FlowRecord> flowR = flowRecord_it->second;
 
           // TODO: ignore syn retransmits...?
           // Ensure packet doesn't correspond to a new flow (port-reuse):
-          if ( evalCxt.fields.fProto & ProtoFlags::isTCP &&
-               (evalCxt.fields.fTCP & TCPFlags::SYN) == TCPFlags::SYN &&
-                evalCxt.fields.tcpSeqNum != flowR.get().lastSeq() ) {
+          if ( k->fProto & ProtoFlags::isTCP &&
+              (k->fTCP & TCPFlags::SYN) == TCPFlags::SYN &&
+               k->tcpSeqNum != flowR->lastSeq() ) {
             // Packet indicates new flow:
-            timespec sinceLast = pktTime - flowR.get().last().second;
-            flowLog << (flowR.get().isTCP()?"TCP":"???") << " flow " << flowID
+            timespec sinceLast = pktTime - flowR->last().second;
+            flowLog << (flowR->isTCP()?"TCP":"???") << " flow " << flowID
                     << " considered terminated after new SYN, "
-                    << flowR.get().packets()
+                    << flowR->packets()
                     << " packets and " << sinceLast.tv_sec
                     << " seconds before port reuse; "
-                    << print_flow_key_string(k) << endl;
+                    << print_flow_key_string(*k) << endl;
 
             // Retire old record:
-            flowStats << print_flow(flowR).str();
+            flowStats << print_flow(*flowR).str();
             flowRecords.erase(flowRecord_it);
 
             // Create new record for new flow:
@@ -857,34 +821,34 @@ int main(int argc, const char* argv[]) {
             auto& flowID_vector = flowID_it->second;
             flowID_vector.insert(flowID_vector.begin(), flowID);
 
-            auto newFlowRecord = flowRecords.emplace(std::piecewise_construct,
-                                  std::forward_as_tuple(flowID),
-                                  std::forward_as_tuple(flowID, fkt, pktTime, CONFIG_TIMESERIES));
-            assert(newFlowRecord.second); // sanity check
-            flowR = newFlowRecord.first->second;
+            auto status = flowRecords.emplace(std::piecewise_construct,
+              std::forward_as_tuple(flowID),
+              std::forward_as_tuple(std::make_shared<FlowRecord>(flowID, fkt, pktTime, CONFIG_TIMESERIES)));
+            assert(status.second); // sanity check
+            flowR = status.first->second;
             flowPortReuse++;
-            flowR.get().update(evalCxt);
+            flowR->update(evalCxt);
             touchedFlows.insert(flowID);
-            f_sim_insert(flowID, flowR.get().last());
+            f_sim_insert(flowID, flowR->last(), Features(k, flowR));
           }
           else {
-            flowR.get().update(evalCxt);
+            flowR->update(evalCxt);
             touchedFlows.insert(flowID);
-            f_sim_update(flowID, flowR.get().last());
+            f_sim_update(flowID, flowR->last(), Features(k, flowR));
           }
         }
         else {
           // Flow was seen before but no longer tracked:
           if (blacklistFlows.find(flowID) != blacklistFlows.end()) {
             serialize(scanFlowTrace, fkt);
-            serialize(scanFlowTrace, make_flags_bitset(k));
+            serialize(scanFlowTrace, make_flags_bitset(*k));
             blacklistPackets++;
           }
           else {
             // FIXME: properly seperate new flow record creation!
             // Ensure packet doesn't correspond to a new flow (port-reuse):
-            if ( evalCxt.fields.fProto & ProtoFlags::isTCP &&
-                 (evalCxt.fields.fTCP & TCPFlags::SYN) == TCPFlags::SYN ) {
+            if ( k->fProto & ProtoFlags::isTCP &&
+                (k->fTCP & TCPFlags::SYN) == TCPFlags::SYN ) {
               // Packet indicates new flow:
 //              timespec sinceLast = pktTime - flowR.get().last();
 //              debugLog << (flowR.get().isTCP()?"TCP":"???") << " flow " << flowID
@@ -899,22 +863,23 @@ int main(int argc, const char* argv[]) {
               auto& flowID_vector = flowID_it->second;
               flowID_vector.insert(flowID_vector.begin(), flowID);
 
-              auto newFlowRecord = flowRecords.emplace(std::piecewise_construct,
-                                    std::forward_as_tuple(flowID),
-                                    std::forward_as_tuple(flowID, fkt, pktTime, CONFIG_TIMESERIES));
-              assert(newFlowRecord.second); // sanity check
-              std::reference_wrapper<FlowRecord> flowR = newFlowRecord.first->second;
+              auto status = flowRecords.emplace(std::piecewise_construct,
+                std::forward_as_tuple(flowID),
+                std::forward_as_tuple(std::make_shared<FlowRecord>(flowID, fkt, pktTime, CONFIG_TIMESERIES)));
+              assert(status.second); // sanity check
+              const std::shared_ptr<FlowRecord> newFlowR = status.first->second;
               flowPortReuse++;
 
-              flowR.get().update(evalCxt);
+              newFlowR->update(evalCxt);
               touchedFlows.insert(flowID);
-              f_sim_insert(flowID, flowR.get().last());
+              f_sim_insert(flowID, newFlowR->last(), Features(k, newFlowR));
             }
             else {
               flowLog << "FlowID " << flowID << " is no longer being tracked; "
-                      << print_flow_key_string(k) << endl;
+                      << print_flow_key_string(*k) << endl;
               timeoutPackets++;
-              f_sim_update(flowID, std::make_pair(0, pktTime)); // FlowRecord was reclaimed!...
+              // TODO: Revisit this!
+//              f_sim_update(flowID, std::make_pair(0, pktTime), Features(k, flowR)); // FlowRecord was reclaimed!...
             }
           }
         }
@@ -928,11 +893,11 @@ int main(int argc, const char* argv[]) {
         flowID = nextFlowID++;
 
         // Filter out TCP scans (first packet observed has RST):
-        if (evalCxt.fields.fProto & ProtoFlags::isTCP &&
-            (evalCxt.fields.fTCP & TCPFlags::RST ||
-             evalCxt.fields.fTCP & TCPFlags::FIN) ) {
+        if (k->fProto & ProtoFlags::isTCP &&
+           (k->fTCP & TCPFlags::RST ||
+            k->fTCP & TCPFlags::FIN) ) {
           serialize(scanFlowTrace, fkt);
-          serialize(scanFlowTrace, make_flags_bitset(k));
+          serialize(scanFlowTrace, make_flags_bitset(*k));
           blacklistFlows.insert(flowID);
   //        debugLog << "Blacklisting TCP flow " << flowID
   //                 << "; first packet observed was "
@@ -941,13 +906,13 @@ int main(int argc, const char* argv[]) {
         }
         else {
           // Follow new flow:
-          auto newFlowRecord = flowRecords.emplace(std::piecewise_construct,
-                                std::forward_as_tuple(flowID),
-                                std::forward_as_tuple(flowID, fkt, pktTime, CONFIG_TIMESERIES));
-          assert(newFlowRecord.second); // sanity check
-          auto& FlowR = newFlowRecord.first->second;
-          FlowR.update(evalCxt);
-          f_sim_insert(flowID, FlowR.last());
+          auto status = flowRecords.emplace(std::piecewise_construct,
+            std::forward_as_tuple(flowID),
+            std::forward_as_tuple(std::make_shared<FlowRecord>(flowID, fkt, pktTime, CONFIG_TIMESERIES)));
+          assert(status.second); // sanity check
+          const std::shared_ptr<FlowRecord> newFlowR = status.first->second;
+          newFlowR->update(evalCxt);
+          f_sim_insert(flowID, newFlowR->last(), Features(k, newFlowR));
         }
 
         ///////////////////////////////////////////////////
@@ -964,6 +929,18 @@ int main(int argc, const char* argv[]) {
                << diff.tv_sec + double(diff.tv_nsec)/double(1000000000.0)
                << " seconds."
                << endl;
+
+          if (ENABLE_simCache) {
+            int64_t total = simCache.get_hits() + simCache.get_conflict_miss()
+               + simCache.get_capacity_miss() + simCache.get_compulsory_miss();
+            cout << "Cache hit rate: " << double(simCache.get_hits()) / total * 100
+                 << "%\tBad early predictions "
+                 << double(simCache.get_prediction_too_early())/total*100
+                 << "%" << endl;
+            auto& hp_handle = simCache.get_hp_handle();
+            cout << hp_handle.pt_.print_stats();
+            hp_handle.pt_.clear_stats();
+          }
 
           // Add flows not observed to dormant list:
           std::set<flow_id_t> dormantFlows;
@@ -986,11 +963,11 @@ int main(int argc, const char* argv[]) {
             // Delete Flow lambda
             // - Removes flow from tracked flowRecords, samples if noteworthy.
             auto delete_flow = [&flowRecords, &f_sample](decltype(flowRecords)::iterator flowR_i) {
-              f_sample( std::move(flowRecords.extract(flowR_i).mapped()) );
+              f_sample( flowRecords.extract(flowR_i).mapped() );
             };
 
             auto flowR_i = flowRecords.find(i);
-            const FlowRecord& flowR = flowR_i->second;
+            const FlowRecord& flowR = *flowR_i->second;
 
             timespec sinceLast = pktTime - flowR.last().second;
             if (flowR.sawRST() && sinceLast.tv_sec >= RST_TIMEOUT) {
@@ -1045,11 +1022,8 @@ int main(int argc, const char* argv[]) {
 
 
   // Print flow tuples:
-  for (const auto& flow : flowRecords) {
-    const auto& key = flow.first;
-    const FlowRecord& record = flow.second;
-
-    flowStats << print_flow(record).str();
+  for (const auto& [key, record] : flowRecords) {
+    flowStats << print_flow(*record).str();
 //    serialize(flowStats, key);
 //    serialize(flowStats, record.getFlowID());
 //    serialize(flowStats, record.packets());
@@ -1081,10 +1055,20 @@ int main(int argc, const char* argv[]) {
   // TODO: move print into class function...
   if (ENABLE_simMIN) {
     debugLog << simMIN.print_stats() << '\n';
-    debugLog << simOPT.print_stats() << '\n';
+//    debugLog << simOPT.print_stats() << '\n';
   }
   if (ENABLE_simCache) {
     debugLog << simCache.print_stats() << '\n';
+
+    // Console out:
+    int64_t total = simCache.get_hits() + simCache.get_conflict_miss()
+       + simCache.get_capacity_miss() + simCache.get_compulsory_miss();
+    cout << "Cache hit rate: " << double(simCache.get_hits()) / total * 100
+         << "%\tBad early predictions "
+         << double(simCache.get_prediction_too_early())/total*100
+         << "%" << endl;
+    auto& hp_handle = simCache.get_hp_handle();
+    cout << hp_handle.pt_.print_stats();
   }
 
 //  debugLog << "Burst Histogram:\n";

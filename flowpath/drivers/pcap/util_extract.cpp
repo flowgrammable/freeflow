@@ -167,9 +167,9 @@ Flags make_flags_bitset(const Fields& k) {
 
 u64 FlowRecord::update(const EvalContext& e) {
   // TODO: record flowstate...
-  const auto& protoFlags = e.fields.fProto;
-  const auto& ipFlags = e.fields.fIP;
-  const auto& tcpFlags = e.fields.fTCP;
+  const auto& protoFlags = e.fields->fProto;
+  const auto& ipFlags = e.fields->fIP;
+  const auto& tcpFlags = e.fields->fTCP;
   const int payloadBytes = static_cast<int>(e.origBytes) - e.v.committedBytes<int>();
   // Committed bytes is insufficient...
 
@@ -223,7 +223,7 @@ u64 FlowRecord::update(const EvalContext& e) {
     // e.g. NS, CWR, ECE
 
     // TCP Flow State Update:
-    last_seq_ = e.fields.tcpSeqNum;
+    last_seq_ = e.fields->tcpSeqNum;
   }
 
   // Update flow processing log:
@@ -257,7 +257,7 @@ u64 FlowRecord::update(const u16 bytes, const timespec& ts) {
 
 
 EvalContext::EvalContext(fp::Packet* const p) :
-  v(p->data(), p->size()), fields{}, pkt_(*p)
+  v(p->data(), p->size()), fields{std::make_shared<Fields>()}, pkt_(*p)
 {
   // Replace View with observed bytes
   if (p->type() == fp::Buffer::FP_BUF_PCAP) {
@@ -268,7 +268,7 @@ EvalContext::EvalContext(fp::Packet* const p) :
 }
 
 EvalContext::EvalContext(const fp::Packet& p) :
-  v(p.data(), p.size()), fields{}, pkt_(p)
+  v(p.data(), p.size()), fields{std::make_shared<Fields>()}, pkt_(p)
 {
   // Replace View with observed bytes
   if (p.type() == fp::Buffer::FP_BUF_PCAP) {
@@ -292,7 +292,7 @@ int
 extract(EvalContext& cxt, HeaderType t = ETHERNET) {
   // provides a view of packet payload:
   View& view = cxt.v;
-  Fields& gKey = cxt.fields;
+  Fields& gKey = *cxt.fields;
 #ifdef DEBUG_LOG
   stringstream& log = cxt.extractLog;
 #endif
@@ -435,7 +435,7 @@ L4:
 int
 extract_ethernet(EvalContext& cxt) {
   View& view = cxt.v;
-  Fields& gKey = cxt.fields;
+  Fields& gKey = *cxt.fields;
 #ifdef DEBUG_LOG
   stringstream& log = cxt.extractLog;
 #endif
@@ -480,7 +480,7 @@ extract_ethernet(EvalContext& cxt) {
 int
 extract_ip(EvalContext& cxt) {
   View& view = cxt.v;
-  Fields& gKey = cxt.fields;
+  Fields& gKey = *cxt.fields;
 #ifdef DEBUG_LOG
   stringstream& log = cxt.extractLog;
 #endif
@@ -513,7 +513,7 @@ extract_ip(EvalContext& cxt) {
 int
 extract_ipv4(EvalContext& cxt) {
   View& view = cxt.v;
-  Fields& gKey = cxt.fields;
+  Fields& gKey = *cxt.fields;
 #ifdef DEBUG_LOG
   stringstream& log = cxt.extractLog;
 #endif
@@ -595,7 +595,7 @@ extract_ipv4(EvalContext& cxt) {
 int
 extract_ipv6(EvalContext& cxt) {
   View& view = cxt.v;
-  Fields& gKey = cxt.fields;
+  Fields& gKey = *cxt.fields;
 #ifdef DEBUG_LOG
   stringstream& log = cxt.extractLog;
 #endif
@@ -678,7 +678,7 @@ extract_ipv6(EvalContext& cxt) {
 int
 extract_tcp(EvalContext& cxt) {
   View& view = cxt.v;
-  Fields& gKey = cxt.fields;
+  Fields& gKey = *cxt.fields;
 #ifdef DEBUG_LOG
   stringstream& log = cxt.extractLog;
 #endif
@@ -756,7 +756,7 @@ extract_tcp(EvalContext& cxt) {
 int
 extract_udp(EvalContext& cxt) {
   View& view = cxt.v;
-  Fields& gKey = cxt.fields;
+  Fields& gKey = *cxt.fields;
 #ifdef DEBUG_LOG
   stringstream& log = cxt.extractLog;
 #endif
@@ -796,7 +796,7 @@ extract_udp(EvalContext& cxt) {
 int
 extract_ipsec_ah(EvalContext& cxt) {
   View& view = cxt.v;
-  Fields& gKey = cxt.fields;
+  Fields& gKey = *cxt.fields;
 #ifdef DEBUG_LOG
   stringstream& log = cxt.extractLog;
 #endif
@@ -843,7 +843,7 @@ extract_ipsec_ah(EvalContext& cxt) {
 int
 extract_ipsec_esp(EvalContext& cxt) {
   View& view = cxt.v;
-  Fields& gKey = cxt.fields;
+  Fields& gKey = *cxt.fields;
 #ifdef DEBUG_LOG
   stringstream& log = cxt.extractLog;
 #endif
@@ -880,7 +880,7 @@ extract_ipsec_esp(EvalContext& cxt) {
 int
 extract_icmpv4(EvalContext& cxt) {
   View& view = cxt.v;
-  Fields& gKey = cxt.fields;
+  Fields& gKey = *cxt.fields;
 #ifdef DEBUG_LOG
   stringstream& log = cxt.extractLog;
 #endif
@@ -920,7 +920,7 @@ extract_icmpv4(EvalContext& cxt) {
 int
 extract_icmpv6(EvalContext& cxt) {
   View& view = cxt.v;
-  Fields& gKey = cxt.fields;
+  Fields& gKey = *cxt.fields;
 #ifdef DEBUG_LOG
   stringstream& log = cxt.extractLog;
 #endif
