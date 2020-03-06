@@ -8,12 +8,14 @@
 #include <sstream>
 
 #include "types.hpp"
+#include "drivers/pcap/util_io.hpp"
 
 
 namespace entangle {
 
 // Enables stats accumulation:
 constexpr bool ENABLE_STATS = true;
+constexpr bool ENABLE_INFERENCE_HISTORY = true;
 
 // Example FeatureGen that produces reduces a generic tuple:
 template<size_t index_bits, typename Tuple>
@@ -32,7 +34,7 @@ class FeatureGen {
 template<typename Key>
 class PerceptronTable {
 public:
-  static constexpr size_t BITS_ = 7;  // resolution of single perceptron
+  static constexpr size_t BITS_ = 5;  // resolution of single perceptron
   using Perceptron = ClampedInt<BITS_>;
 
   PerceptronTable(size_t elements);
@@ -43,14 +45,17 @@ public:
   float dynamic_information(Key k) const;
   std::string print_stats() const;
 
+  auto inference_internal(Key k);   // doesn't contribute to stats
+
 private:
   const size_t MAX_;
   std::vector<Perceptron> table_;   // perceptron table for each feature
 
 public:
   // Utilization Metadata:
-  std::vector<int64_t> touch_inference_; // counts inference events
-  std::vector<int64_t> touch_train_;     // counts train events
+  std::vector<int64_t> touch_inference_;  // counts inference events
+  std::vector<int64_t> touch_train_;      // counts train events
+//  std::vector<int8_t> inference_history_; // sequential history of inferences
 };
 
 
@@ -72,7 +77,7 @@ public:
   using Feature = typename Key::value_type;
   using FeatureTable = PerceptronTable<Feature>;
   constexpr static size_t TABLES_ = std::tuple_size<Key>::value;
-  using Weights = std::array<int, TABLES_>;
+  using Weights = std::array<int8_t, TABLES_>;
 
   HashedPerceptron(std::vector<size_t> elements);
   HashedPerceptron(size_t elements);
@@ -81,24 +86,38 @@ public:
   void reinforce(Key k, bool positive);   // positive/negative correlation
   void force_updates(bool force = true);
 
-  std::string print_stats() const;
+  std::string print_stats();
   void clear_stats();
   auto information_raw(Key tuple) const;
+  const std::vector<FeatureTable>& get_tables() const;
 
 private:
   auto inference_raw(Key tuple);
+  auto inference_internal(Key tuple);
+  void inference_event(Weights w);
 
   // Member Variables:
   std::vector<FeatureTable> tables_;  // 1 table per feature
   int64_t training_threshold_;
   int64_t inference_threshold_;
-  bool force_update_ = false;
+  bool force_update_ = true;
 
 public:
   // Training Stats:
   int64_t train_total_ = 0;     // total reinforce calls
   int64_t train_occured_ = 0;   // reinforce calls actually followed through
-  std::vector<inference_result> inference_history_;
+  std::vector<inference_result> inference_stats_;
+
+private:
+  // Feature Stats:
+  using CorrelationMatrix = std::array<std::array<int64_t, TABLES_>, TABLES_>;
+  CorrelationMatrix feature_correlation_ {{}};
+  std::array<int64_t, TABLES_> feature_s1_ {}; // sum, power 1 (for std. deviation)
+  int64_t feature_n_ = {};  // number of inferences (for std. deviation)
+//  std::array<int64_t, TABLES_> s2_ {}; // sum, power 2 (for std. deviation)
+  CSV csv_fCorrelation_ {"feature_correlation.csv"};
+  CSV csv_fS1_ = {"feature_s1.csv"};
+  CSV csv_fN_ = {"feature_n.csv"};
 };
 
 
@@ -116,11 +135,19 @@ PerceptronTable<Key>::PerceptronTable(size_t elements) :
 }
 
 template<typename Key>
-auto PerceptronTable<Key>::inference(Key k) {
+auto PerceptronTable<Key>::inference_internal(Key k) {
   assert(k < MAX_);
-  if (ENABLE_STATS)
-    ++touch_inference_[k];
   return table_[k];
+}
+
+template<typename Key>
+auto PerceptronTable<Key>::inference(Key k) {
+  auto ret = inference_internal(k);
+  if (ENABLE_STATS) {
+    ++touch_inference_[k];
+//    inference_history_.push_back(ret.get());
+  }
+  return ret;
 }
 
 template<typename Key>
@@ -184,16 +211,21 @@ auto HashedPerceptron<Key>::inference_raw(Key tuple) {
   for (size_t i = 0; i < TABLES_; ++i) {
     w[i] = tables_[i].inference(tuple[i]).get();
   }
+  if (ENABLE_INFERENCE_HISTORY) {
+    inference_event(w);
+  }
   return w;
 }
 
+// Performs inference without noting stats:
 template<class Key>
-auto HashedPerceptron<Key>::information_raw(Key tuple) const {
-  std::array<float, TABLES_> inf;
+auto HashedPerceptron<Key>::inference_internal(Key tuple) {
+  Weights w;
   for (size_t i = 0; i < TABLES_; ++i) {
-    inf[i] = tables_[i].dynamic_information(tuple[i]);
+    w[i] = tables_[i].inference_internal(tuple[i]).get();
   }
-  return inf;
+  const int sum = std::accumulate(std::begin(w), std::end(w), 0);
+  return std::make_pair(sum >= inference_threshold_, sum);
 }
 
 template<class Key>
@@ -226,7 +258,7 @@ auto HashedPerceptron<Key>::inference(Key tuple) {
       std::nth_element(std::begin(v), median_it, std::end(v));
       return int8_t(*median_it * 100);  // % cast to 8-bit int.
     }();
-    inference_history_.emplace_back(inference_result{confidence, saturation, agreement, information});
+    inference_stats_.emplace_back(inference_result{confidence, saturation, agreement, information});
 //    std::cout << "inference: " << ret.second << (ret.first ? " (evict) " : " (cache-friendly) ")
 //              << int(confidence) << " "
 //              << int(saturation) << " "
@@ -240,7 +272,7 @@ auto HashedPerceptron<Key>::inference(Key tuple) {
 template<class Key>
 void HashedPerceptron<Key>::reinforce(Key tuple, bool correlation) {
   ++train_total_;
-  const auto [prediction, sum] = inference(tuple);
+  const auto [prediction, sum] = inference_internal(tuple);
   const bool incorrect = prediction != correlation;
   const bool update = force_update_ || incorrect || std::abs(sum) < training_threshold_;
   if (ENABLE_STATS) {
@@ -255,11 +287,20 @@ void HashedPerceptron<Key>::reinforce(Key tuple, bool correlation) {
   }
 }
 
+template<class Key>
+auto HashedPerceptron<Key>::information_raw(Key tuple) const {
+  std::array<float, TABLES_> inf;
+  for (size_t i = 0; i < TABLES_; ++i) {
+    inf[i] = tables_[i].dynamic_information(tuple[i]);
+  }
+  return inf;
+}
+
 // Prints stats over history of training events:
 template<typename Key>
-std::string HashedPerceptron<Key>::print_stats() const {
+std::string HashedPerceptron<Key>::print_stats() {
   std::stringstream ss;
-  auto v = inference_history_;  // local mutable copy of huge stats vector...
+  auto v = inference_stats_;  // local mutable copy of huge stats vector...
 
   // Print utility of all weight tables:
   for (const auto& t : tables_) {
@@ -267,7 +308,7 @@ std::string HashedPerceptron<Key>::print_stats() const {
   }
 
   // Print stats over history of inference events:
-  for (const auto [confidence, saturation, agreement, information] : inference_history_) {
+  for (const auto [confidence, saturation, agreement, information] : inference_stats_) {
     // accumulate stats?
   }
 
@@ -314,14 +355,44 @@ std::string HashedPerceptron<Key>::print_stats() const {
        << "), Agreement (" << median_agreement
        << "), Saturation (" << median_saturation
        << "), Information (" << median_information
-       << ")]" << std::endl;
+       << ")]\n";
   }
+
+  for (auto r : feature_correlation_) {
+    csv_fCorrelation_.print(r);
+  }
+  feature_correlation_ = {{}};  // zero out
+  csv_fS1_.print(feature_s1_);
+  feature_s1_ = {};  // zero out
+  csv_fN_.print(std::make_tuple(feature_n_));
+  feature_n_ = {};  // zero out
   return ss.str();
+}
+
+template<class Key>
+void HashedPerceptron<Key>::inference_event(Weights w) {
+  for (size_t i = 0; i < TABLES_; ++i) {
+    for (size_t j = 0; j < TABLES_; ++j) {
+      feature_correlation_[i][j] += int64_t(w[i]) * int64_t(w[j]);
+    }
+  }
+
+  for (size_t i = 0; i < TABLES_; ++i) {
+    feature_s1_[i] += w[i];
+  }
+  ++feature_n_;
+//  inference_history_.print(w);
+}
+
+template<class Key>
+const std::vector<typename HashedPerceptron<Key>::FeatureTable>&
+HashedPerceptron<Key>::get_tables() const {
+  return tables_;
 }
 
 template<typename Key>
 void HashedPerceptron<Key>::clear_stats() {
-  inference_history_.clear();
+  inference_stats_.clear();
 }
 
 }

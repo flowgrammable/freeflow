@@ -10,7 +10,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-variable -Wno-reorder -Wno-u
 #add_executable(flow-count flow-count.cpp util_caida.cpp util_extract.cpp util_io.cpp)
 #add_executable(flow-records flow-records.cpp util_caida.cpp util_extract.cpp util_io.cpp)
 #add_executable(flow-min flow-min.cpp sim_min.cpp sim_lru.cpp util_caida.cpp util_extract.cpp util_io.cpp)
-add_executable(flow-link flow-link.cpp sim_min.cpp sim_opt.cpp sim_lru.cpp util_caida.cpp util_extract.cpp util_io.cpp util_features.cpp)
+add_executable(flow-link flow-link.cpp sim_min.cpp sim_opt.cpp sim_lru.cpp util_caida.cpp util_extract.cpp util_io.cpp util_features.cpp global_config.cpp)
 #add_executable(flow-stats flow-stats.cpp sim_min.cpp sim_lru.cpp util_caida.cpp util_extract.cpp util_io.cpp)
 
 #target_link_libraries(caida-pcap flowpath-rt flowpath-applib ${PCAP_LIBRARY} ${CMAKE_DL_LIBS})

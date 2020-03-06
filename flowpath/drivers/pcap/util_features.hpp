@@ -13,7 +13,7 @@ class FlowRecord;
 // Delays gathering until data is needed, requires use of shared pointers.
 class Features {
 public:
-  using FeatureType = std::array<uint16_t, 10>;
+  using FeatureType = std::array<uint16_t, 12>;
 //  static constexpr size_t TABLES = 11;
   Features() = default;
   Features(std::shared_ptr<const Fields> k,

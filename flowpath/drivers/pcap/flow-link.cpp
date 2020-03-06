@@ -9,7 +9,7 @@
 #include "sim_lru.hpp"
 #include "cache_sim.hpp"
 #include "util_features.hpp"
-//#include "util_mem.h"
+#include "global_config.hpp"
 
 #include <string>
 #include <sstream>
@@ -53,33 +53,15 @@ using flow_id_t = u64;
 // Global Runtime Timekeeping:
 chrono::system_clock::time_point startTime = chrono::system_clock::now();
 
+// Global configuration:
+extern global_config CONFIG;
+
 // Signal Handler:
 static bool running = true;
 void
 sig_handle(int sig) {
   running = false;
 }
-
-using opt_string_ = boost::optional<string>;
-struct global_config {
-  // Trace File Generation:
-  opt_string_ logFilename;
-  opt_string_ decodeLogFilename;
-  opt_string_ flowsFilename;
-  opt_string_ statsFilename;
-  opt_string_ traceFilename;
-  opt_string_ traceTCPFilename;
-  opt_string_ traceUDPFilename;
-  opt_string_ traceOtherFilename;
-  opt_string_ traceScansFilename;
-
-  // Cache Simulation Configs:
-
-
-  // WSTP Configs:
-//  opt_port_ wstp_port;
-} CONFIG;
-
 
 string get_time(chrono::system_clock::time_point tp) {
   stringstream ss;

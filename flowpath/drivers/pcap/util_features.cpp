@@ -2,6 +2,10 @@
 
 #include "util_extract.hpp"
 
+#include <random>
+
+static uint16_t randomVariable();
+
 
 Features::Features(const std::shared_ptr<const Fields> k,
                    const std::shared_ptr<const FlowRecord> r) : k_(k), r_(r) {}
@@ -31,5 +35,14 @@ Features::FeatureType Features::gather() const {
   // Stateful Flow Features:
   f[9] = r_->tcp_state(); // 4 bits
   f[10] = std::min(r_->packets(), size_t(std::numeric_limits<uint16_t>::max()));
+  f[11] = randomVariable();
   return f;
+}
+
+
+uint16_t randomVariable() {
+  static std::random_device rd;     // to generate seed
+  static std::default_random_engine e1(rd()); // psudo random number generator
+  static std::uniform_int_distribution<uint16_t> uniform_dist;
+  return uniform_dist(e1);
 }

@@ -2,8 +2,10 @@
 #define FF_UTIL_IO_HPP
 
 #include <fstream>
+#include <sstream>
 
 #include <boost/iostreams/filtering_streambuf.hpp>
+#include "types.hpp"
 
 
 // Compile-time Output Disable:
@@ -50,6 +52,40 @@ private:
   std::fstream os_file;
   std::unique_ptr< boost::iostreams::filtering_streambuf<boost::iostreams::input> > gzip_buf;
   std::unique_ptr<std::istream> os;
+};
+
+
+/// Templated CSV List Class ///
+class CSV {
+public:
+  CSV() = default;
+  CSV(std::string filename) : f_(filename, std::ios::out) {
+//    f_ << '{' << std::endl;
+  }
+  ~CSV() {
+//    f_ << "\n}" << std::endl;
+  }
+
+  template<typename Tuple>
+  size_t print(Tuple t) {
+//    if (lines_ > 0)
+//      f_ << ",\n";
+
+    std::string s;
+    for_each(t, [&](int x) {
+      s.append(std::to_string(x) + ',');
+    });
+//    s.pop_back();   // remove last ','
+    s.back() = '\n';
+
+//    f_ << '{' << s << '}';
+    f_ << s;
+    return ++lines_;
+  }
+
+private:
+  std::ofstream f_;
+  size_t lines_ = 0;
 };
 
 

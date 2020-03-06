@@ -15,7 +15,7 @@ int64_t discrete_correlation(ForwardIt1 itA, const ForwardIt1 lastA,
                              ForwardIt2 itB, const ForwardIt2 lastB) {
   int64_t corrilation = 0;
   for (; itA != lastA && itB != lastB; ++itA, ++itB) {
-    corrilation += itA*itB;
+    corrilation += (*itA) * (*itB);
   }
   return corrilation;
 }

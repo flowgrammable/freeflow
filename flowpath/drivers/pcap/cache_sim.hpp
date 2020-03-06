@@ -18,7 +18,7 @@
 #include "sim_min.hpp"
 #include "perceptron.hpp"
 #include "util_features.hpp"
-#include "util_stats.h"
+#include "util_stats.hpp"
 
 // Google's Abseil C++ library:
 #include "absl/container/flat_hash_map.h"
@@ -272,7 +272,7 @@ private:
   const bool ENABLE_Eviction_Training = true;  // (-) on eviction without touch
   const bool ENABLE_Belady_EvictSet_Training = true; // (-) for Belady evictSet
 
-  // Corrective Reinforcement:
+  // Corrective Training:
   const bool ENABLE_EoL_Hit_Correction = true;  // (+) on incorrect eol mark
 
   const bool ENABLE_Belady_Training =
@@ -329,7 +329,7 @@ public:
   int64_t get_prediction_too_early() const;
   int64_t get_insert_predict_distant() const;
   double get_replacement_reciency() const;
-  std::string print_stats() const;
+  std::string print_stats();
   hpHandle<Key>& get_hp_handle();
 
 private:
@@ -1284,7 +1284,7 @@ double CacheSim<Key>::get_replacement_reciency() const {
 }
 
 template<typename Key>
-std::string CacheSim<Key>::print_stats() const {
+std::string CacheSim<Key>::print_stats() {
   std::stringstream ss;
   ss << "SimCache Size: " << get_size() << '\n';
   ss << " - Associativity: " << get_associativity() << "-way\n";
