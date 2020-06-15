@@ -62,18 +62,19 @@ public:
   CSV(std::string filename) : f_(filename, std::ios::out) {
 //    f_ << '{' << std::endl;
   }
-  ~CSV() {
+//  ~CSV() {
 //    f_ << "\n}" << std::endl;
-  }
+//  }
 
   template<typename Tuple>
   size_t print(Tuple t) {
+    using namespace std;
 //    if (lines_ > 0)
 //      f_ << ",\n";
 
-    std::string s;
-    for_each(t, [&](int x) {
-      s.append(std::to_string(x) + ',');
+    string s;
+    for_each(t, [&](auto x) {
+      s.append(to_string(x) + ',');
     });
 //    s.pop_back();   // remove last ','
     s.back() = '\n';
@@ -86,6 +87,33 @@ public:
 private:
   std::ofstream f_;
   size_t lines_ = 0;
+};
+
+
+/// Templated Rolling Buffer ///
+template<typename T, size_t Entries>
+class RollingBuffer {
+public:
+  RollingBuffer() = default;
+
+  T insert(T a) {
+    if (head_ > Entries) {
+      std::swap(a, ring_[head_++ % Entries]);
+      return a;
+    }
+    else {
+      ring_[head_++] = a;
+      return T{};
+    }
+  }
+
+  size_t total() const {
+    return head_;
+  }
+
+private:
+  size_t head_ = 0;   // Index 1 past last inserted entry (if n_ > 0); must mod by Entries
+  std::array<T, Entries> ring_;
 };
 
 

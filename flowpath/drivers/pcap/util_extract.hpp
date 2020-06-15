@@ -58,9 +58,6 @@ constexpr u8 IP_PROTO_IPSEC_AH = 0x33; // 51
 constexpr u8 IP_PROTO_ENCAP_IPV6 = 0x29; //41
 
 
-timespec operator-(const timespec& lhs, const timespec& rhs);
-
-
 // Definition of useful Flags/Metadata
 // - Union of all possible flags our huristic cares about...
 // - Flags are not limited to header bits, but can also be metadata...
@@ -70,6 +67,8 @@ enum class ProtoFlags {
   isTCP =1<<2,
   isIPv6=1<<1,
   isIPv4=1<<0
+  // Add TCP flow-state?
+  // - e.g. window size, keep-alive prediction?
 };
 ENABLE_BITMASK_OPERATORS(ProtoFlags);
 
@@ -103,25 +102,37 @@ using Flags = uint16_t;
 struct Fields {
   // Interpreted Flags:
   ProtoFlags fProto;
-  IPFlags fIP;
-  u16 ipFragOffset;
   TCPFlags fTCP;
 
-  // Raw Fields:
-  u64 ethSrc;
-  u64 ethDst;
-  u16 ethType;
-  u16 vlanID;
-  u32 ipv4Src;
-  u32 ipv4Dst;
-  u8  ipProto;
-  u16 srcPort;
-  u16 dstPort;
+  // Ethernet Fields:
+  u64 ethSrc = 0;
+  u64 ethDst = 0;
+  u16 ethType = 0;
+  u16 vlanID = 0;
 
-  // TCP Sequence:
-  u32 tcpSeqNum;
-  u32 tcpAckNum;
-  // todo, delta in sequence number?
+  // IP Fields:
+  u32 ipv4Src = 0;  // not ipv6 compatible
+  u32 ipv4Dst = 0;  // not ipv6 compatible
+  u16 ipLength = 0; // ipv4: total length; ipv6: payload length (no option support)
+  u16 ipFragOffset = 0; // not aware of ipv6
+  u8  ipProto = 0;  // not aware of ipv6 options
+  u8  ipTC = 0;     // {6'b DSCP, 2'b ECN}
+  u16 ipFlowLabel = 0;  // ipv4: conventional 5-tuple; ipv6: {20'b FL}
+  IPFlags fIP;
+  // Add DSCP and ECN?
+  // Add IHL?
+
+  // Transport Layer (TCP/UDP)
+  u16 srcPort = 0;
+  u16 dstPort = 0;
+
+  // TCP Specific Fields:
+  u32 tcpSeqNum = 0;
+  u32 tcpAckNum = 0;
+  u16 tcpWindow = 0; // multiply by window scaling factor for real bytes.
+  // TODO: delta in sequence number?
+  // Add Data Offset?
+  u8 tcpOffset = 0;
 };
 
 std::string print_ip(uint32_t);

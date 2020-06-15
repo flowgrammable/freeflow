@@ -56,47 +56,6 @@ inline T htobe(T n) {
 }
 
 
-// TODO: replace this with chrono duration...
-timespec
-operator-(const timespec& lhs, const timespec& rhs) {
-  constexpr auto NS_IN_SEC = 1000000000LL;
-  timespec result;
-
-  /* Compute the time. */
-  result.tv_sec = lhs.tv_sec - rhs.tv_sec;
-  result.tv_nsec = lhs.tv_nsec - rhs.tv_nsec;
-
-  /* Perform the carry. */
-//  if (result.tv_nsec > NS_IN_SEC) {
-//   result.tv_sec++;
-//   result.tv_nsec -= NS_IN_SEC;
-//  }
-
-//  if (lhs.tv_nsec < rhs.tv_nsec) {
-//    auto carry = (rhs.tv_nsec - lhs.tv_nsec) / NS_IN_SEC + 1;
-//    result.tv_nsec -= NS_IN_SEC * carry;
-//    result.tv_sec += carry;
-//  }
-//  if (lhs.tv_nsec - rhs.tv_nsec > NS_IN_SEC) {
-//    auto carry = (lhs.tv_nsec - rhs.tv_nsec) / NS_IN_SEC;
-//    result.tv_nsec += NS_IN_SEC * carry;
-//    result.tv_sec -= carry;
-//  }
-
-  if (result.tv_nsec < 0) {
-    auto carry = result.tv_nsec / NS_IN_SEC + 1;
-    result.tv_nsec += NS_IN_SEC * carry;
-    result.tv_sec -= carry;
-  }
-  else if (result.tv_nsec >= NS_IN_SEC) {
-    auto carry = result.tv_nsec / NS_IN_SEC;
-    result.tv_nsec -= NS_IN_SEC * carry;
-    result.tv_sec += carry;
-  }
-
-  return result;
-}
-
 std::string print_ip(uint32_t ip) {
   const std::string SEP(".");
   std::string ips = std::to_string(ip >> 24);
@@ -156,6 +115,14 @@ FlowKeyTuple make_flow_key_tuple(const Fields& k) {
     k.ipProto
   };
   return fkt;
+}
+
+// Only used to emulate the ipv6 label using traditional 5-tuple:
+u16 make_ipv4_label(const Fields& k) {
+  // Nieve emulation of ipv6 flow label from 5-tuple (prefer symmetry over improved folding):
+  u32 hostPair = k.ipv4Src ^ k.ipv4Dst;
+  u16 portPair = k.srcPort ^ k.dstPort;
+  return k.ipProto ^ portPair ^ u16(hostPair) ^ u16(hostPair>>16);
 }
 
 Flags make_flags_bitset(const Fields& k) {
@@ -426,6 +393,11 @@ L4:
 //  if (status == 0) { return extracted; }
   extracted += status;
 
+  // if ipv4, emulate ipv6 flow label:
+  if (gKey.fProto & ProtoFlags::isIPv4) {
+    gKey.ipFlowLabel = make_ipv4_label(gKey);
+  }
+
   // success
   return extracted;
 }
@@ -543,9 +515,11 @@ extract_ipv4(EvalContext& cxt) {
 
   //uint8_t dscp = (0xFC & *v.get())>>2;
   //uint8_t ecn = 0x02 & *v.get();
-  view.discard(1);
+  u8 tc = view.get<u8>();   // Traffic Class {6'b DSCP, 2'b ECN}
+  gKey.ipTC = tc;
 
   auto ipv4Length = betoh16(view.get<u16>());		// bytes in packet including ipv4 header
+  gKey.ipLength = ipv4Length;
 
   // check ipv4Length field for consistency, should exactly match view
   if (ipv4Length != view.committedBytes<size_t>()) {
@@ -587,6 +561,7 @@ extract_ipv4(EvalContext& cxt) {
   log << __func__ << ": extracted " << extracted << "B\n";
 #endif
   view.commit();
+
   return extracted;
 }
 
@@ -628,11 +603,14 @@ extract_ipv6(EvalContext& cxt) {
   u8 tc = (tmp & 0x0F) << 4; // upper nibble of tc byte
   tmp = view.get<u8>();
   tc |= (tmp & 0xF0) >> 4;  // lower nibble of tc byte
+  gKey.ipTC = tc;
 
   // Need to verify...  byteswap likely needed
   u32 flowLabel = u32(tmp & 0x0F) << 16 | betoh16(view.get<u32,2>());
+  gKey.ipFlowLabel = flowLabel >> 16 ^ flowLabel; // folded to 16'b for simplicity
 
   u16 payloadLength = betoh16(view.get<u16>());
+  gKey.ipLength = payloadLength;
 
   // check payload length for consistency
   // exception: 0 when jumbo extention is present...
@@ -694,6 +672,7 @@ extract_tcp(EvalContext& cxt) {
   // {offset, flags}
   u16 tmp = view.get<u8>();
   u8 offset = (0xF0 & tmp)>>4;	// size of TCP header in 4B words
+  gKey.tcpOffset = offset;
   tmp = ((tmp&0x0F) << 8) | view.get<u8>();
   gKey.fTCP = static_cast<TCPFlags>(tmp);
   // END flags
@@ -711,8 +690,8 @@ extract_tcp(EvalContext& cxt) {
 #endif
   }
 
-  //uint16_t window = bs16(*(uint16_t*)v.get());
-  view.discard(2);
+  gKey.tcpWindow = betoh16(view.get<u16>());
+//  view.discard(2);
   //uint16_t checksum = bs16(*(uint16_t*)v.get());
   view.discard(2);
   //uint16_t urg_num = bs16(*(uint16_t*)v.get());

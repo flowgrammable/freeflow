@@ -17,7 +17,7 @@ add_executable(flow-link flow-link.cpp sim_min.cpp sim_opt.cpp sim_lru.cpp util_
 #target_link_libraries(flow-count flowpath-rt flowpath-applib absl::container ${PCAP_LIBRARY} ${CMAKE_DL_LIBS})
 #target_link_libraries(flow-records flowpath-rt flowpath-applib absl::container ${PCAP_LIBRARY} ${CMAKE_DL_LIBS})
 #target_link_libraries(flow-min flowpath-rt flowpath-applib absl::container ${PCAP_LIBRARY} ${CMAKE_DL_LIBS})
-target_link_libraries(flow-link flowpath-rt flowpath-applib wstp-link absl::container ${PCAP_LIBRARY} ${CMAKE_DL_LIBS})
+target_link_libraries(flow-link flowpath-rt flowpath-applib wstp-link absl::container ${PCAP_LIBRARY} ${CMAKE_DL_LIBS} std::filesystem)
 #target_link_libraries(flow-stats flowpath-rt flowpath-applib wstp-link absl::container ${PCAP_LIBRARY} ${CMAKE_DL_LIBS})
 
 #if (ENABLE_ODP)

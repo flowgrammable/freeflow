@@ -52,6 +52,8 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 # PCAP C Library.
 find_package(PCAP REQUIRED)
 find_package(Mathematica)
+cmake_policy(SET CMP0057 NEW)
+find_package(Filesystem REQUIRED Final)	# Requires NEW CMP0057 behavior
 
 include_directories(${PCAP_INCLUDE_DIR})
 

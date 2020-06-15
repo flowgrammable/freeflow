@@ -52,9 +52,10 @@ using flow_id_t = u64;
 
 // Global Runtime Timekeeping:
 chrono::system_clock::time_point startTime = chrono::system_clock::now();
+timespec SIM_TS_LATEST;
 
 // Global configuration:
-extern global_config CONFIG;
+global_config CONFIG;
 
 // Signal Handler:
 static bool running = true;
@@ -81,57 +82,68 @@ void print_usage(const char* argv0, std::vector<po::options_description> opts) {
 // Boost commandline and config file parsing.
 po::variables_map parse_options(int argc, const char* argv[]) {
   // Get current time (to generate trace filename):
-  const std::string startTime_str = get_time(startTime);
+  CONFIG.simStartTime_str = get_time(startTime);
+  const std::string& startTime_str = CONFIG.simStartTime_str;
 
   po::options_description explicitOpts("Options");
   explicitOpts.add_options()
     ("help,h", "Print usage (this message)")
     ("config,c",
-      po::value<std::vector<string>>(),
+      po::value<std::vector<string>>(&CONFIG.configFiles),
       "Input config file")
     ("flow-log,l",
-      po::value<opt_string_>(&CONFIG.logFilename)->implicit_value(startTime_str+".log"),
+      po::value<opt_string>(&CONFIG.logFilename)->implicit_value("parse.log"s),
       "Output log file")
     ("decode-log,d",
-      po::value<opt_string_>(&CONFIG.decodeLogFilename)->implicit_value(startTime_str+".decode.log"),
+      po::value<opt_string>(&CONFIG.decodeLogFilename)->implicit_value("decode.log"s),
       "Packet decode log file")
     ("stats,s",
-      po::value<opt_string_>(&CONFIG.statsFilename)->implicit_value(startTime_str+".stats"),
+      po::value<opt_string>(&CONFIG.statsFilename)->implicit_value("stats-flows.log"s),
       "Output flows stats")
       // TODO: repurpose flows file...
     ("flows,f",
-      po::value<opt_string_>(&CONFIG.flowsFilename)->implicit_value(startTime_str+".flows"),
+      po::value<opt_string>(&CONFIG.flowsFilename)->implicit_value("keys-all.log"s),
       "Output observed flows and keys")
     ("trace,t",
-      po::value<opt_string_>(&CONFIG.traceFilename)->implicit_value(startTime_str+".trace"),
+      po::value<opt_string>(&CONFIG.traceFilename)->implicit_value("flows-all.trace"s),
       "Output timeseries trace (all protocols)")
     ("trace-tcp",
-      po::value<opt_string_>(&CONFIG.traceTCPFilename)->implicit_value(startTime_str+".trace.tcp"),
+      po::value<opt_string>(&CONFIG.traceTCPFilename)->implicit_value("flows-tcp.trace"s),
       "Output timeseries trace (TCP only)")
     ("trace-udp",
-      po::value<opt_string_>(&CONFIG.traceUDPFilename)->implicit_value(startTime_str+".trace.udp"),
+      po::value<opt_string>(&CONFIG.traceUDPFilename)->implicit_value("flows-udp.trace"s),
       "Output timeseries trace (UDP only)")
     ("trace-other",
-      po::value<opt_string_>(&CONFIG.traceOtherFilename)->implicit_value(startTime_str+".trace.other"),
+      po::value<opt_string>(&CONFIG.traceOtherFilename)->implicit_value("flows-other.trace"s),
       "Output timeseries trace (excluding TCP and UDP)")
     ("trace-scans",
-      po::value<opt_string_>(&CONFIG.traceScansFilename)->implicit_value(startTime_str+".trace.scans"),
+      po::value<opt_string>(&CONFIG.traceScansFilename)->implicit_value("flows-scans.trace"s),
       "Output timeseries trace (assumed TCP Scans)")
     ("timeseries",
-      po::value<bool>()->default_value(false)->implicit_value(true),
+      po::value<bool>(&CONFIG.flowRecordTimeseries)->default_value(false)->implicit_value(true),
       "Enable timeseries recording in FlowRecord");
 
   po::options_description hiddenOpts("Hidden Options");
   hiddenOpts.add_options()
-    ("pcaps", po::value<std::vector<string>>(), "PCAP input files")
+    ("pcaps", po::value<vector<string>>(), "PCAP input files")
     ("sim.min", po::value<bool>()->default_value(false), "Enable MIN simulation")
     ("sim.min.entries", po::value<int>()->default_value(1<<10), "Cache elements for MIN simulation")
     ("sim.cache", po::value<bool>()->default_value(false), "Enable cache simulation")
     ("sim.cache.entries", po::value<int>()->default_value(1<<10), "Cache elements for cache simulation")
     ("sim.cache.associativity", po::value<int>()->default_value(8), "Number of ways in cache simulation")
-    ("sim.cache.insertion", po::value<int>()->default_value(0), "Insertion postion for cache simulation")
-    ("sim.cache.replacement", po::value<int>()->default_value(7), "Replacement position for cache simulation");
 
+    ("sim.cache.rp", po::value<string>(&CONFIG.POLICY_Replacement)->default_value("LRU"), "Replacement Policy")
+    ("sim.cache.replacement", po::value<int>()->default_value(7), "Replacement position for cache simulation")
+    ("sim.cache.ip", po::value<string>(&CONFIG.POLICY_Insertion)->default_value("MRU"), "Insertion Policy")
+    ("sim.cache.insertion", po::value<int>()->default_value(0), "Insertion position for cache simulation")
+
+
+    ("sim.cache.hp.dbp", po::value<bool>(&CONFIG.ENABLE_Perceptron_DeadBlock_Prediction)->default_value(false), "Enable Perceptron DeadBlock predictor")
+    ("sim.cache.hp.dbp.alpha", po::value<int>(&CONFIG.Perceptron_DeadBlock_Alpha)->default_value(0), "Perceptron DeadBlock predictor alpha decision threshold")
+
+    ("sim.cache.hp.bp", po::value<bool>(&CONFIG.ENABLE_Perceptron_Bypass_Prediction)->default_value(false), "Enable Perceptron Bypass predictor")
+    ("sim.cache.hp.bp.alpha", po::value<int>(&CONFIG.Perceptron_Bypass_Alpha)->default_value(0), "Perceptron Bypass predictor alpha decision threshold")
+  ;
 
   po::positional_options_description positionalOpts;
   positionalOpts.add("pcaps", -1);
@@ -186,6 +198,10 @@ int main(int argc, const char* argv[]) {
   signal(SIGHUP, sig_handle);
 
   po::variables_map config = parse_options(argc, argv);
+  CONFIG.outputDir = fs::path(CONFIG.simStartTime_str); // also include config?
+  fs::create_directory(CONFIG.outputDir);
+  std::cout << "Working Directory: " << fs::current_path()
+            << "\nOutput Directory: " << CONFIG.outputDir << std::endl;
 
   // Output Files:
   ofstream NULL_OFSTREAM;
@@ -210,8 +226,8 @@ int main(int argc, const char* argv[]) {
   constexpr bool ENABLE_WSTP = false;
 
 //  constexpr bool ENABLE_FLOW_LOG = false;
-  //  const bool enable_simMIN(config["sim.min"].as<bool>());
-  //  const bool enable_simCache(config["sim.cache"].as<bool>());
+//  const bool enable_simMIN(config["sim.min"].as<bool>());
+//  const bool enable_simCache(config["sim.cache"].as<bool>());
 
 
   // Log/Trace Output Files:
@@ -276,6 +292,7 @@ int main(int argc, const char* argv[]) {
   const FlowRecord::MODE_EN CONFIG_TIMESERIES = config["timeseries"].as<bool>()
       ? FlowRecord::TIMESERIES : FlowRecord::NORMAL;
   flow_id_t nextFlowID = 1; // flowID 0 is reserved for 'flow not found'
+
   // Maps flows to vector (from most-recent to least-recent) of flowIDs
   absl::flat_hash_map<FlowKeyTuple, absl::InlinedVector<flow_id_t,1>> flowIDs;
   std::map<flow_id_t, std::shared_ptr<FlowRecord>> flowRecords;
@@ -313,9 +330,15 @@ int main(int argc, const char* argv[]) {
 //  using Reservation = typename CacheSim<flow_id_t>::Reservation;
 //  using HitStats = typename CacheSim<flow_id_t>::HitStats;
   // TODO, place these cache sim / stats types in a namespace
-  using Lifetime = std::tuple<Reservation, BurstStats>;
+  using Lifetime = std::tuple<Reservation, std::shared_ptr<BurstStats>>;
   std::map<flow_id_t, std::vector<Lifetime>> minLifetimes;
   std::map<flow_id_t, std::vector<Lifetime>> cacheLifetimes;
+//  RollingBuffer<Reservation, 1024*100> reservations;
+  constexpr bool ENABLE_EVICTION_DUMP = false;
+  CSV csv_evictions;
+  if (ENABLE_EVICTION_DUMP) {
+    csv_evictions = CSV("evictions.txt");
+  }
 
 
   // Lamba function interface for reporting misses:
@@ -355,57 +378,9 @@ int main(int argc, const char* argv[]) {
   };
 
 
-  /////////////////////////////////////////////////////////////////////////////
-  /// Helper functions to interact with cache simulations: ////////////////////
-  /*
-  auto make_feature_1 = [](const Fields& k) {
-    return std::make_tuple(k.ipProto, std::min(k.srcPort, k.dstPort));
-  };
-  auto make_feature_2 = [](const Fields& k) {
-    return std::make_tuple(k.ipv4Dst >> 8, k.dstPort);
-  };
-  auto make_feature_3 = [](const Fields& k) {
-    return std::make_tuple(k.ipv4Src >> 8, k.srcPort);
-  };
-  auto make_feature_4 = [](const Fields& k) {
-    Flags flags = make_flags_bitset(k);
-    return std::make_tuple(flags);
-  };
-  auto make_feature_5 = [](const Fields& k) {
-    return std::make_tuple(uint16_t(k.ipv4Dst >> 16),
-                           uint16_t(k.ipv4Src >> 16));
-  };
-  auto make_feature_6 = [](const Fields& k) {
-    return std::make_tuple(k.srcPort, k.dstPort);
-  };
-  auto make_feature_7 = [](const Fields& k) {
-    return std::make_tuple(k.ipProto, std::min(k.srcPort, k.dstPort), k.fTCP);
-  };
-  auto make_feature_8 = [](const FlowRecord& r) {
-    return std::make_tuple(r.tcp_state());
-  };
-  auto make_feature_9 = [](const FlowRecord& r) {
-    return std::make_tuple(r.packets());
-  };
-  auto make_feature_10 = [](const FlowRecord& r) {
-    return std::make_tuple(r.isTCP(), r.packets());
-  };
-//  auto make_feature_8 = [](const FlowRecord& r) {
-//    using V = decltype(r.getByteV());
-//    constexpr size_t N = 8;
-//    size_t n = std::min(N, r.getByteV().size());
-////    V lastNBytes = V(r.getByteV().rbegin());
-//    return std::make_tuple(r.getByteV());
-//  };
-  // feature 5: delta in seq /ack number?
-  // feature 6: pps?
-  // feature 7: burst/ref count?
-  // feature 8:
-*/
-
   // Insert called once (first packet on flow startup)
   std::function<void(flow_id_t, const std::pair<uint64_t,timespec>&&, Features)> f_sim_insert =
-      [&](flow_id_t flowID, const std::pair<uint64_t,timespec>&& pktTime, Features&& features) {
+      [&](flow_id_t flowID, const std::pair<uint64_t,timespec>&& pktTime, Features features) {
     auto [ns, ts] = pktTime;
     if (ENABLE_simMIN) {
       simMIN.insert(flowID, ts);
@@ -413,19 +388,33 @@ int main(int argc, const char* argv[]) {
     }
 
     if (ENABLE_simCache) {
-      auto victim = simCache.insert(flowID, ts, std::move(features));
+      auto victim = simCache.insert(flowID, ts, features);
       if (ENABLE_WSTP && victim) {
         // If victim exists (something was replaced).
         // victim: std::tuple<Key, Reservation, HitStats>
         auto& [id, res, hits] = *victim;
         cacheLifetimes[id].emplace_back(res, hits);
+        auto line = std::make_tuple(
+          id,
+          std::accumulate(hits->begin(), hits->end(), int64_t{}),
+          res.duration_minTime(),
+          res.duration_time()
+        );
+        if (ENABLE_EVICTION_DUMP) {
+          csv_evictions.print(line);
+        }
+//        std::cout << "Evicted FlowID: " << id
+//          << ", Hits: " << std::accumulate(hits->begin(), hits->end(), int64_t{})
+//          << ", MinTime: " << res.duration_minTime()
+//          << ", Duration: " << res.duration_time()
+//          << std::endl;
       }
     }
   };
 
   // - Update called on each subsequent packet
   std::function<void(flow_id_t, const std::pair<uint64_t,timespec>&&, Features)> f_sim_update =
-      [&](flow_id_t flowID, const std::pair<uint64_t,timespec>&& pktTime, Features&& features) {
+      [&](flow_id_t flowID, const std::pair<uint64_t,timespec>&& pktTime, Features features) {
     auto [ns, ts] = pktTime;
     if (ENABLE_simMIN) {
 //      auto [hit, evictSet] = simMIN.update(flowID, ts);
@@ -444,7 +433,7 @@ int main(int argc, const char* argv[]) {
     }
 
     if (ENABLE_simCache) {
-      auto [hit, victim] = simCache.update(flowID, ts, std::move(features));
+      auto [hit, victim] = simCache.update(flowID, ts, features);
       if (ENABLE_WSTP && !hit) {
       // TODO: take note of miss statistics...
         std::lock_guard lock(mtx_misses);
@@ -454,6 +443,20 @@ int main(int argc, const char* argv[]) {
           // victim: std::tuple<Key, Reservation, HitStats>
           auto& [id, res, hits] = *victim;
           cacheLifetimes[id].emplace_back(res, hits);
+//          std::cout << "+ FlowID: " << id
+//            << ", Hits: " << std::accumulate(hits->begin(), hits->end(), int64_t{})
+//            << ", MinTime: " << res.duration_minTime()
+//            << ", Duration: " << res.duration_time()
+//            << std::endl;
+          auto line = std::make_tuple(
+            id,
+            std::accumulate(hits->begin(), hits->end(), int64_t{}),
+            res.duration_minTime(),
+            res.duration_time()
+          );
+          if (ENABLE_EVICTION_DUMP) {
+            csv_evictions.print(line);
+          }
         }
       }
     }
@@ -469,7 +472,8 @@ int main(int argc, const char* argv[]) {
 
 
   // Filtering function to find 'interesting' flows once they retire:
-  std::function<void(std::shared_ptr<FlowRecord>)> f_sample = [&](std::shared_ptr<FlowRecord> r) {
+  std::function<void(std::shared_ptr<FlowRecord>)> f_sample =
+              [&](std::shared_ptr<FlowRecord> r) {
     // Only consider semi-large flows:
     if (ENABLE_WSTP) {
       const auto duration = r->last();
@@ -708,9 +712,19 @@ int main(int argc, const char* argv[]) {
   s64 count = 0, last_count = 0;
   fp::Context cxt = caida.recv();
   timespec last_epoc = cxt.packet().timestamp();
+  const timespec first_epoc = last_epoc;
+  timespec ts0 = last_epoc;
   while (running && cxt.packet_ != nullptr) {
     flow_id_t flowID;
     const timespec& pktTime = cxt.packet().timestamp();
+    timespec cmp = pktTime - ts0;
+    if (cmp.tv_sec < 0 || cmp.tv_nsec < 0) {
+      std::cerr << "[" << count-1 << "] {" << pktTime
+                << "} - [" << count << "] " << ts0
+                << " = {" << cmp << "}" << std::endl;
+    }
+    ts0 = pktTime;
+    SIM_TS_LATEST = pktTime;
 
     { // per-packet processing
       const fp::Packet& p = cxt.packet();
@@ -901,6 +915,7 @@ int main(int argc, const char* argv[]) {
         // Clean up dormant flows every new 128k new flows:
         // TODO: make trace not thotime based?
         if (flowID % (128*1024) == 0) {
+          timespec diffBegin = pktTime - first_epoc;
           timespec diff = pktTime - last_epoc;
           last_epoc = pktTime;
           auto diff_pkts = count - last_count;
@@ -915,7 +930,8 @@ int main(int argc, const char* argv[]) {
           if (ENABLE_simCache) {
             int64_t total = simCache.get_hits() + simCache.get_conflict_miss()
                + simCache.get_capacity_miss() + simCache.get_compulsory_miss();
-            cout << "Cache hit rate: " << double(simCache.get_hits()) / total * 100
+            cout << "(" << diffBegin.tv_sec << "s) "
+                 << "Cache hit rate: " << double(simCache.get_hits()) / total * 100
                  << "%\tBad early predictions "
                  << double(simCache.get_prediction_too_early())/total*100
                  << "%" << endl;

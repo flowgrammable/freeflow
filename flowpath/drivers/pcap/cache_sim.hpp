@@ -19,11 +19,14 @@
 #include "perceptron.hpp"
 #include "util_features.hpp"
 #include "util_stats.hpp"
+#include "global_config.hpp"
 
 // Google's Abseil C++ library:
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/container/inlined_vector.h"
+
+extern struct global_config CONFIG;
 
 // Global Random Number Generator:
 std::mt19937 rE{std::random_device{}()};
@@ -77,16 +80,23 @@ bool operator==(Policy l, InsertionPolicy r) {
 
 
 // Global type definitions:
-using Time = timespec;  // maybe throw out?
-using MIN_Time = size_t;
-using Reservation = std::pair<MIN_Time, MIN_Time>; // refactor to Time?
+//using Time = timespec;
+//using MIN_Time = size_t;
+//struct Reservation; // defined in sim_min.hpp
 using BurstStats = std::vector<int>;  // mru burst hit counter
 
 
 // Defines cache entry:
 struct Stack_entry {
-  Stack_entry(Reservation r) : res(r) {}
-  Stack_entry(Reservation r, Features f) : res(r), features(f) {}
+  Stack_entry() = delete;
+//  Stack_entry(Reservation r) : res(r) {
+//    features.h_ = hits;
+//  }
+  Stack_entry(Reservation r, Features f) : res{r}, features{f},
+    hits{std::make_shared<BurstStats>(BurstStats{1})} {
+    features.setBurstStats(hits);
+    features.bless();
+  }
 
   // Reference Prediciton Mechanism (RefCount & BurstCount):
   int refCount = 1;   // counts hits until eviction (equivalent to sum of HitStats)
@@ -101,12 +111,12 @@ struct Stack_entry {
   // signature (key, already stored)
   // re-reference boolean (equivalent to sum of HitStats > 1)
 
-  // Perceptron Sampler Features:
-  Features features;
-
   // Statistics:
   Reservation res;
-  BurstStats hits = {1};
+  std::shared_ptr<BurstStats> hits;
+
+  // Perceptron Sampler Features:
+  Features features;
 };
 
 // Defines Prediciton Table entry:
@@ -162,7 +172,7 @@ public:
   using Stack = std::list< std::pair<Key, Stack_entry> >;
   using Stack_it = typename Stack::iterator;
   using Stack_value = typename Stack::value_type;
-  using Evict_t = std::tuple<Key, Reservation, BurstStats>;
+  using Evict_t = std::tuple<Key, Reservation, std::shared_ptr<BurstStats>>;
 
   using PatternTable = std::map<Key, PT_entry>;
 //  using RejectTable = std::list< std::pair<Key, Features> >;
@@ -259,6 +269,8 @@ private:
   // Shared Prediction State:
 //  entangle::HashedPerceptron<Features::FeatureType>& hp_;
   hpHandle<Key>& hp_; // Global state owned by CacheSim.
+
+  // Hashed Perceptron Configs:
   const bool ENABLE_Perceptron_DeadBlock_Prediction = true;
   const bool ENABLE_Perceptron_Bypass_Prediction = false;
   const bool ENABLE_History_Training = false;
@@ -295,8 +307,8 @@ public:
 //  using HitStats = typename AssociativeSet<Key>::HitStats;
 
   CacheSim(size_t entries, size_t ways = 0);
-  auto insert(const Key& k, const Time& t, Features);
-  auto update(const Key& k, const Time& t, Features);
+  auto insert(const Key& k, const Time& t, Features f);
+  auto update(const Key& k, const Time& t, Features f);
   bool demote(const Key& k);
   auto flush(const Key& k);
   auto flush();
@@ -373,7 +385,7 @@ auto AssociativeSet<Key>::insert(Key k, const Time& t, Features f) {
   if (ENABLE_Belady) {
     belady_.insert(k, t);
     if (ENABLE_Belady_Training) {
-      hp_.lastFeature_.insert_or_assign(k, f); // update last feature
+      hp_.lastFeature_.insert_or_assign(k, f); // replace last feature
     }
   }
 
@@ -409,13 +421,13 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
       if (ENABLE_Belady_EvictSet_Training) {
         for (Key v : evictSet) {
           const Features& ef = hp_.lastFeature_.at(v);
-          hp_.pt_.reinforce(ef.gather(), false);  // reinforce as non-cachable
+          hp_.pt_.reinforce(ef.gather(true), false);  // reinforce as non-cachable
         }
       }
       if (ENABLE_Belady_KeepSet_Training) {
         for (Key v : keepSet) {
           const Features& kf = hp_.lastFeature_.at(v);
-          hp_.pt_.reinforce(kf.gather(), true);   // reinforce as cachable
+          hp_.pt_.reinforce(kf.gather(true), true);   // reinforce as cachable
         }
       }
       beladyVictims.swap(evictSet);
@@ -425,6 +437,7 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
   // Update/Sample Hashed Perceptron:
   if (ENABLE_History_Training) {
     event_hp_touch(k, f);
+    // FIXME: Features needs to be updated with BurstStats in a unified way...
   }
 
   // Cache Simulation:
@@ -433,22 +446,21 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
   if (status != lookup_.end()) {
     hits_++;
     Stack_it it = status->second;
-    Stack_entry& e = std::get<Stack_entry>(*it);
-    Reservation& r = e.res;
-    BurstStats& s = e.hits;
+    Stack_entry& entry = std::get<Stack_entry>(*it);
+    Reservation& res = entry.res;
+    BurstStats& hitStats = *(entry.hits);
 
-    ++e.refCount;
-//    e.features = f; // update features to latest touch
-    r.second = column;
+    ++entry.refCount;
+    res.extend(t, column);
 
     // TODO: factor out into promotion function if modularity is needed:
     if (it == stack_.begin()) {
-      s.back()++; // at MRU (continuting burst)
+      hitStats.back()++; // at MRU (continuting burst)
       event_mru_hit(it);
     }
     else {
       // Update LRU Stack:
-      s.emplace_back(1);  // new burst
+      hitStats.emplace_back(1);  // new burst
       Stack_it demotion = stack_.begin(); // let naturally demote by 1 position
       stack_.splice(stack_.begin(), stack_, it, std::next(it));
       event_mru_demotion(demotion);
@@ -458,7 +470,7 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
       if (beladyHit) { ++perfectHits_; }
       if (ENABLE_Hit_Training) {
 //        const Features& lf = hp_.lastFeature_.at(k);
-        const Features& df = e.features;
+        const Features& df = entry.features;
 //        assert(df.gather() == lf.gather());   // TODO: why is this broken?
         hp_.pt_.reinforce(df.gather(), true);     // reinforce as cachable
       }
@@ -467,7 +479,8 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
       }
     }
 
-    e.features = f; // update features to latest touch
+//    entry.features = f; // update features to latest touch
+    entry.features.merge(f); // update features to latest touch
     return std::make_pair(true, std::optional<Evict_t>{});  // hit
   }
   else {
@@ -496,7 +509,9 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
 template<typename Key>
 auto AssociativeSet<Key>::internal_insert(const Key& k, const Time& t, Features f) {
   MIN_Time column = compulsoryMiss_ + capacityMiss_;  // Comparable to Min's t
-  Stack_entry new_e = Stack_entry(Reservation(column,column), f);
+//  Stack_entry new_e = Stack_entry(Reservation(column,column), f);
+//  Stack_entry new_e = Stack_entry(Reservation_t(t, t), f);
+  Stack_entry new_e = Stack_entry(Reservation(t, column), f);
 
   // Replacement Policy:
   std::optional<Evict_t> eviction;
@@ -509,7 +524,7 @@ auto AssociativeSet<Key>::internal_insert(const Key& k, const Time& t, Features 
     event_eviction(victim_it);
     lookup_.erase(victim_key);
 
-    eviction = Evict_t(victim_key, std::move(victim_e.res), std::move(victim_e.hits));
+    eviction = Evict_t(victim_key, std::move(victim_e.res), victim_e.hits);
     stack_.erase(victim_it);
 
     // Consult Belady's Algorithm:
@@ -564,7 +579,7 @@ auto AssociativeSet<Key>::flush() {
 template<typename Key>
 void AssociativeSet<Key>::event_eviction(Stack_it eviction) {
   const auto& [key, entry] = *eviction;
-  const BurstStats& hitStats = entry.hits;
+  const BurstStats& hitStats = *(entry.hits);
   const Reservation& res = entry.res;
 
   // Calculate burst & reference count:
@@ -634,7 +649,7 @@ template<typename Key>
 void AssociativeSet<Key>::event_mru_demotion(Stack_it demoted) {
   { // Take notes on demoted MRU:
     auto& [key, entry] = *demoted;
-    const BurstStats& hitStats = entry.hits;
+    const BurstStats& hitStats = *(entry.hits);
 
     if (p_replace_ == ReplacementPolicy::BURST_LRU) {
       const int64_t burstCount = hitStats.size();

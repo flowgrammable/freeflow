@@ -10,18 +10,17 @@ using namespace std;
 
 
 bool timespec_less(const timespec& lhs, const timespec& rhs) {
-  return (lhs.tv_sec < rhs.tv_sec) &&
-         (lhs.tv_nsec < rhs.tv_nsec);
+  return (lhs.tv_sec < rhs.tv_sec) ||
+         (lhs.tv_sec == rhs.tv_sec && lhs.tv_nsec < rhs.tv_nsec);
 }
 
 bool timespec_greater(const timespec& lhs, const timespec& rhs) {
-  return (lhs.tv_sec > rhs.tv_sec) &&
-         (lhs.tv_nsec > rhs.tv_nsec);
+  return (lhs.tv_sec > rhs.tv_sec) ||
+         (lhs.tv_sec == rhs.tv_sec && lhs.tv_nsec > rhs.tv_nsec);
 }
 
 bool timespec_equal(const timespec& lhs, const timespec& rhs) {
-  return (lhs.tv_sec == rhs.tv_sec) &&
-         (lhs.tv_nsec == rhs.tv_nsec);
+  return (lhs.tv_sec == rhs.tv_sec) && (lhs.tv_nsec == rhs.tv_nsec);
 }
 
 

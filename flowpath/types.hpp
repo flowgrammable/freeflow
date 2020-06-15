@@ -228,9 +228,16 @@ void for_each(Tuple&& t, Func&& f) {
 //      for_each(fkt, [&](auto&& e) {serialize(flowStats, e);});
 
 
+
+/// Timespec arithmatic
+timespec operator-(const timespec& lhs, const timespec& rhs);
+timespec operator+(const timespec& lhs, const timespec& rhs);
+std::ostream& operator<<(std::ostream& os, const timespec& ts);
+std::string to_string(const timespec& ts);
+
+
 namespace fp
 {
-
 // An integer value of 8 bits.
 using Byte = uint8_t;
 

@@ -17,24 +17,42 @@
 //#include "absl/container/flat_hash_set.h"
 //#include "absl/container/inlined_vector.h"
 
+// Global type definitions:
+using Time = timespec;
+using MIN_Time = size_t;
+
+// Global sim time references:
+extern Time SIM_TS_LATEST;
+
+struct Reservation {
+  Reservation();
+  explicit Reservation(Time t, MIN_Time col);
+
+  MIN_Time last_col() const;
+  Time last_ts() const;
+
+  bool covers(MIN_Time col) const;
+  bool strictlyCovers(MIN_Time col) const;
+
+  MIN_Time duration_minTime() const;
+  Time duration_time() const;
+
+  void extend(Time t, MIN_Time col);
+
+  // Times stored are inclusive [first, last]
+  std::pair<MIN_Time, MIN_Time> reservation_min_;
+  std::pair<Time, Time> reservation_time_;
+};
+
 
 template<typename Key>
 class SimMIN {
-  using Count = uint32_t;
-  using Time = timespec;  // maybe throw out?
-//  using Point = std::pair<size_t,Time>;  // miss-index, real-time
-//  using Reservation = std::pair<Point,Point>;
-  using Reservation = std::pair<size_t,size_t>;
-//  using History = absl::InlinedVector<Reservation,1>;
-  using History = std::vector<Reservation>;
-
 public:
+  static constexpr bool ENABLE_DELAY_STATS = false;
+  using History = std::vector<Reservation>;  
+
   SimMIN(size_t entries);
 
-private:
-  std::pair<std::set<Key>, std::set<Key>> trim_to_barrier();
-
-public:
   void insert(const Key& k, const Time& t);
   bool update(const Key& k, const Time& t);
   void remove(const Key& k);  // does nothing...
@@ -44,21 +62,27 @@ public:
   uint64_t get_hits() const {return hits_;}
   uint64_t get_capacity_miss() const {return capacityMiss_;}
   uint64_t get_compulsory_miss() const {return compulsoryMiss_;}
-  size_t get_max_elements() const {return max_elements_;}
+  size_t get_max_elements() const {return max_rows_;}
   std::string print_stats() const;
 
 private:
+  std::pair<std::set<Key>, std::set<Key>> trim_to_barrier();
+
   const size_t ENTRIES_;
-  size_t barrier_ = 0;      // absolute indexing (adjust with trim_offset)
-  size_t trim_offset_ = 0;  // offset for relative indexing
+  MIN_Time barrier_ = 0;      // absolute indexing (adjust with trim_offset)
+  MIN_Time trim_offset_ = 0;  // offset for relative indexing
   absl::flat_hash_map<Key, History> reserved_;
-  std::vector<Count> capacity_;  // count within columns in MIN table.
+  std::vector<uint32_t> capacity_;  // count within columns in MIN table.
 
   // Stats (summary from columns in MIN table):
   uint64_t hits_ = 0;
   uint64_t capacityMiss_ = 0;
   uint64_t compulsoryMiss_ = 0;
-  size_t max_elements_ = 0;
+
+  // Belady Matrix Dimension Stats:
+  size_t max_rows_ = 0;     // y-dimension (cache entries tracked)
+  size_t max_columns_ = 0;  // x-dimension (tracked inserts: MIN_TIME)
+  Time max_duration_{};     // x-dimension decision latency in real time
 };
 
 
@@ -76,11 +100,11 @@ SimMIN<Key>::SimMIN(size_t entries) : ENTRIES_(entries) {
 // - Pull:  Mark 1 at (k, t).
 template<typename Key>
 void SimMIN<Key>::insert(const Key& k, const Time& t) {
-  size_t column = compulsoryMiss_ + capacityMiss_;  // t
+  MIN_Time column = compulsoryMiss_ + capacityMiss_;  // t
   compulsoryMiss_++;
 
   History& hist = reserved_[k];
-  hist.emplace_back( std::make_pair(column,column) );
+  hist.emplace_back(t, column);
   capacity_.emplace_back(1);
   assert(capacity_.size() == compulsoryMiss_ + capacityMiss_ - trim_offset_);
 }
@@ -95,20 +119,21 @@ void SimMIN<Key>::insert(const Key& k, const Time& t) {
 template<typename Key>
 bool SimMIN<Key>::update(const Key& k, const Time& t) {
   History& hist = reserved_[k];
-  if (hist.size() > 0 && barrier_ <= hist.back().second) {
+//  if (hist.size() > 0 && barrier_ <= hist.back().second) {
+  if (!hist.empty() && hist.back().covers(barrier_)) {
     hits_++;
 
     Reservation& res = hist.back();
-    size_t column_begin = res.second;
-    size_t column = compulsoryMiss_ + capacityMiss_ - 1;  // t-1
+    MIN_Time column_begin = res.last_col();
+    MIN_Time column = compulsoryMiss_ + capacityMiss_ - 1;  // t-1
 
     // Update history to reserve item to t:
-    res.second = column;
+    res.extend(t, column);
 
     // Determine if barrier moved:
-    size_t last = barrier_;
-    for (size_t i = column_begin+1; i <= column; i++ ) {
-      const size_t idx = i - trim_offset_;
+    MIN_Time last = barrier_;
+    for (MIN_Time i = column_begin+1; i <= column; i++ ) {
+      const MIN_Time idx = i - trim_offset_;
       assert(idx < capacity_.size());
       // Update count (scoreboard):
       if (++capacity_[idx] >= ENTRIES_) {
@@ -126,9 +151,10 @@ bool SimMIN<Key>::update(const Key& k, const Time& t) {
     return true;  // hit
   }
   else {
-    size_t column = compulsoryMiss_ + capacityMiss_;  // t
+    // miss, re-insert into cache:
+    MIN_Time column = compulsoryMiss_ + capacityMiss_;  // t
     capacityMiss_++;
-    hist.emplace_back(std::make_pair(column,column));
+    hist.emplace_back(t, column);
     capacity_.emplace_back(1);
     assert(capacity_.size() == compulsoryMiss_ + capacityMiss_ - trim_offset_);
     return false; // miss
@@ -144,34 +170,47 @@ bool SimMIN<Key>::update(const Key& k, const Time& t) {
 template<typename Key>
 std::pair<std::set<Key>, std::set<Key>> SimMIN<Key>::trim_to_barrier() {
   std::set<Key> evict_set, keep_set;
-  size_t advance = barrier_ - trim_offset_;
+  MIN_Time advance = barrier_ - trim_offset_;
   if (advance == 0) {
     return std::make_pair(evict_set, keep_set);
   }
+  static Time tempSum{};
 
-  max_elements_ = std::max(max_elements_, reserved_.size());
+  max_rows_ = std::max(max_rows_, reserved_.size());
   // For all reservations in history, delete if reservation.end < barrier:
   for (auto& [key, hist] : reserved_) {
     auto cut = hist.begin();
     for (auto it = hist.begin(); it != hist.end(); it++) {
-      if (it->first <= barrier_ && it->second >= barrier_) {
-        keep_set.insert(key);
+//      if (it->first <= barrier_ && it->second >= barrier_) {
+      if (it->strictlyCovers(barrier_)) {
+        // if reservation was extended: [first <= barrier_ <= second]
+        keep_set.insert(key);   // confirm as good entry to keep
+        if (ENABLE_DELAY_STATS) {
+          std::cout << key << " Belady marked Keep: " << SIM_TS_LATEST - it->last_ts() << std::endl;
+        }
       }
-      if (barrier_ > it->second) {
-        cut = it + 1;
+      else if (barrier_ > it->last_col()) {
+        // if reservation was dormant: [first <= second < barrier_]
+        cut = it + 1;   // mark for reclaiming
       }
-      else {
-        break;
-      }
+//      else {
+//        // Reservation is newer than barrier_:  [barrier < first]
+//        assert(false);
+//        break;
+//      }
     }
     if (cut == hist.end()) {
       evict_set.insert(key);
+      if (ENABLE_DELAY_STATS) {
+        std::cout << key << " Belady marked Evict: " << SIM_TS_LATEST - hist.back().last_ts() << std::endl;
+      }
     }
     else if (cut != hist.begin()){
       // FIXME: dead code?  should only happen if failed to trim on barrier move...
       hist.erase(hist.begin(), cut);
     }
   }
+
   for (Key k : evict_set) {
     reserved_.erase(k);
   }

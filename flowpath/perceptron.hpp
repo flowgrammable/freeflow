@@ -10,12 +10,10 @@
 #include "types.hpp"
 #include "drivers/pcap/util_io.hpp"
 
+//#include "global_config.hpp"
+//extern struct global_config CONFIG;
 
 namespace entangle {
-
-// Enables stats accumulation:
-constexpr bool ENABLE_STATS = true;
-constexpr bool ENABLE_INFERENCE_HISTORY = true;
 
 // Example FeatureGen that produces reduces a generic tuple:
 template<size_t index_bits, typename Tuple>
@@ -34,6 +32,8 @@ class FeatureGen {
 template<typename Key>
 class PerceptronTable {
 public:
+  static constexpr bool ENABLE_STATS = false; // inference debug
+
   static constexpr size_t BITS_ = 5;  // resolution of single perceptron
   using Perceptron = ClampedInt<BITS_>;
 
@@ -74,6 +74,9 @@ struct inference_result {
 template<class Key>
 class HashedPerceptron {
 public:
+  static constexpr bool ENABLE_STATS = PerceptronTable<Key>::ENABLE_STATS;
+  static constexpr bool ENABLE_CORRELATION_ANALYSIS = false;
+
   using Feature = typename Key::value_type;
   using FeatureTable = PerceptronTable<Feature>;
   constexpr static size_t TABLES_ = std::tuple_size<Key>::value;
@@ -100,7 +103,7 @@ private:
   std::vector<FeatureTable> tables_;  // 1 table per feature
   int64_t training_threshold_;
   int64_t inference_threshold_;
-  bool force_update_ = true;
+  bool force_update_ = false;
 
 public:
   // Training Stats:
@@ -114,10 +117,13 @@ private:
   CorrelationMatrix feature_correlation_ {{}};
   std::array<int64_t, TABLES_> feature_s1_ {}; // sum, power 1 (for std. deviation)
   int64_t feature_n_ = {};  // number of inferences (for std. deviation)
-//  std::array<int64_t, TABLES_> s2_ {}; // sum, power 2 (for std. deviation)
-  CSV csv_fCorrelation_ {"feature_correlation.csv"};
-  CSV csv_fS1_ = {"feature_s1.csv"};
-  CSV csv_fN_ = {"feature_n.csv"};
+
+  // File Output Stats:
+  CSV csv_fCorrelation_;  // mult+add (feature x feature)
+  CSV csv_fS1_;           // sum (per feature)
+  // S2 (feature^2 per feature) is identity in correlation matrix.
+  CSV csv_fN_;            // inferences (per feature)
+  // TODO: add raw inference output?
 };
 
 
@@ -153,8 +159,9 @@ auto PerceptronTable<Key>::inference(Key k) {
 template<typename Key>
 void PerceptronTable<Key>::train(Key k, bool correlation) {
   assert(k < MAX_);
-  if (ENABLE_STATS)
+  if (ENABLE_STATS) {
     ++touch_train_[k];
+  }
   correlation ? ++table_[k] : --table_[k];
 }
 
@@ -198,6 +205,12 @@ HashedPerceptron<Key>::HashedPerceptron(size_t elements) :
 //  size_t range = size_t(1) << (FeatureTable::BITS_-1);
   training_threshold_ = TABLES_ * (FeatureTable::Perceptron::RANGE/2);
   inference_threshold_ = 0;
+
+  if (ENABLE_CORRELATION_ANALYSIS) {
+    csv_fCorrelation_ = CSV("feature_correlation.csv");
+    csv_fS1_ = CSV("feature_s1.csv");
+    csv_fN_ = CSV("feature_n.csv");
+  }
 }
 
 template<class Key>
@@ -211,7 +224,7 @@ auto HashedPerceptron<Key>::inference_raw(Key tuple) {
   for (size_t i = 0; i < TABLES_; ++i) {
     w[i] = tables_[i].inference(tuple[i]).get();
   }
-  if (ENABLE_INFERENCE_HISTORY) {
+  if (ENABLE_CORRELATION_ANALYSIS) {
     inference_event(w);
   }
   return w;
@@ -231,7 +244,7 @@ auto HashedPerceptron<Key>::inference_internal(Key tuple) {
 template<class Key>
 auto HashedPerceptron<Key>::inference(Key tuple) {
   const Weights w = inference_raw(tuple);
-  const int sum = std::accumulate(std::begin(w), std::end(w), 0);
+  const int sum = std::accumulate(std::begin(w)+1, std::end(w), 0);
   auto ret = std::make_pair(sum >= inference_threshold_, sum);
 
   if (ENABLE_STATS) {
@@ -342,6 +355,7 @@ std::string HashedPerceptron<Key>::print_stats() {
     );
     int median_information = int(median_it->information);
 
+
     auto predict_positive = std::count_if(std::begin(v), std::end(v),
       [](const inference_result& a) {
         return a.agreement >= 0;
@@ -349,6 +363,7 @@ std::string HashedPerceptron<Key>::print_stats() {
     );
     double inference_bias = double(predict_positive) / v.size();
 
+    // TODO: Fixme!
     ss << v.size() << " inferences ("
        << inference_bias*100 << "% T)\t"
        << "[Confidence (" << median_confidence
@@ -358,14 +373,16 @@ std::string HashedPerceptron<Key>::print_stats() {
        << ")]\n";
   }
 
-  for (auto r : feature_correlation_) {
-    csv_fCorrelation_.print(r);
+  if (ENABLE_CORRELATION_ANALYSIS) {
+    for (auto r : feature_correlation_) {
+      csv_fCorrelation_.print(r);
+    }
+    feature_correlation_ = {{}};  // zero out
+    csv_fS1_.print(feature_s1_);
+    feature_s1_ = {};  // zero out
+    csv_fN_.print(std::make_tuple(feature_n_));
+    feature_n_ = {};  // zero out
   }
-  feature_correlation_ = {{}};  // zero out
-  csv_fS1_.print(feature_s1_);
-  feature_s1_ = {};  // zero out
-  csv_fN_.print(std::make_tuple(feature_n_));
-  feature_n_ = {};  // zero out
   return ss.str();
 }
 
