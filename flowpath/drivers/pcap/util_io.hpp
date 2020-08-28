@@ -3,6 +3,7 @@
 
 #include <fstream>
 #include <sstream>
+#include <variant>
 
 #include <boost/iostreams/filtering_streambuf.hpp>
 #include "types.hpp"
@@ -55,32 +56,63 @@ private:
 };
 
 
+/// Convert array into a tuple ///
+template<typename Array, std::size_t... I>
+auto a2t_impl(const Array& a, std::index_sequence<I...>)
+{
+    return std::make_tuple(a[I]...);
+}
+
+template<typename T, std::size_t N, typename Indices = std::make_index_sequence<N>>
+auto a2t(const std::array<T, N>& a)
+{
+    return a2t_impl(a, Indices{});
+}
+
+
+/// Tuple CSV Printer ///
+template<class Tuple, std::size_t N>
+struct TuplePrinter {
+    template<class Target>
+    static void print(Target& out, const Tuple& t)
+    {
+        TuplePrinter<Tuple, N-1>::print(out, t);
+        out << "," << std::get<N-1>(t);
+    }
+};
+
+template<class Tuple>
+struct TuplePrinter<Tuple, 1> {
+    template<class Target>
+    static void print(Target& out, const Tuple& t)
+    {
+        out << std::get<0>(t);
+    }
+};
+
+template<class Target, typename... Args, std::enable_if_t<sizeof...(Args) == 0, int> = 0>
+void print_tuple(Target& out, const std::tuple<Args...>& t)
+{
+    out << '\n';
+}
+
+template<class Target, typename... Args, std::enable_if_t<sizeof...(Args) != 0, int> = 0>
+void print_tuple(Target& out, const std::tuple<Args...>& t)
+{
+    TuplePrinter<decltype(t), sizeof...(Args)>::print(out, t);
+    out << '\n';
+}
+
+
 /// Templated CSV List Class ///
 class CSV {
 public:
   CSV() = default;
-  CSV(std::string filename) : f_(filename, std::ios::out) {
-//    f_ << '{' << std::endl;
-  }
-//  ~CSV() {
-//    f_ << "\n}" << std::endl;
-//  }
+  CSV(std::string filename) : f_(filename, std::ios::out) {}
 
   template<typename Tuple>
-  size_t print(Tuple t) {
-    using namespace std;
-//    if (lines_ > 0)
-//      f_ << ",\n";
-
-    string s;
-    for_each(t, [&](auto x) {
-      s.append(to_string(x) + ',');
-    });
-//    s.pop_back();   // remove last ','
-    s.back() = '\n';
-
-//    f_ << '{' << s << '}';
-    f_ << s;
+  size_t append(Tuple t) {
+    print_tuple(f_, t);
     return ++lines_;
   }
 

@@ -26,6 +26,8 @@ target_link_libraries(flow-link flowpath-rt flowpath-applib wstp-link absl::cont
 #  target_link_libraries(pcap-driver-odp flowpath-rt flowpath-applib ${CMAKE_DL_LIBS})
 #endif()
 
+include_directories(${CMAKE_CURRENT_SOURCE_DIRECTORY})
+
 # Require Boost C++ Libraries.
 find_package(Boost 1.55.0 COMPONENTS program_options iostreams REQUIRED)
 include_directories(${Boost_INCLUDE_DIRS})

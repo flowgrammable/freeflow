@@ -79,14 +79,19 @@ public:
 
   using Feature = typename Key::value_type;
   using FeatureTable = PerceptronTable<Feature>;
+
   constexpr static size_t TABLES_ = std::tuple_size<Key>::value;
-  using Weights = std::array<int8_t, TABLES_>;
+  static constexpr int64_t INFERENCE_MAX = (TABLES_-1) * (FeatureTable::Perceptron::MAX);
+  static constexpr int64_t INFERENCE_MIN = (TABLES_-1) * (FeatureTable::Perceptron::MIN);
+  static constexpr uint64_t INFERENCE_RANGE = (TABLES_-1) * (FeatureTable::Perceptron::RANGE);
+
+  using Weights = std::array<int16_t, TABLES_>;
 
   HashedPerceptron(std::vector<size_t> elements);
   HashedPerceptron(size_t elements);
 
   auto inference(Key k);
-  void reinforce(Key k, bool positive);   // positive/negative correlation
+  auto reinforce(Key k, bool positive);   // positive/negative correlation
   void force_updates(bool force = true);
 
   std::string print_stats();
@@ -95,15 +100,23 @@ public:
   const std::vector<FeatureTable>& get_tables() const;
 
 private:
-  auto inference_raw(Key tuple);
+  auto inference_tracked(Key tuple);
   auto inference_internal(Key tuple);
   void inference_event(Weights w);
+  auto make_prediction(Weights w);
 
   // Member Variables:
   std::vector<FeatureTable> tables_;  // 1 table per feature
-  int64_t training_threshold_;
-  int64_t inference_threshold_;
-  bool force_update_ = false;
+  // Tunable: related to bias of system:
+  // - FIXME: TABLES_ and Weights should exclude random?
+//  int64_t inference_threshold_ = (TABLES_-1) * (FeatureTable::Perceptron::RANGE*(-0.90)/2);
+//  int64_t inference_threshold_ = (TABLES_-1) * FeatureTable::Perceptron::MIN;
+  float training_ratio_ = 0.25;  // ensure between: {0,1}
+  int64_t inference_threshold_ = -100;
+  int64_t training_threshold_[2] =  // {-threshold, +threshold}
+    {inference_threshold_ - (inference_threshold_ - INFERENCE_MIN) * training_ratio_,
+     inference_threshold_ + (INFERENCE_MAX - inference_threshold_) * training_ratio_};
+  bool force_update_ = false; // Always force reinforcement
 
 public:
   // Training Stats:
@@ -192,9 +205,7 @@ HashedPerceptron<Key>::HashedPerceptron(std::vector<size_t> elements) {
   for (size_t e : elements) {
     tables_.emplace_back(e);
   }
-  // set training & inference threshold based on # of tables?
-  training_threshold_ = TABLES_ * (FeatureTable::Perceptron::RANGE/2);
-  inference_threshold_ = 0;
+  throw std::runtime_error("Revisit uneven HashedPerceptron tables...");
 }
 
 template<class Key>
@@ -203,13 +214,26 @@ HashedPerceptron<Key>::HashedPerceptron(size_t elements) :
 
   // set training & inference threshold based on # of tables?
 //  size_t range = size_t(1) << (FeatureTable::BITS_-1);
-  training_threshold_ = TABLES_ * (FeatureTable::Perceptron::RANGE/2);
-  inference_threshold_ = 0;
+//  training_threshold_ = TABLES_ * (FeatureTable::Perceptron::RANGE/2);
+//  inference_threshold_ = 0; // Tunable: related to bias of system!
+  int64_t inferenceHeadroom = (inference_threshold_ >= 0) ?
+    (INFERENCE_MAX - inference_threshold_) : (INFERENCE_MIN - inference_threshold_);
+//  training_threshold_ = inference_threshold_ + inferenceHeadroom/2;
 
   if (ENABLE_CORRELATION_ANALYSIS) {
     csv_fCorrelation_ = CSV("feature_correlation.csv");
     csv_fS1_ = CSV("feature_s1.csv");
     csv_fN_ = CSV("feature_n.csv");
+  }
+  std::cout << "Inference threshold: " << inference_threshold_
+            << "/" << (inference_threshold_ >=0 ? INFERENCE_MAX : INFERENCE_MIN)
+            << "\nTraining Ratio: " << training_ratio_ << "\n";
+  if (force_update_) {
+    std::cout << "Training threshold: disabled" << std::endl;
+  }
+  else {
+    std::cout << "Training threshold: {" << training_threshold_[0]
+              << ", " << training_threshold_[1] << "}" << std::endl;
   }
 }
 
@@ -219,7 +243,7 @@ void HashedPerceptron<Key>::force_updates(bool force) {
 }
 
 template<class Key>
-auto HashedPerceptron<Key>::inference_raw(Key tuple) {
+auto HashedPerceptron<Key>::inference_tracked(Key tuple) {
   Weights w;
   for (size_t i = 0; i < TABLES_; ++i) {
     w[i] = tables_[i].inference(tuple[i]).get();
@@ -237,67 +261,64 @@ auto HashedPerceptron<Key>::inference_internal(Key tuple) {
   for (size_t i = 0; i < TABLES_; ++i) {
     w[i] = tables_[i].inference_internal(tuple[i]).get();
   }
-  const int sum = std::accumulate(std::begin(w), std::end(w), 0);
-  return std::make_pair(sum >= inference_threshold_, sum);
+//  const int sum = std::accumulate(std::begin(w)+1, std::end(w), 0);
+  return w;
+}
+
+template<class Key>
+auto HashedPerceptron<Key>::make_prediction(Weights w) {
+  const int sum = std::accumulate(std::begin(w)+1, std::end(w), 0);
+  const bool prediction = sum >= inference_threshold_;
+  return std::make_pair(prediction, sum);
 }
 
 template<class Key>
 auto HashedPerceptron<Key>::inference(Key tuple) {
-  const Weights w = inference_raw(tuple);
-  const int sum = std::accumulate(std::begin(w)+1, std::end(w), 0);
-  auto ret = std::make_pair(sum >= inference_threshold_, sum);
-
-  if (ENABLE_STATS) {
-    const int magnitude = std::abs(sum);
-    uint8_t confidence = (256*(magnitude - inference_threshold_))/(TABLES_*FeatureTable::Perceptron::RANGE);
-    int8_t saturation = ClampDown<int8_t>(magnitude - training_threshold_);
-    int8_t agreement = 0;
-    for (auto score : w) {
-      const int scaled_tr = inference_threshold_/std::size(w);
-      if ( score >= scaled_tr)
-        ++agreement;
-      else
-        --agreement;
-    }
-//    auto agreement = std::count_if(std::begin(w), std::end(w),
-//      [&](auto score) {  // # of features above scaled inference threshold
-//        const auto scaled_tr = inference_threshold_/std::size(w);
-//        return score >= scaled_tr;
-//    });
-    auto information = [&]() {
-      // Calculate median of dynamic_information metric:
-      auto v = information_raw(tuple);  // FIXME!
-      auto median_it = std::begin(v) + std::size(v)/2;
-      std::nth_element(std::begin(v), median_it, std::end(v));
-      return int8_t(*median_it * 100);  // % cast to 8-bit int.
-    }();
-    inference_stats_.emplace_back(inference_result{confidence, saturation, agreement, information});
-//    std::cout << "inference: " << ret.second << (ret.first ? " (evict) " : " (cache-friendly) ")
-//              << int(confidence) << " "
-//              << int(saturation) << " "
-//              << int(agreement)  << " "
-//              << int(information) << std::endl;
-  }
-
-  return ret;
+  const Weights w = inference_tracked(tuple);
+  const auto [prediction, sum] = make_prediction(w);
+//  if (ENABLE_STATS) {
+//    const int magnitude = std::abs(sum);
+//    uint8_t confidence = (256*(magnitude - inference_threshold_))/INFERENCE_MAX;
+//    int8_t saturation = ClampDown<int8_t>(magnitude - training_threshold_);
+//    int8_t agreement = 0;
+//    for (auto score : w) {
+//      const int scaled_tr = inference_threshold_/std::size(w);
+//      if ( score >= scaled_tr)
+//        ++agreement;
+//      else
+//        --agreement;
+//    }
+//    auto information = [&]() {
+//      // Calculate median of dynamic_information metric:
+//      auto v = information_raw(tuple);  // FIXME!
+//      auto median_it = std::begin(v) + std::size(v)/2;
+//      std::nth_element(std::begin(v), median_it, std::end(v));
+//      return int8_t(*median_it * 100);  // % cast to 8-bit int.
+//    }();
+//    inference_stats_.emplace_back(inference_result{confidence, saturation, agreement, information});
+//  }
+  return std::make_pair(prediction, w);
 }
 
 template<class Key>
-void HashedPerceptron<Key>::reinforce(Key tuple, bool correlation) {
+auto HashedPerceptron<Key>::reinforce(Key tuple, bool target) {
   ++train_total_;
-  const auto [prediction, sum] = inference_internal(tuple);
-  const bool incorrect = prediction != correlation;
-  const bool update = force_update_ || incorrect || std::abs(sum) < training_threshold_;
-  if (ENABLE_STATS) {
-//    std::cout << "train: " << sum << " " << (update ? (incorrect ? "(train)" : "(reinforce)") : "(skip)") << std::endl;
-  }
+  const Weights w = inference_internal(tuple);
+  const auto [prediction, sum] = make_prediction(w);
+  const bool incorrect = prediction != target;
+  const bool reinforce = target ? sum < training_threshold_[1] : sum > training_threshold_[0];
+  const bool update = force_update_ || incorrect || reinforce;
   if (update) {
     ++train_occured_;
     // Perform update:
     for (size_t i = 0; i < TABLES_; ++i) {
-      tables_[i].train(tuple[i], correlation);
+      tables_[i].train(tuple[i], target);
     }
   }
+  if (ENABLE_STATS) {
+//    std::cout << "train: " << sum << " " << (update ? (incorrect ? "(train)" : "(reinforce)") : "(skip)") << std::endl;
+  }
+  return std::make_pair(update, w);
 }
 
 template<class Key>
@@ -375,12 +396,12 @@ std::string HashedPerceptron<Key>::print_stats() {
 
   if (ENABLE_CORRELATION_ANALYSIS) {
     for (auto r : feature_correlation_) {
-      csv_fCorrelation_.print(r);
+      csv_fCorrelation_.append( a2t(r) );
     }
     feature_correlation_ = {{}};  // zero out
-    csv_fS1_.print(feature_s1_);
+    csv_fS1_.append( a2t(feature_s1_) );
     feature_s1_ = {};  // zero out
-    csv_fN_.print(std::make_tuple(feature_n_));
+    csv_fN_.append( std::make_tuple(feature_n_) );
     feature_n_ = {};  // zero out
   }
   return ss.str();

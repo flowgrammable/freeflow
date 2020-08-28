@@ -29,13 +29,12 @@ class ClampedInt {
   using SmallInt = typename std::conditional<bits<=8, int8_t, int16_t>::type;
   using LargeInt = typename std::conditional<bits<=32, int32_t, int64_t>::type;
   using IntType_t = typename std::conditional<bits<=16, SmallInt, LargeInt>::type;
-
   static constexpr size_t SHIFT = std::numeric_limits<int64_t>::digits - (bits-1);  // bits-1 because storing signed values
 
 public:
   static constexpr int64_t MAX = std::numeric_limits<int64_t>::max() >> SHIFT;
   static constexpr int64_t MIN = std::numeric_limits<int64_t>::min() >> SHIFT;
-  static constexpr size_t RANGE = MAX - MIN;
+  static constexpr uint64_t RANGE = std::numeric_limits<uint64_t>::max() >> (SHIFT+1);
 
   constexpr ClampedInt() = default;
   constexpr ClampedInt(int64_t);
@@ -60,9 +59,11 @@ private:
 template<size_t bits>
 constexpr ClampedInt<bits>::ClampedInt(int64_t i) {
   // Sanity Checks:
-//  std::cout << "MAX: " << LargeInt(MAX)
-//            << "\nMIN: " << LargeInt(MIN)
-//            << "\nbits: " << bits << std::endl;
+//  std::cerr << "bits: " << bits
+//            << "\nSHIFT: " << SHIFT
+//            << "\nMAX: " << MAX <<
+//            << "\nMIN:aass " << MIN
+//            << "\nRANGE: " << RANGE << std::endl;
   assert(i >= MIN);
   assert(i <= MAX);
   value_ = std::clamp(i, MIN, MAX);

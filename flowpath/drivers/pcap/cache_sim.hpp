@@ -139,33 +139,177 @@ struct PT_entry {
 };
 
 // Metadata of past prediction for Hashed Perceptron training:
-struct hpPrediction {
-  hpPrediction(Features f, bool pKeep, bool demand) : f_(f), pKeep_(pKeep), priority_(demand) {}
+struct Prediction {
+  Prediction(Features f, bool pKeep, bool demand) : f_(f), pKeep_(pKeep), priority_(demand) {}
   Features f_;
   bool pKeep_;  // prediction (T: keep, F: evict)
   bool priority_;   // T: demand prediction, F: sampling prediction
 };
 
+
 // Collection of shared Hashed Perceptron table structures:
 template<typename Key>
 struct hpHandle {
-  static constexpr size_t pEVICT_ELEMENTS = 1024;
-  static constexpr size_t pKEEP_ELEMENTS = 1024;
+  hpHandle(size_t ptElements) : hp_(ptElements) {}
 
-  hpHandle(size_t ptElements) : pt_(ptElements) {}
+  entangle::HashedPerceptron<Features::FeatureType> hp_;
 
-  entangle::HashedPerceptron<Features::FeatureType> pt_;
-  // history buffer method (implicity ordered by time):
-  std::vector<Key> pEvictKeys_;
-  std::vector<Key> pKeepKeys_;
-  std::vector< std::pair<Key,hpPrediction> > pEvictHistory_;
-  std::vector< std::pair<Key,hpPrediction> > pKeepHistory_;
   // features for min eval:
   std::map<Key, Features> lastFeature_; // hack to evaluate MIN as training input.
   // this really should be tracked inside min datastructure itself.
 };
 
 
+////////////////////////////////////////////////////////////////////////////////
+/// HISTORY TRAINER ////////////////////////////////////////////////////////////
+//enum class Questions {Reuse, Bypass, COUNT};
+//CSV keepLog("keepLog_"+CONFIG.simStartTime_str+".csv");
+//CSV evictLog("evictLog_"+CONFIG.simStartTime_str+".csv");
+constexpr bool DUMP_PREDICTIONS = false;
+constexpr bool DUMP_TRAINING = false;
+CSV bypassPred;
+CSV evictPred;
+CSV trainingEvents;
+
+// Training instantiation track training state intended for sample sets
+// and share PerceptronTable state.
+template<typename Key>
+class HistoryTrainer {
+public:
+  using Entry = std::pair<Key, Prediction>;
+
+  const size_t pKEEP_DEPTH;
+  const size_t pEVICT_DEPTH;
+
+  HistoryTrainer(entangle::HashedPerceptron<Features::FeatureType>& hp,
+                 size_t pEvictDepth, size_t pKeepDepth) :
+    hp_(hp), pEVICT_DEPTH(pEvictDepth), pKEEP_DEPTH(pKeepDepth)
+  {
+    pEvictHistory_.reserve(pEvictDepth);
+    pKeepHistory_.reserve(pKeepDepth);
+    if (DUMP_PREDICTIONS) {
+      bypassPred = CSV("bypassPred_"+CONFIG.simStartTime_str+".csv");
+      evictPred = CSV("evictPred_"+CONFIG.simStartTime_str+".csv");
+    }
+    if (DUMP_TRAINING) {
+      trainingEvents = CSV("trainingEvents_"+CONFIG.simStartTime_str+".csv");
+    }
+  }
+
+  // Legacy hp event prediction interface:
+  // TODO: is there a clean way to seperate questions asked of HP..?
+  void touch(Key k, Features f);
+  void prediction(Key k, Features f, bool keep, bool demand = true);
+  void reinforce(Key k, Prediction p, bool touched);
+
+private:
+  entangle::HashedPerceptron<Features::FeatureType>& hp_;
+  std::vector<Entry> pKeepHistory_;
+  std::vector<Entry> pEvictHistory_;
+};
+
+
+// Searches history buffers for prediction error on packet event.
+// - Optionally samples accesses to provide training information to predictor.
+template<typename Key>
+void HistoryTrainer<Key>::touch(Key k, Features f) {
+  { // Search keep prediction history for entry:
+    auto it = std::find_if(std::begin(pKeepHistory_), std::end(pKeepHistory_),
+      [k](const std::pair<Key, Prediction>& p) {
+        return p.first == k;
+      }
+    );
+    if (it != std::end(pKeepHistory_)) {
+      // Found correct Keep prediction: reinforce keep:
+      reinforce(k, it->second, true);
+      pKeepHistory_.erase(it);
+    }
+  }
+
+  { // Search evict prediction history for entry:
+    auto it = std::find_if(std::begin(pEvictHistory_), std::end(pEvictHistory_),
+      [k](const std::pair<Key, Prediction>& p) {
+        return p.first == k;
+      }
+    );
+    if (it != std::end(pEvictHistory_)) {
+      // Found incorrect Evict prediction: train keep:
+      reinforce(k, it->second, true);
+      pEvictHistory_.erase(it);
+    }
+  }
+}
+
+// Takes note of prediction in history for later confirmation:
+template<typename Key>
+void HistoryTrainer<Key>::prediction(Key k, Features f, bool keep, bool demand) {
+  // Take note of prediction:
+  Prediction p{f, keep, demand};
+
+  // OPTIONAL: only insert sample if queue does not contain flow?
+  if (keep) {
+    if (pKeepHistory_.size() >= pKEEP_DEPTH) {
+      // Pop last Keep prediction: train evict (never touched)
+      reinforce(k, pKeepHistory_.back().second, false);
+      pKeepHistory_.pop_back();
+    }
+//    pKeepHistory_.emplace_back(k, p);
+    pKeepHistory_.emplace(std::begin(pKeepHistory_), std::piecewise_construct,
+                          std::forward_as_tuple(k),
+                          std::forward_as_tuple(p) );
+  }
+  else {
+    if (pEvictHistory_.size() >= pEVICT_DEPTH) {
+      // Pop last Evict prediction: reinforce evict (never touched)
+      reinforce(k, pEvictHistory_.back().second, false);
+      pEvictHistory_.pop_back();
+    }
+//    pEvictHistory_.emplace_back(k, p);
+    pEvictHistory_.emplace(std::begin(pEvictHistory_), std::piecewise_construct,
+                          std::forward_as_tuple(k),
+                          std::forward_as_tuple(p) );
+  }
+}
+
+// Performs actual reinforcement:
+template<typename Key>
+void HistoryTrainer<Key>::reinforce(Key k, Prediction p, bool touched) {
+  const auto features = p.f_.gather(true);
+  auto [reinforced, weights] = hp_.reinforce(features, touched);
+  if (reinforced) {
+    const char direction = touched ? '+' : '-';
+    trainingEvents.append(
+      std::tuple_cat(std::make_tuple(direction, k), weights, features)
+    );
+  }
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+/// BELADY TRAINER /////////////////////////////////////////////////////////////
+// Manages Belady training state fit for sample sets.
+template<typename Key>
+class BeladyTrainer {
+public:
+  using Entry = std::pair<Key, Prediction>;
+
+  BeladyTrainer(entangle::HashedPerceptron<Features::FeatureType>& hp,
+                 size_t entries) : hp_(hp), belady_(entries) {}
+
+  // Legacy hp event prediction interface:
+  // TODO: is there a clean way to seperate questions asked of HP..?
+  void touch(Key k, Features f);
+  void prediction(Key k, Features f, bool keep, bool demand = true);
+
+private:
+  entangle::HashedPerceptron<Features::FeatureType>& hp_;
+  SimMIN<Key> belady_;
+  std::map<Key, Features> fmap_;
+};
+
+
+////////////////////////////////////////////////////////////////////////////////
+/// ASSOCIATIVE SET ////////////////////////////////////////////////////////////
 template<typename Key>
 class AssociativeSet {
 public:
@@ -223,6 +367,8 @@ private:
   // Generic Policies:
   auto find_MRU(size_t pos);
   auto find_LRU(size_t pos);
+  auto find_LIR(size_t pos);
+  auto find_MIR(size_t pos);
   auto find_Random(size_t pos);
 
   //  Replacement Policies:
@@ -232,11 +378,6 @@ private:
   // Insertion Policies:
   auto find_SHiP_Reuse(Key k, size_t pos);
   auto find_Bypass(Key k, size_t pos);
-
-  // Perceptron Training Events:
-  void event_hp_touch(Key k, Features f);
-  void event_hp_prediction(Key k, Features f, bool evict, bool demand = true);
-  void event_hp_confirmation(hpPrediction p, bool touched);
 
   // Way Config:
   const size_t MAX_;
@@ -268,30 +409,33 @@ private:
 
   // Shared Prediction State:
 //  entangle::HashedPerceptron<Features::FeatureType>& hp_;
-  hpHandle<Key>& hp_; // Global state owned by CacheSim.
+  hpHandle<Key>& hp_; // Global hashed perceptron state owned by CacheSim.
+  HistoryTrainer<Key> hpHistory_; // Distributed history-based perceptron trainer
+  BeladyTrainer<Key> hpBelady_; // Distributed belady perceptron trainer
 
   // Hashed Perceptron Configs:
-  const bool ENABLE_Perceptron_DeadBlock_Prediction = true;
-  const bool ENABLE_Perceptron_Bypass_Prediction = false;
-  const bool ENABLE_History_Training = false;
+  const bool ENABLE_Perceptron_DeadBlock_Prediction_on_Touch = false;
+  const bool ENABLE_Perceptron_DeadBlock_Prediction_on_MRU_Demotion = true;
+  const bool ENABLE_Perceptron_Bypass_Prediction = true; // fix me to be based off policy!
 
   // Positive Reinforcement:
-  const bool ENABLE_Hit_Training = true;             // (+) on every cache hit
+  const bool ENABLE_Hit_Training = true;            // (+) on every cache hit
   const bool ENABLE_MRU_Promotion_Training = false;  // (+) when promoted to MRU
   const bool ENABLE_Belady_KeepSet_Training = false; // (+) for Belady's keepSet
 
   // Negative Reinforcement:
   const bool ENABLE_Eviction_Training = true;  // (-) on eviction without touch
-  const bool ENABLE_Belady_EvictSet_Training = true; // (-) for Belady evictSet
+  const bool ENABLE_Belady_EvictSet_Training = false; // (-) for Belady evictSet
 
   // Corrective Training:
+  const bool ENABLE_History_Training = true;    // (+/-) prediction feedback delay loop
   const bool ENABLE_EoL_Hit_Correction = true;  // (+) on incorrect eol mark
 
   const bool ENABLE_Belady_Training =
       ENABLE_Belady_EvictSet_Training || ENABLE_Belady_KeepSet_Training;
 
   // Belady's algorithm:
-  const bool ENABLE_Belady = true;
+  const bool ENABLE_Belady = false;
   SimMIN<Key> belady_;
   int64_t perfectHits_ = 0;       // count when cache and belady agreed
   int64_t perfectEvictions_ = 0;  // count when chosen eviciton was considered perfect
@@ -373,7 +517,8 @@ template<typename Key>
 AssociativeSet<Key>::AssociativeSet(size_t entries,
     hpHandle<Key>& hp, Policy insert, Policy replace) :
   MAX_(entries), lookup_(entries), p_insert_(insert), p_replace_(replace),
-  belady_(entries), hp_(hp) {}
+  belady_(entries), hp_(hp),
+  hpHistory_(hp.hp_, entries, entries), hpBelady_(hp.hp_, entries) {}
 
 
 // Key has been created (first occurance)
@@ -390,13 +535,16 @@ auto AssociativeSet<Key>::insert(Key k, const Time& t, Features f) {
   }
 
   // Consult Hashed Perceptron on bypass:
+  // TODO: Add Insertion policy for HP...
   if (ENABLE_Perceptron_Bypass_Prediction) {
-    auto [keep, confidence] = hp_.pt_.inference(f.gather());
+    auto [keep, weights] = hp_.hp_.inference(f.gather(true));
     if (ENABLE_History_Training) {
-      event_hp_prediction(k, f, keep);
+      hpHistory_.prediction(k, f, keep);
     }
     if (!keep) {
       ++predictionHPBypass_;
+      if (DUMP_PREDICTIONS)
+        bypassPred.append( std::tuple_cat(std::make_tuple(k), weights, f.gather(true)) );
       return std::optional<Evict_t>{};  // bypass
     }
   }
@@ -421,13 +569,13 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
       if (ENABLE_Belady_EvictSet_Training) {
         for (Key v : evictSet) {
           const Features& ef = hp_.lastFeature_.at(v);
-          hp_.pt_.reinforce(ef.gather(true), false);  // reinforce as non-cachable
+          hp_.hp_.reinforce(ef.gather(true), false);  // reinforce as non-cachable
         }
       }
       if (ENABLE_Belady_KeepSet_Training) {
         for (Key v : keepSet) {
           const Features& kf = hp_.lastFeature_.at(v);
-          hp_.pt_.reinforce(kf.gather(true), true);   // reinforce as cachable
+          hp_.hp_.reinforce(kf.gather(true), true);   // reinforce as cachable
         }
       }
       beladyVictims.swap(evictSet);
@@ -436,7 +584,7 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
 
   // Update/Sample Hashed Perceptron:
   if (ENABLE_History_Training) {
-    event_hp_touch(k, f);
+    hpHistory_.touch(k, f);
     // FIXME: Features needs to be updated with BurstStats in a unified way...
   }
 
@@ -466,34 +614,52 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
       event_mru_demotion(demotion);
     }
 
-    if (ENABLE_Belady) {
-      if (beladyHit) { ++perfectHits_; }
-      if (ENABLE_Hit_Training) {
-//        const Features& lf = hp_.lastFeature_.at(k);
-        const Features& df = entry.features;
-//        assert(df.gather() == lf.gather());   // TODO: why is this broken?
-        hp_.pt_.reinforce(df.gather(), true);     // reinforce as cachable
-      }
-      if (ENABLE_Belady_Training) {
-        hp_.lastFeature_.insert_or_assign(k, f);  // update last feature
-      }
+    if (ENABLE_Belady && beladyHit) {
+      ++perfectHits_;
+    }
+    if (ENABLE_Belady_Training) {
+      hp_.lastFeature_.insert_or_assign(k, f);  // update last feature
+    }
+    if (ENABLE_Hit_Training) {
+      const Features& df = entry.features;
+      hp_.hp_.reinforce(df.gather(), true);  // reinforce reciency on every hit
     }
 
 //    entry.features = f; // update features to latest touch
     entry.features.merge(f); // update features to latest touch
+
+    // Consult Hashed Perceptron:
+    if (p_replace_ == ReplacementPolicy::HP_LRU &&
+        ENABLE_Perceptron_DeadBlock_Prediction_on_Touch) {
+      const Features& df = entry.features;
+      auto [keep, weights] = hp_.hp_.inference(df.gather());
+      if (!keep) {
+        ++predictionHPEvict_;
+        entry.eol = true;
+        if (DUMP_PREDICTIONS)
+          evictPred.append( std::tuple_cat(std::make_tuple(k), weights, df.gather()) );
+      }
+      if (ENABLE_History_Training) {
+        hpHistory_.prediction(k, df, keep);
+      }
+    }
+
     return std::make_pair(true, std::optional<Evict_t>{});  // hit
   }
   else {
     capacityMiss_++;
 
     // Consult Hashed Perceptron on bypass:
+    // TODO: Add Insertion policy for HP...
     if (ENABLE_Perceptron_Bypass_Prediction) {
-      auto [keep, confidence] = hp_.pt_.inference(f.gather());
+      auto [keep, weights] = hp_.hp_.inference(f.gather(true));
       if (ENABLE_History_Training) {
-        event_hp_prediction(k, f, keep);
+        hpHistory_.prediction(k, f, keep);
       }
       if (!keep) {
         ++predictionHPBypass_;
+        if (DUMP_PREDICTIONS)
+          bypassPred.append( std::tuple_cat(std::make_tuple(k), weights, f.gather(true)) );
         return std::make_pair(false, std::optional<Evict_t>{});  // bypass
       }
     }
@@ -624,7 +790,7 @@ void AssociativeSet<Key>::event_eviction(Stack_it eviction) {
     // Since entry.features is always last feature set,
     // possibly can reinforce evict on last packet unconditionally...
     if (entry.refCount <= 1) {
-      hp_.pt_.reinforce(df.gather(), false);  // reinforce as non-cachable
+      hp_.hp_.reinforce(df.gather(), false);  // reinforce as non-cachable
     }
   }
 
@@ -648,12 +814,12 @@ void AssociativeSet<Key>::event_eviction(Stack_it eviction) {
 template<typename Key>
 void AssociativeSet<Key>::event_mru_demotion(Stack_it demoted) {
   { // Take notes on demoted MRU:
-    auto& [key, entry] = *demoted;
+    auto& [k, entry] = *demoted;
     const BurstStats& hitStats = *(entry.hits);
 
     if (p_replace_ == ReplacementPolicy::BURST_LRU) {
       const int64_t burstCount = hitStats.size();
-      PT_entry& pte = pt_[key];
+      PT_entry& pte = pt_[k];
   ///    assert(!entry.eol); // sanity check
       if (pte.BC_confidence >= 0 && burstCount >= pte.BC_saved) {
         predictionBC_++;
@@ -679,15 +845,18 @@ void AssociativeSet<Key>::event_mru_demotion(Stack_it demoted) {
 //    }
 
     // Consult Hashed Perceptron:
-    if (ENABLE_Perceptron_DeadBlock_Prediction) {
+    if (p_replace_ == ReplacementPolicy::HP_LRU &&
+        ENABLE_Perceptron_DeadBlock_Prediction_on_MRU_Demotion) {
       const Features& df = entry.features;
-      auto [keep, confidence] = hp_.pt_.inference(df.gather());
+      auto [keep, weights] = hp_.hp_.inference(df.gather());
       if (!keep) {
         ++predictionHPEvict_;
         entry.eol = true;
+        if (DUMP_PREDICTIONS)
+          evictPred.append( std::tuple_cat(std::make_tuple(k), weights, df.gather()) );
       }
       if (ENABLE_History_Training) {
-        event_hp_prediction(key, df, keep);
+        hpHistory_.prediction(k, df, keep);
       }
     }
   }
@@ -702,7 +871,7 @@ void AssociativeSet<Key>::event_mru_demotion(Stack_it demoted) {
       if (ENABLE_EoL_Hit_Correction) {
         // Note, Positive Eviction Training requires entry features to be updated after this call!
         const Features& df = entry.features;
-        hp_.pt_.reinforce(df.gather(), true);   // reinforce as cachable
+        hp_.hp_.reinforce(df.gather(), true);   // reinforce as cachable
       }
     }
     // Update RRIP re-reference interval on promition:
@@ -732,76 +901,11 @@ void AssociativeSet<Key>::event_mru_hit(Stack_it hit) {
   if (ENABLE_MRU_Promotion_Training) {
     // Note, Positive Eviction Training requires entry features to be updated after this call!
     const Features& df = entry.features;
-    hp_.pt_.reinforce(df.gather(), true);   // reinforce as cachable
+    hp_.hp_.reinforce(df.gather(), true);   // reinforce as cachable
   }
 }
 
 
-// Searches history buffers for prediction error on packet event.
-// - Optionally samples accesses to provide training information to predictor.
-template<typename Key>
-void AssociativeSet<Key>::event_hp_touch(Key k, Features f) {
-  { // Search evict prediction history for entry:
-    auto it = std::find_if(std::begin(hp_.pEvictHistory_), std::end(hp_.pEvictHistory_),
-      [k](const std::pair<Key, hpPrediction>& p) {
-        return p.first == k;
-      }
-    );
-    if (it != std::end(hp_.pEvictHistory_)) {
-      // Found incorrect eviction prediction, train correct:
-      event_hp_confirmation(it->second, true);
-      hp_.pEvictHistory_.erase(it);
-    }
-  }
-
-  { // Search cache prediction history for entry:
-    auto it = std::find_if(std::begin(hp_.pKeepHistory_), std::end(hp_.pKeepHistory_),
-      [k](const std::pair<Key, hpPrediction>& p) {
-        return p.first == k;
-      }
-    );
-    if (it != std::end(hp_.pKeepHistory_)) {
-      // Found incorrect eviction prediction, reinforce correct:
-      event_hp_confirmation(it->second, true);
-      hp_.pKeepHistory_.erase(it);
-    }
-  }
-}
-
-// Takes note of prediction in history for later confirmation:
-template<typename Key>
-void AssociativeSet<Key>::event_hp_prediction(Key k, Features f, bool keep, bool demand) {
-  // Take note of prediction:
-  hpPrediction p{f, keep, demand};
-
-  // OPTIONAL: only insert sample if queue does not contain flow?
-  if (keep) {
-    if (hp_.pKeepHistory_.size() >= hpHandle<Key>::pKEEP_ELEMENTS) {
-      event_hp_confirmation(hp_.pKeepHistory_.back().second, false);
-      hp_.pKeepHistory_.pop_back();
-    }
-    hp_.pKeepHistory_.emplace_back(k, p);
-  }
-  else {
-    if (hp_.pEvictHistory_.size() >= hpHandle<Key>::pEVICT_ELEMENTS) {
-      event_hp_confirmation(hp_.pEvictHistory_.back().second, false);
-      hp_.pEvictHistory_.pop_back();
-    }
-    hp_.pEvictHistory_.emplace_back(k, p);
-  }
-}
-
-// Performs actual reinforcement:
-template<typename Key>
-void AssociativeSet<Key>::event_hp_confirmation(hpPrediction p, bool touched) {
-  /* Touched  | pEvict  | Cachable |  Prediction Quality
-   * F          F         F           Incorrect
-   * F          T         F           Correct
-   * T          F         T           Correct
-   * T          T         T           Incorrect
-   */
-  hp_.pt_.reinforce(p.f_.gather(), touched);
-}
 
 
 template<typename Key>
@@ -824,6 +928,21 @@ auto AssociativeSet<Key>::find_LRU(size_t pos) {
   if (stack_.size() <= pos) {
     return std::next(stack_.rbegin()).base();
   }
+  return std::next(stack_.rbegin(), pos+1).base();
+}
+
+
+// Least Inferred Reuse (LIR)
+// - Sort reciency stack by smallest raw hashed-perceptron as of last inference.
+template<typename Key>
+auto AssociativeSet<Key>::find_LIR(size_t pos) {
+  if (stack_.empty()) {
+    return stack_.end();
+  }
+  if (stack_.size() <= pos) {
+    return std::next(stack_.rbegin()).base();
+  }
+//  std::array<int> infStack(MAX_);
   return std::next(stack_.rbegin(), pos+1).base();
 }
 
@@ -1045,7 +1164,7 @@ bool AssociativeSet<Key>::operator==(const Stack& other) {
 ///////////////////////////////
 template<typename Key>
 CacheSim<Key>::CacheSim(size_t entries, size_t ways) :
-  MAX_(entries),  hp_(std::numeric_limits<uint16_t>::max()+1), fa_ref_(entries, hp_)/*, test_ref_(entries)*/ {
+  MAX_(entries),  hp_(1ull<<16), fa_ref_(entries, hp_)/*, test_ref_(entries)*/ {
   // Sanity checks:
   if (ways > 0) {
     if (entries%ways != 0) {
@@ -1323,7 +1442,7 @@ std::string CacheSim<Key>::print_stats() {
   // print incorrect prediction
   // dont penalize on prediction too much, bound confidence for flexibility?
   // way to leverage min for replacement insight?
-  ss << hp_.pt_.print_stats();
+  ss << hp_.hp_.print_stats();
   return ss.str();
 }
 

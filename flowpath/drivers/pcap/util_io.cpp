@@ -22,7 +22,9 @@ gz_ostream::gz_ostream(const std::string& filename) {
 }
 
 gz_ostream::~gz_ostream() {
-  os->flush();
+  if (os) {
+    os->flush();
+  }
 }
 
 ostream& gz_ostream::get_ostream() const {

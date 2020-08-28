@@ -172,7 +172,7 @@ po::variables_map parse_options(int argc, const char* argv[]) {
     }
     po::notify(vm);
   }
-  catch (po::unknown_option ex) {
+  catch (po::unknown_option& ex) {
     cout << ex.what() << endl;
     print_usage(argv[0], {explicitOpts});
     exit(EXIT_FAILURE);
@@ -401,7 +401,7 @@ int main(int argc, const char* argv[]) {
           res.duration_time()
         );
         if (ENABLE_EVICTION_DUMP) {
-          csv_evictions.print(line);
+          csv_evictions.append(line);
         }
 //        std::cout << "Evicted FlowID: " << id
 //          << ", Hits: " << std::accumulate(hits->begin(), hits->end(), int64_t{})
@@ -455,7 +455,7 @@ int main(int argc, const char* argv[]) {
             res.duration_time()
           );
           if (ENABLE_EVICTION_DUMP) {
-            csv_evictions.print(line);
+            csv_evictions.append(line);
           }
         }
       }
@@ -520,7 +520,7 @@ int main(int argc, const char* argv[]) {
   /////////////////////////////////////////////////////////////////////////////
   /// WSTP INTERFACE FUNCTIONS/////////////////////////////////////////////////
   // WSTP interface functions used for exploration
-  wstp_link::fn_t f_get_misses_MIN = [&](wstp_link::arg_t) {
+  wstp_link::fn_t f_get_misses_MIN = [&](wstp_link::arg_t) -> wstp_link::arg_t {
     static auto sorted_queue = f_sort_by_misses(missesMIN);
     static size_t update_triger = sorted_queue.size();
     if (update_triger != retiredRecords.size()) {
@@ -568,7 +568,7 @@ int main(int argc, const char* argv[]) {
   };
 
   // Sampling of retired flows:
-  wstp_link::fn_t f_get_arrival = [&](wstp_link::arg_t) {
+  wstp_link::fn_t f_get_arrival = [&](wstp_link::arg_t) -> wstp_link::arg_t {
     if (retiredRecords.size() == 0) {
       return wstp_link::ts_t();
     }
@@ -583,8 +583,8 @@ int main(int argc, const char* argv[]) {
     return deltas;
   };
 
-  wstp_link::fn_t f_num_flows = [&](wstp_link::arg_t) {
-    return retiredRecords.size();
+  wstp_link::fn_t f_num_flows = [&](wstp_link::arg_t) -> wstp_link::arg_t {
+    return static_cast<int64_t>(retiredRecords.size());
   };
 
   wstp_link::fn_t f_get_ids = [&](wstp_link::arg_t) {
@@ -596,7 +596,7 @@ int main(int argc, const char* argv[]) {
     return ids;
   };
 
-  wstp_link::fn_t f_get_ts_deltas = [&](wstp_link::arg_t v) {
+  wstp_link::fn_t f_get_ts_deltas = [&](wstp_link::arg_t v) -> wstp_link::arg_t {
     auto fid = std::get<int64_t>(v);
     // Calculate event deltas deltas:
     const std::shared_ptr<const FlowRecord> flowR = retiredRecords.at(fid);
@@ -619,14 +619,14 @@ int main(int argc, const char* argv[]) {
         deltas[std::distance(ts.begin(), x)] *= -1;
       }
     }
-    catch (std::out_of_range) {
+    catch (std::out_of_range& e) {
       std::cerr << "Caught std::out_of_range exception missesMIN.at(" << fid
                 << ") in " << __func__ << std::endl;
     }
     return wstp_link::arg_t(deltas);
   };
 
-  wstp_link::fn_t f_get_ts = [&](wstp_link::arg_t v) {
+  wstp_link::fn_t f_get_ts = [&](wstp_link::arg_t v) -> wstp_link::arg_t {
     auto fid = std::get<int64_t>(v);
     const std::shared_ptr<const FlowRecord> flowR = retiredRecords.at(fid);
     const auto& ts = flowR->getArrivalV();
@@ -642,14 +642,14 @@ int main(int argc, const char* argv[]) {
       auto miss_ts = missesMIN.at(fid);
       ts = wstp_link::ts_t(miss_ts.begin(), miss_ts.end());
     }
-    catch (std::out_of_range) {
+    catch (std::out_of_range& e) {
       std::cerr << "Caught std::out_of_range exception missesMIN.at(" << fid
                 << ") in " << __func__ << std::endl;
     }
     return ts;
   };
 
-  wstp_link::fn_t f_get_ts_miss_SIM = [&](wstp_link::arg_t v) {
+  wstp_link::fn_t f_get_ts_miss_SIM = [&](wstp_link::arg_t v) -> wstp_link::arg_t {
     auto fid = std::get<int64_t>(v);
     wstp_link::ts_t ts;
     try {
@@ -657,7 +657,7 @@ int main(int argc, const char* argv[]) {
       auto miss_ts = missesCache.at(fid);
       ts = wstp_link::ts_t(miss_ts.begin(), miss_ts.end());
     }
-    catch (std::out_of_range) {
+    catch (std::out_of_range& e) {
       std::cerr << "Caught std::out_of_range exception missesCache.at(" << fid
                 << ") in " << __func__ << std::endl;
     }
@@ -665,23 +665,25 @@ int main(int argc, const char* argv[]) {
   };
 
   // depricated:
-  wstp_link::fn_t f_get_samples = [&](wstp_link::arg_t v) {
+  wstp_link::fn_t f_get_samples = [&](wstp_link::arg_t v) -> wstp_link::arg_t {
     auto n = std::get<int64_t>(v);
     wstp_link::vector_t samples;
     for (const auto& [key, value] : retiredRecords) {
       if (n-- == 0) { break; }
-      wstp_link::ts_t s = std::get<wstp_link::ts_t>(f_get_ts_deltas(key));
+      int64_t sKey = key;
+      wstp_link::ts_t s = std::get<wstp_link::ts_t>(f_get_ts_deltas(sKey));
       samples.push_back(s);
     }
     return samples;
   };
 
-  wstp_link::fn_t f_get_SIM_misses = [&](wstp_link::arg_t v) {
+  wstp_link::fn_t f_get_SIM_misses = [&](wstp_link::arg_t v) -> wstp_link::arg_t {
     auto n = std::get<int64_t>(v);
     wstp_link::vector_t samples;
     for (const auto& [key, value] : retiredRecords) {
       if (n-- == 0) { break; }
-      wstp_link::ts_t s = std::get<wstp_link::ts_t>(f_get_ts_miss_SIM(key));
+      int64_t sKey = key;
+      wstp_link::ts_t s = std::get<wstp_link::ts_t>(f_get_ts_miss_SIM(sKey));
       samples.push_back(s);
     }
     return samples;
@@ -936,8 +938,8 @@ int main(int argc, const char* argv[]) {
                  << double(simCache.get_prediction_too_early())/total*100
                  << "%" << endl;
             auto& hp_handle = simCache.get_hp_handle();
-            cout << hp_handle.pt_.print_stats();
-            hp_handle.pt_.clear_stats();
+            cout << hp_handle.hp_.print_stats();
+            hp_handle.hp_.clear_stats();
           }
 
           // Add flows not observed to dormant list:
@@ -1066,7 +1068,7 @@ int main(int argc, const char* argv[]) {
          << double(simCache.get_prediction_too_early())/total*100
          << "%" << endl;
     auto& hp_handle = simCache.get_hp_handle();
-    cout << hp_handle.pt_.print_stats();
+    cout << hp_handle.hp_.print_stats();
   }
 
 //  debugLog << "Burst Histogram:\n";

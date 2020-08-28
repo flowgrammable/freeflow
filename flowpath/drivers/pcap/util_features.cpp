@@ -17,8 +17,8 @@ Features::Features(const std::shared_ptr<const Fields> k,
 // Copy Construction (clone with blessed reset)
 Features::Features(const Features& f) : k_{f.k_}, r_{f.r_}, h_{f.h_} {
   // blessed initialized to false
-  if (f.blessed)
-    std::cerr << "Blessed Features reset to on copy construction." << std::endl;
+//  if (f.blessed)
+//    std::cerr << "Features: Blessed resets on copy construction." << std::endl;
 }
 
 // Copy Assignment (blindly replaces tracked state)
@@ -59,10 +59,10 @@ Features& Features::merge(const Features& f) {
 
 Features::FeatureType Features::gather(bool force) const {
   FeatureType f;
-  if (!k_ || !r_ || !(force || h_))
+  if (!k_ || !r_)
     throw std::logic_error("Gather before init of Feature class.");
   if (!force && !blessed)
-    throw std::logic_error("Gather before blessed of Feature class.");
+    throw std::logic_error("Gather before blessing of Feature class.");
 
   // Random variable used for bias analysis (not actually used in inference):
   f[0] = randomVariable();  // control; not used in actual decision
@@ -93,19 +93,20 @@ Features::FeatureType Features::gather(bool force) const {
 
 
   /// Stateful Flow Features:
-  f[10] = r_->tcp_state(); // 4 bits (#10)
+//  f[13] = r_->tcp_state(); // 4 bits (#10)
   // Packets since start of flow as tracked in Flow State:
-  f[11] = std::min(r_->packets(), size_t(std::numeric_limits<uint16_t>::max()));  // (#1, degrading)
+  f[10] = std::min(r_->packets(), size_t(std::numeric_limits<uint16_t>::max()));  // (#1, degrading)
 
   // Cache Metadata:
   if (h_) {
-    f[12] = std::min(std::accumulate(h_->begin(), h_->end(), 0), int(std::numeric_limits<uint16_t>::max()));  // ref count
-    f[13] = std::min(h_->back(), int(std::numeric_limits<uint16_t>::max()));  // burst count
+    f[11] = std::min(std::accumulate(h_->begin(), h_->end(), 0),
+                     int(std::numeric_limits<uint16_t>::max()));  // ref count
+    f[12] = std::min(h_->back(), int(std::numeric_limits<uint16_t>::max()));  // burst count
   }
   else {
 //    std::cerr << "HitStats unavailable at time of Features.gather()" << std::endl;
-    f[12] = 0;
-    f[13] = 0;
+    f[11] = std::numeric_limits<uint16_t>::min();
+    f[12] = std::numeric_limits<uint16_t>::min();
   }
 
   return f;
