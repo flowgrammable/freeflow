@@ -108,7 +108,9 @@ void print_tuple(Target& out, const std::tuple<Args...>& t)
 class CSV {
 public:
   CSV() = default;
-  CSV(std::string filename) : f_(filename, std::ios::out) {}
+  CSV(std::string filename);
+
+  void flush();
 
   template<typename Tuple>
   size_t append(Tuple t) {

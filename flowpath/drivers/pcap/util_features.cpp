@@ -84,7 +84,8 @@ Features::FeatureType Features::gather(bool force) const {
   f[5] = k_->srcPort ^ k_->dstPort;                 // (#9, flat learning)
 
   // Mixing of ipv4 protocol (8b), tcp flags (9b), and lowest port number:
-  f[6] = uint16_t(k_->ipProto) ^ (uint16_t(k_->fTCP) << 7) ^ std::min(k_->srcPort, k_->dstPort);  // (#6, adaptive)
+  f[6] = uint16_t(k_->ipProto) ^ (uint16_t(k_->fTCP) << 7) ^
+         std::min(k_->srcPort, k_->dstPort);  // (#6, adaptive)
 
   // Host Pair Subnet Association:
   f[7] = (k_->ipv4Dst >> 16) ^ (k_->ipv4Src >> 16); // (#4, learning)
@@ -98,6 +99,7 @@ Features::FeatureType Features::gather(bool force) const {
   f[10] = std::min(r_->packets(), size_t(std::numeric_limits<uint16_t>::max()));  // (#1, degrading)
 
   // Cache Metadata:
+  /*
   if (h_) {
     f[11] = std::min(std::accumulate(h_->begin(), h_->end(), 0),
                      int(std::numeric_limits<uint16_t>::max()));  // ref count
@@ -108,6 +110,12 @@ Features::FeatureType Features::gather(bool force) const {
     f[11] = std::numeric_limits<uint16_t>::min();
     f[12] = std::numeric_limits<uint16_t>::min();
   }
+  */
+
+  // Few other stateless trial features (reorganize later):
+  f[11] = k_->ipLength;
+  f[12] = k_->ipFlowLabel;
+  f[13] = k_->ipLength ^ k_->ipFlowLabel;
 
   return f;
 }

@@ -6,12 +6,14 @@
 #include <algorithm>
 #include <numeric>
 #include <sstream>
+#include <random>
 
 #include "types.hpp"
 #include "drivers/pcap/util_io.hpp"
 
-//#include "global_config.hpp"
-//extern struct global_config CONFIG;
+// Temporary global config hack:
+#include "drivers/pcap/global_config.hpp"
+extern struct global_config CONFIG;
 
 namespace entangle {
 
@@ -38,6 +40,7 @@ public:
   using Perceptron = ClampedInt<BITS_>;
 
   PerceptronTable(size_t elements);
+  void init();
 
   auto inference(Key k);
   void train(Key k, bool correlation);
@@ -75,7 +78,7 @@ template<class Key>
 class HashedPerceptron {
 public:
   static constexpr bool ENABLE_STATS = PerceptronTable<Key>::ENABLE_STATS;
-  static constexpr bool ENABLE_CORRELATION_ANALYSIS = false;
+  static constexpr bool ENABLE_CORRELATION_ANALYSIS = true;
 
   using Feature = typename Key::value_type;
   using FeatureTable = PerceptronTable<Feature>;
@@ -90,6 +93,7 @@ public:
   HashedPerceptron(std::vector<size_t> elements);
   HashedPerceptron(size_t elements);
 
+  void init();  // Randomize all perceptron tables
   auto inference(Key k);
   auto reinforce(Key k, bool positive);   // positive/negative correlation
   void force_updates(bool force = true);
@@ -112,11 +116,12 @@ private:
 //  int64_t inference_threshold_ = (TABLES_-1) * (FeatureTable::Perceptron::RANGE*(-0.90)/2);
 //  int64_t inference_threshold_ = (TABLES_-1) * FeatureTable::Perceptron::MIN;
   float training_ratio_ = 0.25;  // ensure between: {0,1}
-  int64_t inference_threshold_ = -100;
+  int64_t inference_threshold_ = -62;
+//  int64_t inference_threshold_ = (1 - 0.7) * INFERENCE_RANGE + INFERENCE_MIN;
   int64_t training_threshold_[2] =  // {-threshold, +threshold}
     {inference_threshold_ - (inference_threshold_ - INFERENCE_MIN) * training_ratio_,
      inference_threshold_ + (INFERENCE_MAX - inference_threshold_) * training_ratio_};
-  bool force_update_ = false; // Always force reinforcement
+  bool force_update_ = false;
 
 public:
   // Training Stats:
@@ -154,6 +159,18 @@ PerceptronTable<Key>::PerceptronTable(size_t elements) :
 }
 
 template<typename Key>
+void PerceptronTable<Key>::init() {
+  using IntType = typename Perceptron::IntType_t;
+  std::random_device rd;
+  std::default_random_engine e1(rd());
+  std::uniform_int_distribution<IntType> uniform_dist(Perceptron::MIN, Perceptron::MAX);
+
+  for (auto& p : table_) {
+    p = uniform_dist(e1);
+  }
+}
+
+template<typename Key>
 auto PerceptronTable<Key>::inference_internal(Key k) {
   assert(k < MAX_);
   return table_[k];
@@ -179,11 +196,11 @@ void PerceptronTable<Key>::train(Key k, bool correlation) {
 }
 
 // Returns rough estimate of dynamic information stored in weight:
-// - Ratio of inferences over training.
+// - Ratio of training over total (inference ratio is inverse).
 template<typename Key>
 float PerceptronTable<Key>::dynamic_information(Key k) const {
   assert(k < MAX_);
-  return touch_inference_[k] / (touch_train_[k] + touch_inference_[k]);
+  return touch_train_[k] / (touch_train_[k] + touch_inference_[k]);
 }
 
 // Prints distrubtion of training & inference events for all feature weights:
@@ -221,9 +238,9 @@ HashedPerceptron<Key>::HashedPerceptron(size_t elements) :
 //  training_threshold_ = inference_threshold_ + inferenceHeadroom/2;
 
   if (ENABLE_CORRELATION_ANALYSIS) {
-    csv_fCorrelation_ = CSV("feature_correlation.csv");
-    csv_fS1_ = CSV("feature_s1.csv");
-    csv_fN_ = CSV("feature_n.csv");
+    csv_fCorrelation_ = CSV("feature-correlation.csv");
+    csv_fS1_ = CSV("feature-s1.csv");
+    csv_fN_ = CSV("feature-n.csv");
   }
   std::cout << "Inference threshold: " << inference_threshold_
             << "/" << (inference_threshold_ >=0 ? INFERENCE_MAX : INFERENCE_MIN)
@@ -240,6 +257,13 @@ HashedPerceptron<Key>::HashedPerceptron(size_t elements) :
 template<class Key>
 void HashedPerceptron<Key>::force_updates(bool force) {
   force_update_ = force;
+}
+
+template<class Key>
+void HashedPerceptron<Key>::init() {
+  for (auto& t : tables_) {
+    t.init();
+  }
 }
 
 template<class Key>

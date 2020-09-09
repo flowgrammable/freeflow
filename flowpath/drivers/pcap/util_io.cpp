@@ -49,3 +49,12 @@ gz_istream::gz_istream(const std::string& filename) {
 istream& gz_istream::get_ostream() const {
   return *os;
 }
+
+
+/// CSV List Class ///
+CSV::CSV(std::string filename) : f_(filename, std::ios::out) {}
+
+void CSV::flush() {
+  f_.flush();
+}
+

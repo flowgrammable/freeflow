@@ -14,7 +14,7 @@ using BurstStats = std::vector<int>;  // mru burst hit counter
 // Abstracts gathering of packet / simulation features from consumer.
 // Delays gathering until data is needed, requires use of shared pointers.
 struct Features {
-  using FeatureType = std::array<uint16_t, 13>;
+  using FeatureType = std::array<uint16_t, 14>;
 
   Features() = default;
   Features(std::shared_ptr<const Fields> k,

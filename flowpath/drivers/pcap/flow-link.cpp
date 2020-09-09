@@ -198,10 +198,16 @@ int main(int argc, const char* argv[]) {
   signal(SIGHUP, sig_handle);
 
   po::variables_map config = parse_options(argc, argv);
-  CONFIG.outputDir = fs::path(CONFIG.simStartTime_str); // also include config?
-  fs::create_directory(CONFIG.outputDir);
-  std::cout << "Working Directory: " << fs::current_path()
-            << "\nOutput Directory: " << CONFIG.outputDir << std::endl;
+  CONFIG.outputDir = fs::path(CONFIG.simStartTime_str);
+  std::cout << "Working Directory: " << fs::current_path() << '\n';
+  if ( fs::create_directory(CONFIG.outputDir) ) {
+    std::cout << "Switching to Output Directory: " << CONFIG.outputDir << std::endl;
+    fs::current_path(CONFIG.outputDir);
+  }
+  else {
+    std::cout << "Failed to Create Output Directory: " << CONFIG.outputDir
+              << "\nFalling back to Working Directory..." << std::endl;
+  }
 
   // Output Files:
   ofstream NULL_OFSTREAM;
@@ -930,13 +936,14 @@ int main(int argc, const char* argv[]) {
                << endl;
 
           if (ENABLE_simCache) {
-            int64_t total = simCache.get_hits() + simCache.get_conflict_miss()
-               + simCache.get_capacity_miss() + simCache.get_compulsory_miss();
+            auto [compulsory, capacity, conflict] = simCache.get_misses();
+            auto [hpBypass, hpReplace] = simCache.get_prediction_hp();
+            int64_t total = simCache.get_hits() + compulsory + capacity + conflict;
             cout << "(" << diffBegin.tv_sec << "s) "
-                 << "Cache hit rate: " << double(simCache.get_hits()) / total * 100
-                 << "%\tBad early predictions "
-                 << double(simCache.get_prediction_too_early())/total*100
-                 << "%" << endl;
+                 << "Hit Rate: " << double(simCache.get_hits())/total * 100 << '%'
+                 << "\tBad Early Replace Predictions "
+                 << double(simCache.get_replacements_eager())/hpReplace * 100 << '%'
+                 << endl;
             auto& hp_handle = simCache.get_hp_handle();
             cout << hp_handle.hp_.print_stats();
             hp_handle.hp_.clear_stats();
@@ -1061,12 +1068,19 @@ int main(int argc, const char* argv[]) {
     debugLog << simCache.print_stats() << '\n';
 
     // Console out:
-    int64_t total = simCache.get_hits() + simCache.get_conflict_miss()
-       + simCache.get_capacity_miss() + simCache.get_compulsory_miss();
-    cout << "Cache hit rate: " << double(simCache.get_hits()) / total * 100
-         << "%\tBad early predictions "
-         << double(simCache.get_prediction_too_early())/total*100
-         << "%" << endl;
+    auto [compulsory, capacity, conflict] = simCache.get_misses();
+    auto [hpBypass, hpReplace] = simCache.get_prediction_hp();
+    int64_t total = simCache.get_hits() + compulsory + capacity + conflict;
+    cout << "Hit Rate: " << double(simCache.get_hits())/total * 100 << '%'
+         << "\nBad Early Replace Predictions: "
+         << double(simCache.get_replacements_eager())/hpReplace * 100 << '%'
+         << "\nBypass/Miss Ratio: "
+         << double(hpBypass)/(compulsory+capacity+conflict) * 100 << '%'
+         << "\nEarlyReplace/(Hits-Compulsory) Ratio: "
+         << double(hpReplace)/(simCache.get_hits()-compulsory) * 100 << '%'
+         << "\nEarlyReplace/Replacements Ratio: "
+         << double(hpReplace)/(simCache.get_replacements_lru()+simCache.get_replacements_early()) * 100 << '%'
+         << endl;
     auto& hp_handle = simCache.get_hp_handle();
     cout << hp_handle.hp_.print_stats();
   }

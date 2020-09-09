@@ -119,8 +119,6 @@ struct Fields {
   u8  ipTC = 0;     // {6'b DSCP, 2'b ECN}
   u16 ipFlowLabel = 0;  // ipv4: conventional 5-tuple; ipv6: {20'b FL}
   IPFlags fIP;
-  // Add DSCP and ECN?
-  // Add IHL?
 
   // Transport Layer (TCP/UDP)
   u16 srcPort = 0;

@@ -165,6 +165,7 @@ struct hpHandle {
 //enum class Questions {Reuse, Bypass, COUNT};
 //CSV keepLog("keepLog_"+CONFIG.simStartTime_str+".csv");
 //CSV evictLog("evictLog_"+CONFIG.simStartTime_str+".csv");
+constexpr bool RANDOM_INIT = true;
 constexpr bool DUMP_PREDICTIONS = false;
 constexpr bool DUMP_TRAINING = false;
 CSV bypassPred;
@@ -177,7 +178,6 @@ template<typename Key>
 class HistoryTrainer {
 public:
   using Entry = std::pair<Key, Prediction>;
-
   const size_t pKEEP_DEPTH;
   const size_t pEVICT_DEPTH;
 
@@ -188,11 +188,14 @@ public:
     pEvictHistory_.reserve(pEvictDepth);
     pKeepHistory_.reserve(pKeepDepth);
     if (DUMP_PREDICTIONS) {
-      bypassPred = CSV("bypassPred_"+CONFIG.simStartTime_str+".csv");
-      evictPred = CSV("evictPred_"+CONFIG.simStartTime_str+".csv");
+      bypassPred = CSV("bypassPred.csv");
+      evictPred = CSV("evictPred.csv");
     }
     if (DUMP_TRAINING) {
-      trainingEvents = CSV("trainingEvents_"+CONFIG.simStartTime_str+".csv");
+      trainingEvents = CSV("trainingEvents.csv");
+    }
+    if (RANDOM_INIT) {
+      hp_.init();
     }
   }
 
@@ -276,7 +279,7 @@ template<typename Key>
 void HistoryTrainer<Key>::reinforce(Key k, Prediction p, bool touched) {
   const auto features = p.f_.gather(true);
   auto [reinforced, weights] = hp_.reinforce(features, touched);
-  if (reinforced) {
+  if (DUMP_TRAINING && reinforced) {
     const char direction = touched ? '+' : '-';
     trainingEvents.append(
       std::tuple_cat(std::make_tuple(direction, k), weights, features)
@@ -291,21 +294,68 @@ void HistoryTrainer<Key>::reinforce(Key k, Prediction p, bool touched) {
 template<typename Key>
 class BeladyTrainer {
 public:
-  using Entry = std::pair<Key, Prediction>;
-
   BeladyTrainer(entangle::HashedPerceptron<Features::FeatureType>& hp,
                  size_t entries) : hp_(hp), belady_(entries) {}
 
-  // Legacy hp event prediction interface:
-  // TODO: is there a clean way to seperate questions asked of HP..?
-  void touch(Key k, Features f);
-  void prediction(Key k, Features f, bool keep, bool demand = true);
+  void touch(Key k, Features f, Time t);
+  void reinforce(Key k, Features f, bool keep);
 
 private:
   entangle::HashedPerceptron<Features::FeatureType>& hp_;
   SimMIN<Key> belady_;
   std::map<Key, Features> fmap_;
 };
+
+
+template<typename Key>
+void BeladyTrainer<Key>::touch(Key k, Features f, Time t) {
+  constexpr bool ENABLE_Belady_EvictSet_Training = true;
+  constexpr bool ENABLE_Belady_KeepSet_Training = false;
+
+  // Consult Belady's algorithm for training insight:
+  bool beladyHit = belady_.update(k, t);
+  if (beladyHit) {
+    // Potentially new information on capacity hit:
+    auto [evictSet, keepSet] = belady_.evictions();
+    if (ENABLE_Belady_EvictSet_Training) {
+      for (Key v : evictSet) {
+        // TRYME: (Bypass) only reinforce if eviction was !touched...?
+        const Features& ef = fmap_.at(v);
+        reinforce(v, ef, false);
+//        hp_.reinforce(ef.gather(true), false);  // reinforce as non-cachable
+      }
+     }
+    if (ENABLE_Belady_KeepSet_Training) {
+      for (Key v : keepSet) {
+        // TRYME: only reinforce if eviction was touched since advance...?
+        const Features& kf = fmap_.at(v);
+        reinforce(v, kf, true);
+//        hp_.reinforce(kf.gather(true), true);   // reinforce as cachable
+      }
+    }
+  }
+
+  // Update feature for t+1:
+//  fmap_.insert_or_assign(k, f); // replace last feature
+  auto [it, inserted] = fmap_.insert(k, f);
+  if (!inserted) {
+    it->merge(f);
+  }
+}
+
+
+// Performs actual reinforcement:
+template<typename Key>
+void BeladyTrainer<Key>::reinforce(Key k, Features f, bool keep) {
+  const auto features = f.gather(true);
+  auto [reinforced, weights] = hp_.reinforce(features, keep);
+  if (DUMP_TRAINING && reinforced) {
+    const char direction = keep ? '+' : '-';
+    trainingEvents.append(
+      std::tuple_cat(std::make_tuple(direction, k), weights, features)
+    );
+  }
+}
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -343,7 +393,10 @@ public:
   int64_t get_hits() const {return hits_;}
   int64_t get_capacity_miss() const {return capacityMiss_;}
   int64_t get_compulsory_miss() const {return compulsoryMiss_;}
+
+  // Replacement Stats:
   int64_t get_replacement_lru() const {return replacementLRU_;}
+  int64_t get_replacement_early() const {return replacementEarly_;}
   int64_t get_prediction_bc() const {return predictionBC_;}
   int64_t get_prediction_rc() const {return predictionRC_;}
   int64_t get_prediction_rc_better() const {return predictionRC_better_;}
@@ -394,6 +447,7 @@ private:
   int64_t capacityMiss_ = 0;
   // Replacement Predictor Stats
   int64_t replacementLRU_ = 0;
+  int64_t replacementEarly_ = 0;
   int64_t predictionBC_ = 0;
   int64_t predictionRC_ = 0;
   int64_t predictionHPEvict_ = 0;
@@ -414,17 +468,17 @@ private:
   BeladyTrainer<Key> hpBelady_; // Distributed belady perceptron trainer
 
   // Hashed Perceptron Configs:
-  const bool ENABLE_Perceptron_DeadBlock_Prediction_on_Touch = false;
-  const bool ENABLE_Perceptron_DeadBlock_Prediction_on_MRU_Demotion = true;
+  const bool ENABLE_Perceptron_DeadBlock_Prediction_on_Touch = true;
+  const bool ENABLE_Perceptron_DeadBlock_Prediction_on_MRU_Demotion = false;
   const bool ENABLE_Perceptron_Bypass_Prediction = true; // fix me to be based off policy!
 
   // Positive Reinforcement:
-  const bool ENABLE_Hit_Training = true;            // (+) on every cache hit
+  const bool ENABLE_Hit_Training = false;           // (+) on every cache hit
   const bool ENABLE_MRU_Promotion_Training = false;  // (+) when promoted to MRU
   const bool ENABLE_Belady_KeepSet_Training = false; // (+) for Belady's keepSet
 
   // Negative Reinforcement:
-  const bool ENABLE_Eviction_Training = true;  // (-) on eviction without touch
+  const bool ENABLE_Eviction_Training = false;  // (-) on eviction without touch
   const bool ENABLE_Belady_EvictSet_Training = false; // (-) for Belady evictSet
 
   // Corrective Training:
@@ -471,20 +525,27 @@ public:
 
   // Stats:
   int64_t get_hits() const;
-  int64_t get_fa_hits() const;
   int64_t get_compulsory_miss() const;
-  int64_t get_capacity_miss() const;
-  int64_t get_fa_capacity_miss() const;
-  int64_t get_conflict_miss() const;
-  int64_t get_alias_hits() const;
+  std::tuple<int64_t,int64_t,int64_t> get_misses() const; // {compulsory, capacity, conflict}
+  int64_t get_pure_capacity_miss() const;   // does not take into account conflict hits..
+  int64_t get_pure_conflict_misses() const; // does not take into account conflict hits...
+
+  // Fully-Associative Stats:
+  int64_t get_fa_hits() const;
+  int64_t get_fa_capacity_miss() const;  
+  int64_t get_pure_conflict_hits() const;
+
+  // Replacement Stats:
   int64_t get_replacements_lru() const;
   int64_t get_replacements_early() const;
   int64_t get_prediction_bc() const;
   int64_t get_prediction_rc() const;
   int64_t get_prediction_rc_better() const;
-  int64_t get_prediction_too_early() const;
+  int64_t get_replacements_eager() const;
   int64_t get_insert_predict_distant() const;
   double get_replacement_reciency() const;
+  std::pair<int64_t, int64_t> get_prediction_hp() const;
+
   std::string print_stats();
   hpHandle<Key>& get_hp_handle();
 
@@ -506,7 +567,7 @@ private:
   // Sanity check stats:
   int64_t capacityMiss_ = 0;
   int64_t conflictMiss_ = 0;
-  int64_t aliasHit_ = 0;
+  int64_t conflictHit_ = 0;
 };
 
 
@@ -543,8 +604,9 @@ auto AssociativeSet<Key>::insert(Key k, const Time& t, Features f) {
     }
     if (!keep) {
       ++predictionHPBypass_;
-      if (DUMP_PREDICTIONS)
+      if (DUMP_PREDICTIONS) {
         bypassPred.append( std::tuple_cat(std::make_tuple(k), weights, f.gather(true)) );
+      }
       return std::optional<Evict_t>{};  // bypass
     }
   }
@@ -636,8 +698,9 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
       if (!keep) {
         ++predictionHPEvict_;
         entry.eol = true;
-        if (DUMP_PREDICTIONS)
+        if (DUMP_PREDICTIONS) {
           evictPred.append( std::tuple_cat(std::make_tuple(k), weights, df.gather()) );
+        }
       }
       if (ENABLE_History_Training) {
         hpHistory_.prediction(k, df, keep);
@@ -658,8 +721,9 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
       }
       if (!keep) {
         ++predictionHPBypass_;
-        if (DUMP_PREDICTIONS)
+        if (DUMP_PREDICTIONS) {
           bypassPred.append( std::tuple_cat(std::make_tuple(k), weights, f.gather(true)) );
+        }
         return std::make_pair(false, std::optional<Evict_t>{});  // bypass
       }
     }
@@ -852,8 +916,9 @@ void AssociativeSet<Key>::event_mru_demotion(Stack_it demoted) {
       if (!keep) {
         ++predictionHPEvict_;
         entry.eol = true;
-        if (DUMP_PREDICTIONS)
+        if (DUMP_PREDICTIONS) {
           evictPred.append( std::tuple_cat(std::make_tuple(k), weights, df.gather()) );
+        }
       }
       if (ENABLE_History_Training) {
         hpHistory_.prediction(k, df, keep);
@@ -1115,6 +1180,9 @@ auto AssociativeSet<Key>::replace_find() {
       it = find_LRU(p.offset());
       replacementLRU_++;
     }
+    else {
+      replacementEarly_++;
+    }
     break;
   case ReplacementPolicy::SRRIP:
   case ReplacementPolicy::SRRIP_CB:
@@ -1164,7 +1232,8 @@ bool AssociativeSet<Key>::operator==(const Stack& other) {
 ///////////////////////////////
 template<typename Key>
 CacheSim<Key>::CacheSim(size_t entries, size_t ways) :
-  MAX_(entries),  hp_(1ull<<16), fa_ref_(entries, hp_)/*, test_ref_(entries)*/ {
+  MAX_(entries),  hp_(std::numeric_limits<uint16_t>::max()),
+  fa_ref_(entries, hp_)/*, test_ref_(entries)*/ {
   // Sanity checks:
   if (ways > 0) {
     if (entries%ways != 0) {
@@ -1212,7 +1281,7 @@ auto CacheSim<Key>::update(const Key& k, const Time& t, Features f) {
     else if (!ref_victim.first && !way_victim.first)
       capacityMiss_++;
     else if (!ref_victim.first && way_victim.first)
-      aliasHit_++;
+      conflictHit_++;
 
     return way_victim;
   }
@@ -1287,19 +1356,22 @@ void CacheSim<Key>::set_replacement_policy(Policy replace) {
 
 // CacheSim stats calculations:
 template<typename Key>
-int64_t CacheSim<Key>::get_hits() const {
-//  std::cout << "FA Hits: " << fa_ref_.get_hits() << std::endl;
-  int64_t hits = 0;
-  for (const auto& set : sets_) {
-    hits += set.get_hits();
-  }
-//  std::cout << "SA Hits: " << capacityMiss_ << std::endl;
-  return hits;
+int64_t CacheSim<Key>::get_fa_hits() const {
+  return fa_ref_.get_hits();
 }
 
 template<typename Key>
-int64_t CacheSim<Key>::get_fa_hits() const {
-  return fa_ref_.get_hits();
+int64_t CacheSim<Key>::get_fa_capacity_miss() const {
+  return fa_ref_.get_capacity_miss();
+}
+
+template<typename Key>
+int64_t CacheSim<Key>::get_hits() const {
+  int64_t sum = 0;
+  for (const auto& set : sets_) {
+    sum += set.get_hits();
+  }
+  return sum;
 }
 
 template<typename Key>
@@ -1313,33 +1385,34 @@ int64_t CacheSim<Key>::get_compulsory_miss() const {
 }
 
 template<typename Key>
-int64_t CacheSim<Key>::get_capacity_miss() const {
-//  std::cout << "FA Capacity Miss: " << fa_ref_.get_capacity_miss() << std::endl;
-//  std::cout << "SA Capacity Miss: " << capacityMiss_ << std::endl;
+int64_t CacheSim<Key>::get_pure_capacity_miss() const {
   return capacityMiss_;
 }
 
 template<typename Key>
-int64_t CacheSim<Key>::get_fa_capacity_miss() const {
-  return fa_ref_.get_capacity_miss();
-}
-
-template<typename Key>
-int64_t CacheSim<Key>::get_conflict_miss() const {
-  // SUM(set_[].misses()) - FA.misses()
-  int64_t conflict_sum = -fa_ref_.get_capacity_miss();
-  for (const auto& set : sets_) {
-    conflict_sum += set.get_capacity_miss();
-  }
-//  std::cout << "Calculated Conflict Miss: " << conflict_sum << std::endl;
-//  std::cout << "Incremental Conflict Miss: " << conflictMiss_ << std::endl;
-//  std::cout << "Alias Conflict Hit: " << aliasHit_ << std::endl;
+int64_t CacheSim<Key>::get_pure_conflict_misses() const {
   return conflictMiss_;
 }
 
 template<typename Key>
-int64_t CacheSim<Key>::get_alias_hits() const {
-  return aliasHit_;
+std::tuple<int64_t,int64_t,int64_t> CacheSim<Key>::get_misses() const {
+  int64_t compulsory = 0, capacity = 0;
+  for (const auto& set : sets_) {
+    compulsory += set.get_compulsory_miss();
+    capacity += set.get_capacity_miss();
+  }
+  int64_t conflict = capacity - fa_ref_.get_capacity_miss();
+  capacity -= conflict;
+
+  assert(compulsory == fa_ref_.get_compulsory_miss());
+  assert(conflict == conflictMiss_ - conflictHit_);
+  assert(capacity == capacityMiss_ + conflictHit_);
+  return std::make_tuple(compulsory, capacity, conflict);
+}
+
+template<typename Key>
+int64_t CacheSim<Key>::get_pure_conflict_hits() const {
+  return conflictHit_;
 }
 
 template<typename Key>
@@ -1353,13 +1426,11 @@ int64_t CacheSim<Key>::get_replacements_lru() const {
 
 template<typename Key>
 int64_t CacheSim<Key>::get_replacements_early() const {
-  int64_t replacements_lru = 0;
-  int64_t misses = 0;
+  int64_t sum = 0;
   for (const auto& set : sets_) {
-    replacements_lru += set.get_replacement_lru();
-    misses += set.get_compulsory_miss() + set.get_capacity_miss();
+    sum += set.get_replacement_early();
   }
-  return misses - replacements_lru;
+  return sum;
 }
 
 template<typename Key>
@@ -1390,7 +1461,7 @@ int64_t CacheSim<Key>::get_prediction_rc_better() const {
 }
 
 template<typename Key>
-int64_t CacheSim<Key>::get_prediction_too_early() const {
+int64_t CacheSim<Key>::get_replacements_eager() const {
   int64_t sum = 0;
   for (const auto& set : sets_) {
     sum += set.get_prediction_too_early();
@@ -1418,24 +1489,39 @@ double CacheSim<Key>::get_replacement_reciency() const {
 }
 
 template<typename Key>
+std::pair<int64_t, int64_t> CacheSim<Key>::get_prediction_hp() const {
+  std::pair<int64_t,int64_t> predictions = {};
+  for (const auto& set : sets_) {
+    auto p = set.get_prediction_hp();
+    predictions.first += p.first;
+    predictions.second += p.second;
+  }
+  return predictions; // {bypass, evict}
+}
+
+template<typename Key>
 std::string CacheSim<Key>::print_stats() {
   std::stringstream ss;
   ss << "SimCache Size: " << get_size() << '\n';
   ss << " - Associativity: " << get_associativity() << "-way\n";
   ss << " - Sets: " << num_sets() << '\n';
   ss << " - Hits: " << get_hits() << '\n';
-  ss << " - Miss (Compulsory): " << get_compulsory_miss() << '\n';
-  ss << " - Miss (Capacity): " << get_capacity_miss() << '\n';
-  ss << " - Miss (Conflict): " << get_conflict_miss() << '\n';
+  {
+    auto [compulsory, capacity, conflict] = get_misses();
+    ss << " - Miss (Compulsory): " << compulsory << '\n';
+    ss << " - Miss (Capacity): " << capacity << '\n';
+    ss << " - Miss (Conflict): " << conflict << '\n';
+  }
   ss << " - Hits FA: " << get_fa_hits() << '\n';
   ss << " - Miss FA (Capacity): " << get_fa_capacity_miss() << '\n';
-  ss << " - Hits (SA over FA): " << get_alias_hits() << '\n';
+  ss << " - Pure Conflict Hits: " << get_pure_conflict_hits() << '\n';
+  ss << " - Pure Conflict Misses: " << get_pure_conflict_misses() << '\n';
   ss << " - Replacements LRU: " << get_replacements_lru() << '\n';
   ss << " - Replacements Early: " << get_replacements_early() << '\n';
   ss << " - Confident BurstCount: " << get_prediction_bc() << '\n';
   ss << " - Confident RefCount: " << get_prediction_rc() << '\n';
   ss << " - RefCount tops BurstCount: " << get_prediction_rc_better() << '\n';
-  ss << " - Prediction too Early: " << get_prediction_too_early() << '\n';
+  ss << " - Eager Replace Caught: " << get_replacements_eager() << '\n';
   ss << " - Insert Predict Distant: " << get_insert_predict_distant() << '\n';
   ss << " - Replacement Reciency: " << get_replacement_reciency() << '\n';
   // TODO:

@@ -28,28 +28,28 @@ class ClampedInt {
 
   using SmallInt = typename std::conditional<bits<=8, int8_t, int16_t>::type;
   using LargeInt = typename std::conditional<bits<=32, int32_t, int64_t>::type;
-  using IntType_t = typename std::conditional<bits<=16, SmallInt, LargeInt>::type;
   static constexpr size_t SHIFT = std::numeric_limits<int64_t>::digits - (bits-1);  // bits-1 because storing signed values
 
 public:
+  using IntType_t = typename std::conditional<bits<=16, SmallInt, LargeInt>::type;
   static constexpr int64_t MAX = std::numeric_limits<int64_t>::max() >> SHIFT;
   static constexpr int64_t MIN = std::numeric_limits<int64_t>::min() >> SHIFT;
   static constexpr uint64_t RANGE = std::numeric_limits<uint64_t>::max() >> (SHIFT+1);
 
   constexpr ClampedInt() = default;
-  constexpr ClampedInt(int64_t);
+  constexpr ClampedInt(int64_t i);
 
-  constexpr ClampedInt& operator ++();
-  constexpr ClampedInt& operator --();
-  constexpr ClampedInt& operator =(const ClampedInt&);
+  constexpr ClampedInt& operator++();
+  constexpr ClampedInt& operator--();
+  constexpr ClampedInt& operator=(const ClampedInt&);
   constexpr int64_t get() const;
   constexpr uint64_t unsignedDistance() const;
 
-  constexpr bool operator <(const ClampedInt&) const;
-  constexpr bool operator >(const ClampedInt&) const;
-  constexpr bool operator <=(const ClampedInt&) const;
-  constexpr bool operator >=(const ClampedInt&) const;
-  constexpr bool operator ==(const ClampedInt&) const;
+  constexpr bool operator<(const ClampedInt&) const;
+  constexpr bool operator>(const ClampedInt&) const;
+  constexpr bool operator<=(const ClampedInt&) const;
+  constexpr bool operator>=(const ClampedInt&) const;
+  constexpr bool operator==(const ClampedInt&) const;
 
 private:
   IntType_t value_;
@@ -58,21 +58,13 @@ private:
 
 template<size_t bits>
 constexpr ClampedInt<bits>::ClampedInt(int64_t i) {
-  // Sanity Checks:
-//  std::cerr << "bits: " << bits
-//            << "\nSHIFT: " << SHIFT
-//            << "\nMAX: " << MAX <<
-//            << "\nMIN:aass " << MIN
-//            << "\nRANGE: " << RANGE << std::endl;
   assert(i >= MIN);
   assert(i <= MAX);
   value_ = std::clamp(i, MIN, MAX);
-//  static_assert(i >= MIN, "Initialized value is smaller than MIN");
-//  static_assert(i <= MAX, "Initialized value is larger than MAX");
 }
 
 template<size_t bits>
-constexpr ClampedInt<bits>& ClampedInt<bits>::operator ++() {
+constexpr ClampedInt<bits>& ClampedInt<bits>::operator++() {
   if (value_ < MAX) {
     ++value_;
   }
@@ -82,7 +74,7 @@ constexpr ClampedInt<bits>& ClampedInt<bits>::operator ++() {
 }
 
 template<size_t bits>
-constexpr ClampedInt<bits>& ClampedInt<bits>::operator --() {
+constexpr ClampedInt<bits>& ClampedInt<bits>::operator--() {
   if (value_ > MIN) {
     --value_;
   }
@@ -92,8 +84,8 @@ constexpr ClampedInt<bits>& ClampedInt<bits>::operator --() {
 }
 
 template<size_t bits>
-constexpr ClampedInt<bits>& ClampedInt<bits>::operator =(const ClampedInt& rhs) {
-  value_ = rhs.value;
+constexpr ClampedInt<bits>& ClampedInt<bits>::operator=(const ClampedInt& rhs) {
+  value_ = rhs.value_;
   return *this;
 }
 
@@ -108,27 +100,27 @@ constexpr uint64_t ClampedInt<bits>::unsignedDistance() const {
 }
 
 template<size_t bits>
-constexpr bool ClampedInt<bits>::operator <(const ClampedInt& rhs) const {
+constexpr bool ClampedInt<bits>::operator<(const ClampedInt& rhs) const {
   return value_ < rhs.value_;
 }
 
 template<size_t bits>
-constexpr bool ClampedInt<bits>::operator >(const ClampedInt& rhs) const {
+constexpr bool ClampedInt<bits>::operator>(const ClampedInt& rhs) const {
   return value_ > rhs.value_;
 }
 
 template<size_t bits>
-constexpr bool ClampedInt<bits>::operator <=(const ClampedInt& rhs) const {
+constexpr bool ClampedInt<bits>::operator<=(const ClampedInt& rhs) const {
   return !(value_ > rhs.value_);
 }
 
 template<size_t bits>
-constexpr bool ClampedInt<bits>::operator >=(const ClampedInt& rhs) const {
+constexpr bool ClampedInt<bits>::operator>=(const ClampedInt& rhs) const {
   return !(value_ < rhs.value_);
 }
 
 template<size_t bits>
-constexpr bool ClampedInt<bits>::operator ==(const ClampedInt& rhs) const {
+constexpr bool ClampedInt<bits>::operator==(const ClampedInt& rhs) const {
   return value_ == rhs.value_;
 }
 
