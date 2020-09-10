@@ -116,7 +116,7 @@ private:
 //  int64_t inference_threshold_ = (TABLES_-1) * (FeatureTable::Perceptron::RANGE*(-0.90)/2);
 //  int64_t inference_threshold_ = (TABLES_-1) * FeatureTable::Perceptron::MIN;
   float training_ratio_ = 0.25;  // ensure between: {0,1}
-  int64_t inference_threshold_ = -62;
+  int64_t inference_threshold_ = CONFIG.Threshold;  // -62
 //  int64_t inference_threshold_ = (1 - 0.7) * INFERENCE_RANGE + INFERENCE_MIN;
   int64_t training_threshold_[2] =  // {-threshold, +threshold}
     {inference_threshold_ - (inference_threshold_ - INFERENCE_MIN) * training_ratio_,

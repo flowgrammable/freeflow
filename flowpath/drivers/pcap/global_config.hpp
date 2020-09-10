@@ -38,6 +38,7 @@ struct global_config {
   int Perceptron_DeadBlock_Alpha;
   bool ENABLE_Perceptron_Bypass_Prediction;
   int Perceptron_Bypass_Alpha;
+  int Threshold;
 //  bool ENABLE_History_Training = false;
 
   // Positive Reinforcement:
