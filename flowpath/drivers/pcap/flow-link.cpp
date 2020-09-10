@@ -327,7 +327,8 @@ int main(int argc, const char* argv[]) {
 //  insertPolicy.offset_ = 2;
 //  Policy insertPolicy(Policy::PolicyType::BYPASS);
 //  Policy insertPolicy(Policy::PolicyType::SHIP);
-//  simCache.set_insert_policy(insertPolicy);
+  InsertionPolicy insertPolicy(InsertionPolicy::P::HP_BYPASS);
+  simCache.set_insert_policy(insertPolicy);
 
   std::mutex mtx_misses; // covers both missesMIN and missesCache
   std::map<flow_id_t, std::vector<uint64_t>> missesMIN;

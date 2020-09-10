@@ -150,7 +150,13 @@ struct Prediction {
 // Collection of shared Hashed Perceptron table structures:
 template<typename Key>
 struct hpHandle {
-  hpHandle(size_t ptElements) : hp_(ptElements) {}
+  static constexpr bool RANDOM_INIT = true;
+
+  hpHandle(size_t ptElements) : hp_(ptElements) {
+    if (RANDOM_INIT) {
+      hp_.init();
+    }
+  }
 
   entangle::HashedPerceptron<Features::FeatureType> hp_;
 
@@ -165,7 +171,6 @@ struct hpHandle {
 //enum class Questions {Reuse, Bypass, COUNT};
 //CSV keepLog("keepLog_"+CONFIG.simStartTime_str+".csv");
 //CSV evictLog("evictLog_"+CONFIG.simStartTime_str+".csv");
-constexpr bool RANDOM_INIT = true;
 constexpr bool DUMP_PREDICTIONS = false;
 constexpr bool DUMP_TRAINING = false;
 CSV bypassPred;
@@ -193,9 +198,6 @@ public:
     }
     if (DUMP_TRAINING) {
       trainingEvents = CSV("trainingEvents.csv");
-    }
-    if (RANDOM_INIT) {
-      hp_.init();
     }
   }
 
@@ -468,9 +470,10 @@ private:
   BeladyTrainer<Key> hpBelady_; // Distributed belady perceptron trainer
 
   // Hashed Perceptron Configs:
-  const bool ENABLE_Perceptron_DeadBlock_Prediction_on_Touch = true;
+//  const bool ENABLE_Perceptron_DeadBlock_Prediction_on_Touch = true;
   const bool ENABLE_Perceptron_DeadBlock_Prediction_on_MRU_Demotion = false;
-  const bool ENABLE_Perceptron_Bypass_Prediction = true; // fix me to be based off policy!
+  const bool ENABLE_Perceptron_DeadBlock_Prediction_on_Touch = !ENABLE_Perceptron_DeadBlock_Prediction_on_MRU_Demotion;
+//  const bool ENABLE_Perceptron_Bypass_Prediction = true;
 
   // Positive Reinforcement:
   const bool ENABLE_Hit_Training = false;           // (+) on every cache hit
@@ -489,7 +492,7 @@ private:
       ENABLE_Belady_EvictSet_Training || ENABLE_Belady_KeepSet_Training;
 
   // Belady's algorithm:
-  const bool ENABLE_Belady = false;
+  const bool ENABLE_Belady = false || ENABLE_Belady_Training;
   SimMIN<Key> belady_;
   int64_t perfectHits_ = 0;       // count when cache and belady agreed
   int64_t perfectEvictions_ = 0;  // count when chosen eviciton was considered perfect
@@ -597,7 +600,7 @@ auto AssociativeSet<Key>::insert(Key k, const Time& t, Features f) {
 
   // Consult Hashed Perceptron on bypass:
   // TODO: Add Insertion policy for HP...
-  if (ENABLE_Perceptron_Bypass_Prediction) {
+  if (p_insert_ == InsertionPolicy::HP_BYPASS) {
     auto [keep, weights] = hp_.hp_.inference(f.gather(true));
     if (ENABLE_History_Training) {
       hpHistory_.prediction(k, f, keep);
@@ -645,9 +648,8 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
   }
 
   // Update/Sample Hashed Perceptron:
-  if (ENABLE_History_Training) {
+  if (ENABLE_History_Training && (p_insert_ == InsertionPolicy::HP_BYPASS || p_replace_ == ReplacementPolicy::HP_LRU) ) {
     hpHistory_.touch(k, f);
-    // FIXME: Features needs to be updated with BurstStats in a unified way...
   }
 
   // Cache Simulation:
@@ -691,8 +693,8 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
     entry.features.merge(f); // update features to latest touch
 
     // Consult Hashed Perceptron:
-    if (p_replace_ == ReplacementPolicy::HP_LRU &&
-        ENABLE_Perceptron_DeadBlock_Prediction_on_Touch) {
+    if (ENABLE_Perceptron_DeadBlock_Prediction_on_Touch &&
+        p_replace_ == ReplacementPolicy::HP_LRU) {
       const Features& df = entry.features;
       auto [keep, weights] = hp_.hp_.inference(df.gather());
       if (!keep) {
@@ -714,7 +716,7 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
 
     // Consult Hashed Perceptron on bypass:
     // TODO: Add Insertion policy for HP...
-    if (ENABLE_Perceptron_Bypass_Prediction) {
+    if (p_insert_ == InsertionPolicy::HP_BYPASS) {
       auto [keep, weights] = hp_.hp_.inference(f.gather(true));
       if (ENABLE_History_Training) {
         hpHistory_.prediction(k, f, keep);
@@ -909,8 +911,8 @@ void AssociativeSet<Key>::event_mru_demotion(Stack_it demoted) {
 //    }
 
     // Consult Hashed Perceptron:
-    if (p_replace_ == ReplacementPolicy::HP_LRU &&
-        ENABLE_Perceptron_DeadBlock_Prediction_on_MRU_Demotion) {
+    if (ENABLE_Perceptron_DeadBlock_Prediction_on_MRU_Demotion &&
+        p_replace_ == ReplacementPolicy::HP_LRU) {
       const Features& df = entry.features;
       auto [keep, weights] = hp_.hp_.inference(df.gather());
       if (!keep) {
@@ -1135,11 +1137,14 @@ auto AssociativeSet<Key>::insert_find(Key k) {
   const Policy& p = p_insert_;
   Stack_it it;
   switch (p.get()) {
-  case Policy::LRU:
-    it = find_LRU(p.offset());
-    break;
+  case InsertionPolicy::HP_BYPASS:
+    // TODO: defaults to MRU, but maybe insert in another position?
+    // - relaltive to confidence of reuse?
   case Policy::MRU:
     it = find_MRU(p.offset());
+    break;
+  case Policy::LRU:
+    it = find_LRU(p.offset());
     break;
   case InsertionPolicy::SHIP:
     it = find_SHiP_Reuse(k, p.offset());
@@ -1232,8 +1237,7 @@ bool AssociativeSet<Key>::operator==(const Stack& other) {
 ///////////////////////////////
 template<typename Key>
 CacheSim<Key>::CacheSim(size_t entries, size_t ways) :
-  MAX_(entries),  hp_(std::numeric_limits<uint16_t>::max()),
-  fa_ref_(entries, hp_)/*, test_ref_(entries)*/ {
+  MAX_(entries),  hp_(64*1024), fa_ref_(entries, hp_) {
   // Sanity checks:
   if (ways > 0) {
     if (entries%ways != 0) {
