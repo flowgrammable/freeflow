@@ -54,7 +54,7 @@ struct Policy {
 };
 
 struct InsertionPolicy : Policy {
-  enum P {BYPASS=50, SHIP=51, HP_BYPASS=52};
+  enum P {BYPASS=50, SHIP=51, HP_BYPASS=52, HP_RANK=53};
   InsertionPolicy(P p) : Policy((Policy::P) p) {}
 
   virtual bool operator==(Policy r) const {
@@ -140,17 +140,31 @@ struct PT_entry {
 
 // Metadata of past prediction for Hashed Perceptron training:
 struct Prediction {
-  Prediction(Features f, bool pKeep, bool demand) : f_(f), pKeep_(pKeep), priority_(demand) {}
-  Features f_;
-  bool pKeep_;  // prediction (T: keep, F: evict)
-  bool priority_;   // T: demand prediction, F: sampling prediction
+  using Weights = entangle::HashedPerceptron<Features::FeatureType>::Weights;
+  enum Question {Evict, Bypass, Q_Invalid};
+  enum Result {keep_correct, keep_incorrect, evict_correct, evict_incorrect, R_Invalid};
+  enum UpdateType {Correction, Reinforcement, Sufficient, UT_Invalid};
+
+  Prediction(Features f, Weights w, Question q, bool pKeep, bool demand) :
+    f_(f), w_(w), q_(q), pKeep_(pKeep), priority_(demand) {}
+
+  // Prediction State:
+  Features f_;    // original features used for training
+  Weights w_;     // weights used in original prediction
+  Question q_;    // prediction question
+  bool pKeep_;    // original prediction (T: keep, F: evict)
+  bool priority_; // T: demand prediction, F: sampling prediction
+
+  // Result State:
+  Result r_ {Result::R_Invalid};  // prediction confirmation result
+  UpdateType u_ {UpdateType::UT_Invalid};
 };
 
 
 // Collection of shared Hashed Perceptron table structures:
 template<typename Key>
 struct hpHandle {
-  static constexpr bool RANDOM_INIT = true;
+  static constexpr bool RANDOM_INIT = false;
 
   hpHandle(size_t ptElements) : hp_(ptElements) {
     if (RANDOM_INIT) {
@@ -177,6 +191,147 @@ CSV bypassPred;
 CSV evictPred;
 CSV trainingEvents;
 
+struct PredictionStats {
+  static constexpr bool PREDICTION_STATS = true;
+//  enum Result {keep_correct, keep_incorrect, evict_correct, evict_incorrect, invalid};
+  using Result = Prediction::Result;
+  using Weights = entangle::HashedPerceptron<Features::FeatureType>::Weights;
+  using Stats = std::array<int64_t, std::tuple_size_v<Weights>>;
+
+  Stats sKeepCorrectSum_{};    // Weight towards correct keep decisions
+  Stats sKeepIncorrectSum_{};  // Weight towards incorrect keep decisions
+  Stats sEvictCorrectSum_{};   // Weight towards correct evict decisions
+  Stats sEvictIncorrectSum_{}; // Weight towards incorrect evict decisions
+  Stats sKeepConcur_{};     // Concuring with correct keep prediction
+  Stats sKeepOpposition_{}; // Opposition to incorrect keep prediction
+  Stats sEvictConcur_{};    // Concuring with correct evict prediction
+  Stats sEvictOpposition_{}; // Opposition to incorrect evict prediciton
+  int64_t sKeepCorrectEvents_{}, sKeepIncorrectEvents_{};
+  int64_t sEvictCorrectEvents_{}, sEvictIncorrectEvents_{};
+
+  void note(const Prediction& p, Weights::value_type threshold);
+  void write_stats(std::string filename) const;
+};
+
+void PredictionStats::note(const Prediction& p, Weights::value_type threshold) {
+  constexpr Weights::value_type confidence = 0; // distance from threshold
+  if (!PREDICTION_STATS)
+    return;
+
+  // Global Training Counts:
+  switch (p.r_) {
+  case Result::keep_correct:
+    ++sKeepCorrectEvents_;
+    break;
+  case Result::keep_incorrect:
+    ++sKeepIncorrectEvents_;
+    break;
+  case Result::evict_correct:
+    ++sEvictCorrectEvents_;
+    break;
+  case Result::evict_incorrect:
+    ++sEvictIncorrectEvents_;
+    break;
+  default:
+    throw std::logic_error("Invalid Result enum");
+  }
+
+  // Per-feature Analysis:
+  for (size_t i = 0; i < std::tuple_size_v<Weights>; i++) {
+    const Weights::value_type delta = p.w_[i] - threshold;
+    switch (p.r_) {
+    case Result::keep_correct:
+      sKeepCorrectSum_[i] += delta;  // positive was correct
+      if (delta >= confidence) { ++sKeepConcur_[i]; }
+      break;
+    case Result::keep_incorrect:
+      sKeepIncorrectSum_[i] -= delta; // evict: invert sign; negative was correct
+      if (delta < -confidence) { ++sKeepOpposition_[i]; }
+      break;
+    case Result::evict_correct:
+      sEvictCorrectSum_[i] -= delta;  // evict: invert sign; negative was correct
+      if (delta < -confidence) { ++sEvictConcur_[i]; }
+      break;
+    case Result::evict_incorrect:
+      sEvictIncorrectSum_[i] += delta; // positive was correct
+      if (delta >= confidence) { ++sEvictOpposition_[i]; }
+      break;
+    default:
+      throw std::logic_error("Invalid Result enum");
+    }
+  }
+}
+
+void PredictionStats::write_stats(std::string filename) const {
+  using Ratios = std::array<double, std::tuple_size_v<Weights>>;
+  if (!PREDICTION_STATS)
+    return;
+  CSV csv(filename);
+  Stats concur, opposition, correctSum, incorrectSum;
+  std::generate(concur.begin(), concur.end(), [n=1]() mutable {return n++;});
+  csv.append( std::tuple_cat(std::make_tuple(filename), concur) );
+  csv.append( std::tuple_cat(std::make_tuple(""), Features::names()) );
+
+  csv.append( std::tuple_cat(std::make_tuple("Keep Correct Sum"), sKeepCorrectSum_) );
+  csv.append( std::tuple_cat(std::make_tuple("Keep Incorrect Sum"), sKeepIncorrectSum_) );
+  csv.append( std::tuple_cat(std::make_tuple("Evict Correct Sum"), sEvictCorrectSum_) );
+  csv.append( std::tuple_cat(std::make_tuple("Evict Incorrect Sum"), sEvictIncorrectSum_) );
+
+  csv.append( std::tuple_cat(std::make_tuple("Keep Correct"), sKeepConcur_, std::make_tuple(sKeepCorrectEvents_)) );
+  csv.append( std::tuple_cat(std::make_tuple("Keep Incorrect"), sKeepOpposition_, std::make_tuple(sKeepIncorrectEvents_)) );
+  csv.append( std::tuple_cat(std::make_tuple("Evict Correct"), sEvictConcur_, std::make_tuple(sEvictCorrectEvents_)) );
+  csv.append( std::tuple_cat(std::make_tuple("Evict Incorrect"), sEvictOpposition_, std::make_tuple(sEvictIncorrectEvents_)) );
+
+  // Global Training Counts:
+  int64_t keepEvents = sKeepCorrectEvents_ + sKeepIncorrectEvents_;
+  int64_t evictEvents = sEvictCorrectEvents_ + sEvictIncorrectEvents_;
+  int64_t correctEvents = sKeepCorrectEvents_ + sEvictCorrectEvents_;
+  int64_t incorrectEvents = sKeepIncorrectEvents_ + sEvictIncorrectEvents_;
+  int64_t events = keepEvents + evictEvents;
+
+  // Per-feature Reputation and Influence:
+  Ratios evictRatio, keepRep, evictRep, totalRep;
+  Ratios keepCorrectInfluence, keepIncorrectInfluence, evictCorrectInfluence, evictIncorrectInfluence;
+  Ratios correctInfluence, incorrectInfluence, keepInfluence, evictInfluence, totalInfluence;
+  for (size_t i = 0; i < std::tuple_size_v<Weights>; i++) {
+    concur[i] = sKeepConcur_[i] + sEvictConcur_[i];
+    opposition[i] = sKeepOpposition_[i] + sEvictOpposition_[i];
+    correctSum[i] = sKeepCorrectSum_[i] + sEvictCorrectSum_[i];
+    incorrectSum[i] = sKeepIncorrectSum_[i] + sEvictIncorrectSum_[i];
+
+    // Reputation Ratios
+    evictRatio[i] = (sEvictConcur_[i] + sEvictOpposition_[i]) / double(events);
+    keepRep[i] = (sKeepConcur_[i] + sKeepOpposition_[i]) / double(keepEvents);
+    evictRep[i] = (sEvictConcur_[i] + sEvictOpposition_[i]) / double(evictEvents);
+    totalRep[i] = (concur[i] + opposition[i]) / double(events);
+
+    // Influencial Weight
+    keepCorrectInfluence[i] = sKeepCorrectSum_[i] / double(sKeepCorrectEvents_);
+    keepIncorrectInfluence[i] = sKeepIncorrectSum_[i] / double(sKeepIncorrectEvents_);
+    evictCorrectInfluence[i] = sEvictCorrectSum_[i] / double(sEvictCorrectEvents_);
+    evictIncorrectInfluence[i] = sEvictIncorrectSum_[i] / double(sEvictIncorrectEvents_);
+    correctInfluence[i] = correctSum[i] / double(correctEvents);
+    incorrectInfluence[i] = incorrectSum[i] / double(incorrectEvents);
+    totalInfluence[i] = (correctSum[i] + incorrectSum[i]) / double(events);
+  }
+
+  csv.append( std::tuple_cat(std::make_tuple("Concur Counts"), concur) );
+  csv.append( std::tuple_cat(std::make_tuple("Opposition Counts"), opposition) );
+  csv.append( std::tuple_cat(std::make_tuple("Evict Ratio"), evictRatio) );
+  csv.append( std::tuple_cat(std::make_tuple("Keep Reputation"), keepRep) );
+  csv.append( std::tuple_cat(std::make_tuple("Evict Reputation"), evictRep) );
+  csv.append( std::tuple_cat(std::make_tuple("Total Reputation"), totalRep) );
+
+  csv.append( std::tuple_cat(std::make_tuple("Keep Correct Influence"), keepCorrectInfluence) );
+  csv.append( std::tuple_cat(std::make_tuple("Keep Incorrect Influence"), keepIncorrectInfluence) );
+  csv.append( std::tuple_cat(std::make_tuple("Evict Correct Influence"), evictCorrectInfluence) );
+  csv.append( std::tuple_cat(std::make_tuple("Evict Incorrect Influence"), evictIncorrectInfluence) );
+  csv.append( std::tuple_cat(std::make_tuple("Correct Influence"), correctInfluence) );
+  csv.append( std::tuple_cat(std::make_tuple("Incorrect Influence"), incorrectInfluence) );
+  csv.append( std::tuple_cat(std::make_tuple("Total Influence"), totalInfluence) );
+}
+
+
 // Training instantiation track training state intended for sample sets
 // and share PerceptronTable state.
 template<typename Key>
@@ -185,6 +340,7 @@ public:
   using Entry = std::pair<Key, Prediction>;
   const size_t pKEEP_DEPTH;
   const size_t pEVICT_DEPTH;
+  using Weights = entangle::HashedPerceptron<Features::FeatureType>::Weights;
 
   HistoryTrainer(entangle::HashedPerceptron<Features::FeatureType>& hp,
                  size_t pEvictDepth, size_t pKeepDepth) :
@@ -192,6 +348,7 @@ public:
   {
     pEvictHistory_.reserve(pEvictDepth);
     pKeepHistory_.reserve(pKeepDepth);
+    cutoff_ = hp_.decision_threshold() / (hp_.TABLES_-1);  // ignore table 0
     if (DUMP_PREDICTIONS) {
       bypassPred = CSV("bypassPred.csv");
       evictPred = CSV("evictPred.csv");
@@ -204,42 +361,77 @@ public:
   // Legacy hp event prediction interface:
   // TODO: is there a clean way to seperate questions asked of HP..?
   void touch(Key k, Features f);
-  void prediction(Key k, Features f, bool keep, bool demand = true);
-  void reinforce(Key k, Prediction p, bool touched);
+  void prediction(Key k, Features f, Weights w, bool keep,
+                  Prediction::Question q = Prediction::Q_Invalid, bool demand = true);
+  void reinforce(Prediction& p, bool touched);
 
 private:
   entangle::HashedPerceptron<Features::FeatureType>& hp_;
   std::vector<Entry> pKeepHistory_;
   std::vector<Entry> pEvictHistory_;
+
+public:
+  // Update Stats
+  int64_t sTotal{};
+  int64_t sCorrections{};
+  int64_t sReinforcements{};
+
+  // Training stats:
+  Weights::value_type cutoff_;
+  static PredictionStats BypassStats_;
+  static PredictionStats EvictStats_;
 };
+
+template<typename Key> PredictionStats HistoryTrainer<Key>::BypassStats_{};
+template<typename Key> PredictionStats HistoryTrainer<Key>::EvictStats_{};
 
 
 // Searches history buffers for prediction error on packet event.
 // - Optionally samples accesses to provide training information to predictor.
 template<typename Key>
 void HistoryTrainer<Key>::touch(Key k, Features f) {
+  auto keysEqual = [k](const std::pair<Key, Prediction>& p) {
+    return p.first == k;
+  };
+
   { // Search keep prediction history for entry:
-    auto it = std::find_if(std::begin(pKeepHistory_), std::end(pKeepHistory_),
-      [k](const std::pair<Key, Prediction>& p) {
-        return p.first == k;
-      }
-    );
+    auto it = std::find_if(std::begin(pKeepHistory_), std::end(pKeepHistory_), keysEqual);
     if (it != std::end(pKeepHistory_)) {
       // Found correct Keep prediction: reinforce keep:
-      reinforce(k, it->second, true);
+      Prediction& p = it->second;
+      p.r_ = PredictionStats::Result::keep_correct;
+      reinforce(p, true);
+      switch (p.q_) {
+      case Prediction::Bypass:
+        BypassStats_.note(p, cutoff_);
+        break;
+      case Prediction::Evict:
+        EvictStats_.note(p, cutoff_);
+        break;
+      default:
+        throw std::logic_error("Unspecified perceptron question");
+      }
       pKeepHistory_.erase(it);
     }
   }
 
   { // Search evict prediction history for entry:
-    auto it = std::find_if(std::begin(pEvictHistory_), std::end(pEvictHistory_),
-      [k](const std::pair<Key, Prediction>& p) {
-        return p.first == k;
-      }
-    );
+    auto it = std::find_if(std::begin(pEvictHistory_), std::end(pEvictHistory_), keysEqual);
     if (it != std::end(pEvictHistory_)) {
       // Found incorrect Evict prediction: train keep:
-      reinforce(k, it->second, true);
+      Prediction& p = it->second;
+      p.r_ = PredictionStats::Result::evict_incorrect;
+      reinforce(p, true);
+      switch (p.q_) {
+      case Prediction::Bypass:
+        BypassStats_.note(p, cutoff_);
+        break;
+      case Prediction::Evict:
+        EvictStats_.note(p, cutoff_);
+        break;
+      default:
+        throw std::logic_error("Unspecified perceptron question");
+      }
       pEvictHistory_.erase(it);
     }
   }
@@ -247,44 +439,79 @@ void HistoryTrainer<Key>::touch(Key k, Features f) {
 
 // Takes note of prediction in history for later confirmation:
 template<typename Key>
-void HistoryTrainer<Key>::prediction(Key k, Features f, bool keep, bool demand) {
+void HistoryTrainer<Key>::prediction(Key k, Features f, Weights w, bool keep,
+                                     Prediction::Question q, bool demand) {
   // Take note of prediction:
-  Prediction p{f, keep, demand};
+  Prediction p{f, w, q, keep, demand};
 
   // OPTIONAL: only insert sample if queue does not contain flow?
   if (keep) {
     if (pKeepHistory_.size() >= pKEEP_DEPTH) {
-      // Pop last Keep prediction: train evict (never touched)
-      reinforce(k, pKeepHistory_.back().second, false);
-      pKeepHistory_.pop_back();
+      // Pop oldest Keep prediction: train evict (never touched)
+      Prediction& p = pKeepHistory_.front().second;
+      p.r_ = PredictionStats::Result::keep_incorrect;
+      reinforce(p, false);
+      switch (p.q_) {
+      case Prediction::Bypass:
+        BypassStats_.note(p, cutoff_);
+        break;
+      case Prediction::Evict:
+        EvictStats_.note(p, cutoff_);
+        break;
+      default:
+        throw std::logic_error("Unspecified perceptron question");
+      }
+      pKeepHistory_.erase(std::begin(pKeepHistory_));
     }
-//    pKeepHistory_.emplace_back(k, p);
-    pKeepHistory_.emplace(std::begin(pKeepHistory_), std::piecewise_construct,
-                          std::forward_as_tuple(k),
-                          std::forward_as_tuple(p) );
+    pKeepHistory_.emplace_back(k, p);
   }
   else {
     if (pEvictHistory_.size() >= pEVICT_DEPTH) {
-      // Pop last Evict prediction: reinforce evict (never touched)
-      reinforce(k, pEvictHistory_.back().second, false);
-      pEvictHistory_.pop_back();
+      // Pop oldest Evict prediction: reinforce evict (never touched)
+      Prediction& p = pEvictHistory_.front().second;
+      p.r_ = PredictionStats::Result::evict_correct;
+      reinforce(p, false);
+      switch (p.q_) {
+      case Prediction::Bypass:
+        BypassStats_.note(p, cutoff_);
+        break;
+      case Prediction::Evict:
+        EvictStats_.note(p, cutoff_);
+        break;
+      default:
+        throw std::logic_error("Unspecified perceptron question");
+      }
+      pEvictHistory_.erase(std::begin(pEvictHistory_));
     }
-//    pEvictHistory_.emplace_back(k, p);
-    pEvictHistory_.emplace(std::begin(pEvictHistory_), std::piecewise_construct,
-                          std::forward_as_tuple(k),
-                          std::forward_as_tuple(p) );
+    pEvictHistory_.emplace_back(k, p);
   }
 }
 
 // Performs actual reinforcement:
 template<typename Key>
-void HistoryTrainer<Key>::reinforce(Key k, Prediction p, bool touched) {
+void HistoryTrainer<Key>::reinforce(Prediction& p, bool touched) {
   const auto features = p.f_.gather(true);
-  auto [reinforced, weights] = hp_.reinforce(features, touched);
-  if (DUMP_TRAINING && reinforced) {
+  auto [updated, reinforced, weights] = hp_.reinforce(features, touched);
+  ++sTotal;
+  if (updated) {
+    if (reinforced) {
+      p.u_ = Prediction::UpdateType::Reinforcement;
+      ++sReinforcements;
+    }
+    else {
+      p.u_ = Prediction::UpdateType::Correction;
+      ++sCorrections;
+    }
+  }
+  else {
+    p.u_ = Prediction::UpdateType::Sufficient;
+  }
+
+  if (DUMP_TRAINING && updated) {
     const char direction = touched ? '+' : '-';
+    const char question = (p.q_ == Prediction::Bypass) ? 'B' : 'E';
     trainingEvents.append(
-      std::tuple_cat(std::make_tuple(direction, k), weights, features)
+      std::tuple_cat(std::make_tuple(direction, question), weights, features)
     );
   }
 }
@@ -350,8 +577,9 @@ void BeladyTrainer<Key>::touch(Key k, Features f, Time t) {
 template<typename Key>
 void BeladyTrainer<Key>::reinforce(Key k, Features f, bool keep) {
   const auto features = f.gather(true);
-  auto [reinforced, weights] = hp_.reinforce(features, keep);
-  if (DUMP_TRAINING && reinforced) {
+  auto [updated, reinforced, weights] = hp_.reinforce(features, keep);
+
+  if (DUMP_TRAINING && updated) {
     const char direction = keep ? '+' : '-';
     trainingEvents.append(
       std::tuple_cat(std::make_tuple(direction, k), weights, features)
@@ -383,7 +611,7 @@ public:
   auto flush(Key k);
   auto flush();
 
-  auto insert_find(Key k);
+  auto insert_find(Key k, Features f);
   auto replace_find();
 
   void set_insert_policy(Policy insert);
@@ -433,6 +661,7 @@ private:
   // Insertion Policies:
   auto find_SHiP_Reuse(Key k, size_t pos);
   auto find_Bypass(Key k, size_t pos);
+  auto find_Rank(Key k, Features f);
 
   // Way Config:
   const size_t MAX_;
@@ -486,7 +715,7 @@ private:
 
   // Corrective Training:
   const bool ENABLE_History_Training = true;    // (+/-) prediction feedback delay loop
-  const bool ENABLE_EoL_Hit_Correction = true;  // (+) on incorrect eol mark
+  const bool ENABLE_EoL_Hit_Correction = false;  // (+) on incorrect eol mark
 
   const bool ENABLE_Belady_Training =
       ENABLE_Belady_EvictSet_Training || ENABLE_Belady_KeepSet_Training;
@@ -601,9 +830,10 @@ auto AssociativeSet<Key>::insert(Key k, const Time& t, Features f) {
   // Consult Hashed Perceptron on bypass:
   // TODO: Add Insertion policy for HP...
   if (p_insert_ == InsertionPolicy::HP_BYPASS) {
-    auto [keep, weights] = hp_.hp_.inference(f.gather(true));
+    // Predict resue if sum >= inference_threshold.
+    auto [keep, sum, weights] = hp_.hp_.inference(f.gather(true));
     if (ENABLE_History_Training) {
-      hpHistory_.prediction(k, f, keep);
+      hpHistory_.prediction(k, f, weights, keep, Prediction::Bypass);
     }
     if (!keep) {
       ++predictionHPBypass_;
@@ -648,7 +878,8 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
   }
 
   // Update/Sample Hashed Perceptron:
-  if (ENABLE_History_Training && (p_insert_ == InsertionPolicy::HP_BYPASS || p_replace_ == ReplacementPolicy::HP_LRU) ) {
+  if (ENABLE_History_Training &&
+      (p_insert_ == InsertionPolicy::HP_BYPASS || p_replace_ == ReplacementPolicy::HP_LRU) ) {
     hpHistory_.touch(k, f);
   }
 
@@ -696,7 +927,7 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
     if (ENABLE_Perceptron_DeadBlock_Prediction_on_Touch &&
         p_replace_ == ReplacementPolicy::HP_LRU) {
       const Features& df = entry.features;
-      auto [keep, weights] = hp_.hp_.inference(df.gather());
+     auto [keep, sum, weights] = hp_.hp_.inference(df.gather());
       if (!keep) {
         ++predictionHPEvict_;
         entry.eol = true;
@@ -705,7 +936,7 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
         }
       }
       if (ENABLE_History_Training) {
-        hpHistory_.prediction(k, df, keep);
+        hpHistory_.prediction(k, df, weights, keep, Prediction::Evict);
       }
     }
 
@@ -717,9 +948,9 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
     // Consult Hashed Perceptron on bypass:
     // TODO: Add Insertion policy for HP...
     if (p_insert_ == InsertionPolicy::HP_BYPASS) {
-      auto [keep, weights] = hp_.hp_.inference(f.gather(true));
+      auto [keep, sum, weights] = hp_.hp_.inference(f.gather(true));
       if (ENABLE_History_Training) {
-        hpHistory_.prediction(k, f, keep);
+        hpHistory_.prediction(k, f, weights, keep, Prediction::Bypass);
       }
       if (!keep) {
         ++predictionHPBypass_;
@@ -774,7 +1005,7 @@ auto AssociativeSet<Key>::internal_insert(const Key& k, const Time& t, Features 
   // else evicted (std::optional) is left default constructed.
 
   // Insert Policy:
-  auto insert_it = insert_find(k);
+  auto insert_it = insert_find(k, f);
   auto item_it = stack_.emplace(insert_it, Stack_value(k, std::move(new_e)));
   lookup_.insert( std::make_pair(k,item_it) );
   assert(lookup_.size() == stack_.size());
@@ -914,7 +1145,7 @@ void AssociativeSet<Key>::event_mru_demotion(Stack_it demoted) {
     if (ENABLE_Perceptron_DeadBlock_Prediction_on_MRU_Demotion &&
         p_replace_ == ReplacementPolicy::HP_LRU) {
       const Features& df = entry.features;
-      auto [keep, weights] = hp_.hp_.inference(df.gather());
+      auto [keep, sum, weights] = hp_.hp_.inference(df.gather());
       if (!keep) {
         ++predictionHPEvict_;
         entry.eol = true;
@@ -923,7 +1154,7 @@ void AssociativeSet<Key>::event_mru_demotion(Stack_it demoted) {
         }
       }
       if (ENABLE_History_Training) {
-        hpHistory_.prediction(k, df, keep);
+        hpHistory_.prediction(k, df, weights, keep, Prediction::Evict);
       }
     }
   }
@@ -980,7 +1211,7 @@ auto AssociativeSet<Key>::find_MRU(size_t pos) {
   if (stack_.empty()) {
     return stack_.end();
   }
-  if (stack_.size() <= pos) {
+  if (stack_.size() < MAX_) {
     return std::next(stack_.rbegin()).base();
   }
   return std::next(stack_.begin(), pos);
@@ -992,7 +1223,7 @@ auto AssociativeSet<Key>::find_LRU(size_t pos) {
   if (stack_.empty()) {
     return stack_.end();
   }
-  if (stack_.size() <= pos) {
+  if (stack_.size() < MAX_) {
     return std::next(stack_.rbegin()).base();
   }
   return std::next(stack_.rbegin(), pos+1).base();
@@ -1006,7 +1237,7 @@ auto AssociativeSet<Key>::find_LIR(size_t pos) {
   if (stack_.empty()) {
     return stack_.end();
   }
-  if (stack_.size() <= pos) {
+  if (stack_.size() < MAX_) {
     return std::next(stack_.rbegin()).base();
   }
 //  std::array<int> infStack(MAX_);
@@ -1019,7 +1250,7 @@ auto AssociativeSet<Key>::find_Random(size_t pos) {
   if (stack_.empty()) {
     return stack_.end();
   }
-  if (stack_.size() <= pos) {
+  if (stack_.size() < MAX_) {
     return std::next(stack_.rbegin()).base();
   }
   std::uniform_int_distribution<size_t> dist(0, MAX_ - pos);
@@ -1035,7 +1266,7 @@ auto AssociativeSet<Key>::find_SHiP_Reuse(Key k, size_t pos) {
   if (stack_.empty()) {
     return stack_.end();
   }
-  if (stack_.size() <= pos) {
+  if (stack_.size() < MAX_) {
     return std::next(stack_.rbegin()).base();
   }
 
@@ -1058,7 +1289,7 @@ auto AssociativeSet<Key>::find_Bypass(Key k, size_t pos) {
   if (stack_.empty()) {
     return stack_.end();
   }
-  if (stack_.size() <= pos) {
+  if (stack_.size() < MAX_) {
     return std::next(stack_.rbegin()).base();
   }
 
@@ -1068,6 +1299,31 @@ auto AssociativeSet<Key>::find_Bypass(Key k, size_t pos) {
     return std::next(stack_.rbegin(), pos+1).base();
   }
   return std::next(stack_.begin(), pos);  // default insert at MRU
+}
+
+template<typename Key>
+auto AssociativeSet<Key>::find_Rank(Key k, Features f) {
+  // Edge cases:
+  if (stack_.empty()) {
+    return stack_.end();
+  }
+  if (stack_.size() < MAX_) {
+    return std::next(stack_.rbegin()).base();
+  }
+
+  auto [keep, sum, weights] = hp_.hp_.inference(f.gather(), false);
+  double absolute = hp_.hp_.quantize(f.gather(), false);
+  float TRAINING_RATIO = 0.25;
+  std::array<int64_t, 2> t = hp_.hp_.training_thresholds(TRAINING_RATIO);
+  // TODO: find a way of determining
+//  if (sum < hp_.hp_)
+
+//  if (pt_.count(k) == 0) {
+//    // Not seen before; predict distant reuse, insert at LRU:
+//    ++insertPedictDistant_;
+//    return std::next(stack_.rbegin(), pos+1).base();
+//  }
+  return std::next(stack_.begin(), 0);  // default insert at MRU
 }
 
 
@@ -1130,7 +1386,7 @@ auto AssociativeSet<Key>::find_RRIP_Distance(size_t pos) {
 
 // Returns iterator to one past insert position.
 template<typename Key>
-auto AssociativeSet<Key>::insert_find(Key k) {
+auto AssociativeSet<Key>::insert_find(Key k, Features f) {
   if (stack_.empty()) {
     return stack_.end();
   }
@@ -1138,13 +1394,15 @@ auto AssociativeSet<Key>::insert_find(Key k) {
   Stack_it it;
   switch (p.get()) {
   case InsertionPolicy::HP_BYPASS:
-    // TODO: defaults to MRU, but maybe insert in another position?
-    // - relaltive to confidence of reuse?
   case Policy::MRU:
     it = find_MRU(p.offset());
     break;
   case Policy::LRU:
     it = find_LRU(p.offset());
+    break;
+  case InsertionPolicy::HP_RANK:
+    // Insert position relative to confidence of resuse:
+    it = find_Rank(k, f);
     break;
   case InsertionPolicy::SHIP:
     it = find_SHiP_Reuse(k, p.offset());
@@ -1532,7 +1790,10 @@ std::string CacheSim<Key>::print_stats() {
   // print incorrect prediction
   // dont penalize on prediction too much, bound confidence for flexibility?
   // way to leverage min for replacement insight?
-  ss << hp_.hp_.print_stats();
+//  ss << hp_.hp_.print_stats();
+
+  HistoryTrainer<Key>::BypassStats_.write_stats("BypassPredictions.csv");
+  HistoryTrainer<Key>::EvictStats_.write_stats("EvictPredictions.csv");
   return ss.str();
 }
 

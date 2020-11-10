@@ -92,7 +92,7 @@ po::variables_map parse_options(int argc, const char* argv[]) {
       po::value<std::vector<string>>(&CONFIG.configFiles),
       "Input config file")
     ("flow-log,l",
-      po::value<opt_string>(&CONFIG.logFilename)->implicit_value("parse.log"s),
+      po::value<opt_string>(&CONFIG.logFilename)->implicit_value("sim.log"s),
       "Output log file")
     ("decode-log,d",
       po::value<opt_string>(&CONFIG.decodeLogFilename)->implicit_value("decode.log"s),
@@ -137,7 +137,7 @@ po::variables_map parse_options(int argc, const char* argv[]) {
     ("sim.cache.ip", po::value<string>(&CONFIG.POLICY_Insertion)->default_value("MRU"), "Insertion Policy")
     ("sim.cache.insertion", po::value<int>()->default_value(0), "Insertion position for cache simulation")
 
-    ("sim.cache.hp.threshold", po::value<int>(&CONFIG.Threshold)->default_value(-62), "Hashed Perceptron Threshold")
+    ("sim.cache.hp.threshold", po::value<int>(&CONFIG.Threshold)->default_value(0), "Hashed Perceptron Threshold")
     ("sim.cache.hp.dbp", po::value<bool>(&CONFIG.ENABLE_Perceptron_DeadBlock_Prediction)->default_value(false), "Enable Perceptron DeadBlock predictor")
     ("sim.cache.hp.dbp.alpha", po::value<int>(&CONFIG.Perceptron_DeadBlock_Alpha)->default_value(0), "Perceptron DeadBlock predictor alpha decision threshold")
 
@@ -237,25 +237,25 @@ int main(int argc, const char* argv[]) {
 
 
   // Log/Trace Output Files:
-  ofstream debugLog(*CONFIG.logFilename); // TODO: Allow no log?
+  ofstream runLog(*CONFIG.logFilename); // TODO: Allow no log?
   for (int i = 0; i < argc; i++) {
-    debugLog << argv[i] << ' ';
+    runLog << argv[i] << ' ';
   }
-  debugLog << '\n';
+  runLog << '\n';
 
   ostream& decodeLog = open_gzostream(CONFIG.decodeLogFilename);
   if (CONFIG.decodeLogFilename) {
-    debugLog << "Packet Decode Log File: " << *CONFIG.decodeLogFilename << '\n';
+    runLog << "Packet Decode Log File: " << *CONFIG.decodeLogFilename << '\n';
   }
 
   // Flow Stats Output Files:
   ostream& flowStats = open_gzostream(CONFIG.statsFilename);
   if (CONFIG.statsFilename) {
-    debugLog << "Flow Stats File: " << *CONFIG.statsFilename << '\n';
+    runLog << "Flow Stats File: " << *CONFIG.statsFilename << '\n';
   }
   ostream& flowLog = open_gzostream(CONFIG.flowsFilename);
   if (CONFIG.flowsFilename) {
-    debugLog << "Flow Heuristic Log File: " << *CONFIG.flowsFilename << '\n';
+    runLog << "Flow Heuristic Log File: " << *CONFIG.flowsFilename << '\n';
   }
 
   // Trace Output Files:
@@ -266,16 +266,16 @@ int main(int argc, const char* argv[]) {
   ostream& scanFlowTrace = open_gzostream(CONFIG.traceScansFilename);
   if (CONFIG.traceFilename) {
     constexpr auto FKT_SIZE = std::tuple_size<FlowKeyTuple>::value;
-    debugLog << "Packet Trace File: " << *CONFIG.traceFilename << "\n"
+    runLog << "Packet Trace File: " << *CONFIG.traceFilename << "\n"
              << "- Flow Key String: " << FKT_SIZE << "B\n";
-    debugLog << "TCP Packet Trace File: " << *CONFIG.traceTCPFilename << "\n"
+    runLog << "TCP Packet Trace File: " << *CONFIG.traceTCPFilename << "\n"
              << "- Flow Key String: " << FKT_SIZE << "B\n"
              << "- Flags: " << sizeof(Flags) << "B\n";
-    debugLog << "UDP Packet Trace File: " << *CONFIG.traceUDPFilename << "\n"
+    runLog << "UDP Packet Trace File: " << *CONFIG.traceUDPFilename << "\n"
              << "- Flow Key String: " << FKT_SIZE << "B\n";
-    debugLog << "Untracked Packet Trace File: " << *CONFIG.traceOtherFilename << "\n"
+    runLog << "Untracked Packet Trace File: " << *CONFIG.traceOtherFilename << "\n"
              << "- Flow Key String: " << FKT_SIZE << "B\n";
-    debugLog << "Scan Packet Trace File: " << *CONFIG.traceScansFilename << "\n"
+    runLog << "Scan Packet Trace File: " << *CONFIG.traceScansFilename << "\n"
              << "- Flow Key String: " << FKT_SIZE << "B\n"
              << "- Flags: " << sizeof(Flags) << "B\n";
   }
@@ -286,11 +286,10 @@ int main(int argc, const char* argv[]) {
     vector<string> inputs = config["pcaps"].as<vector<string>>();
     for (size_t i = 0; i < inputs.size(); i++) {
       string& filename = inputs[i];
-      debugLog << "PCAP stream "<< i << ": " << filename << '\n';
+      runLog << "PCAP stream "<< i << ": " << filename << '\n';
       caida.open(i, filename);
     }
   }
-  debugLog.flush();
 
 
   //////////////////////////////////////////////////////////////////////////////
@@ -329,6 +328,10 @@ int main(int argc, const char* argv[]) {
 //  Policy insertPolicy(Policy::PolicyType::SHIP);
   InsertionPolicy insertPolicy(InsertionPolicy::P::HP_BYPASS);
   simCache.set_insert_policy(insertPolicy);
+
+  runLog << simCache.get_hp_handle().hp_.get_settings();
+  runLog.flush();
+
 
   std::mutex mtx_misses; // covers both missesMIN and missesCache
   std::map<flow_id_t, std::vector<uint64_t>> missesMIN;
@@ -713,7 +716,7 @@ int main(int argc, const char* argv[]) {
     wstp_link::register_fn( def_t(sig_t("FFGetSamples[n_Integer]", "n"), fn_t(f_get_samples)) );
     wstp_link::register_fn( def_t(sig_t("FFGetMissesSIM[n_Integer]", "n"), fn_t(f_get_SIM_misses)) );
     string interface = wstp.listen();
-    debugLog << "WSTP Server listening on " << interface << endl;
+    runLog << "WSTP Server listening on " << interface << endl;
   }
 
 
@@ -1048,31 +1051,31 @@ int main(int argc, const char* argv[]) {
   }
 
   // Print global stats:
-  debugLog << "Max packet size: " << maxPacketSize << '\n';
-  debugLog << "Min packet size: " << minPacketSize << '\n';
-  debugLog << "Total bytes: " << totalBytes << '\n';
-  debugLog << "Total packets: " << totalPackets << '\n';
-  debugLog << "Total flows: " << flowIDs.size() << '\n';
-  debugLog << "Blacklisted flows: " << blacklistFlows.size() << '\n';
-  debugLog << "Blacklisted packets: " << blacklistPackets << '\n';
-  debugLog << "Timeout packets: " << timeoutPackets << '\n';
-  debugLog << "Malformed packets: " << malformedPackets << '\n';
-  debugLog << "Flow port reuse: " << flowPortReuse << '\n';
+  runLog << "Max packet size: " << maxPacketSize << '\n';
+  runLog << "Min packet size: " << minPacketSize << '\n';
+  runLog << "Total bytes: " << totalBytes << '\n';
+  runLog << "Total packets: " << totalPackets << '\n';
+  runLog << "Total flows: " << flowIDs.size() << '\n';
+  runLog << "Blacklisted flows: " << blacklistFlows.size() << '\n';
+  runLog << "Blacklisted packets: " << blacklistPackets << '\n';
+  runLog << "Timeout packets: " << timeoutPackets << '\n';
+  runLog << "Malformed packets: " << malformedPackets << '\n';
+  runLog << "Flow port reuse: " << flowPortReuse << '\n';
 
   // Print Cache Simulation Stats:
   // TODO: move print into class function...
   if (ENABLE_simMIN) {
-    debugLog << simMIN.print_stats() << '\n';
+    runLog << simMIN.print_stats() << '\n';
 //    debugLog << simOPT.print_stats() << '\n';
   }
   if (ENABLE_simCache) {
-    debugLog << simCache.print_stats() << '\n';
+    runLog << simCache.print_stats() << '\n';
 
     // Console out:
     auto [compulsory, capacity, conflict] = simCache.get_misses();
     auto [hpBypass, hpReplace] = simCache.get_prediction_hp();
     int64_t total = simCache.get_hits() + compulsory + capacity + conflict;
-    cout << "Hit Rate: " << double(simCache.get_hits())/total * 100 << '%'
+    runLog << "Hit Rate: " << double(simCache.get_hits())/total * 100 << '%'
          << "\nBad Early Replace Predictions: "
          << double(simCache.get_replacements_eager())/hpReplace * 100 << '%'
          << "\nBypass/Miss Ratio: "
@@ -1083,7 +1086,7 @@ int main(int argc, const char* argv[]) {
          << double(hpReplace)/(simCache.get_replacements_lru()+simCache.get_replacements_early()) * 100 << '%'
          << endl;
     auto& hp_handle = simCache.get_hp_handle();
-    cout << hp_handle.hp_.print_stats();
+    runLog << hp_handle.hp_.print_stats();
   }
 
 //  debugLog << "Burst Histogram:\n";
@@ -1097,7 +1100,7 @@ int main(int argc, const char* argv[]) {
   auto sec  = msec/1000;
   auto min  = sec/60;
   auto hrs  = min/60;
-  debugLog << "Run took "
+  runLog << "Run took "
            << hrs << "h:" << min%60 << "m:"
            << sec%60 << "s:" << msec%1000 << "ms" << endl;
 //  debugLog << "Capture Start: " << packet_time << '\n'

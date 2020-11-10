@@ -68,7 +68,7 @@ Features::FeatureType Features::gather(bool force) const {
   f[0] = randomVariable();  // control; not used in actual decision
 
   /// Stateless Packet Features:
-  // Mix ip proto to upper 8 bits of meaningful port:
+  // Mix ip proto with meaningful port:
   // min(src, dst): smallest port number tends to provide meaning
   f[1] = (uint16_t(k_->ipProto) << 8) ^ std::min(k_->srcPort, k_->dstPort);
   // Mix dst_ip/16 and dest_port:
@@ -98,26 +98,74 @@ Features::FeatureType Features::gather(bool force) const {
   // Packets since start of flow as tracked in Flow State:
   f[10] = std::min(r_->packets(), size_t(std::numeric_limits<uint16_t>::max()));  // (#1, degrading)
 
-  // Cache Metadata:
-  /*
-  if (h_) {
-    f[11] = std::min(std::accumulate(h_->begin(), h_->end(), 0),
-                     int(std::numeric_limits<uint16_t>::max()));  // ref count
-    f[12] = std::min(h_->back(), int(std::numeric_limits<uint16_t>::max()));  // burst count
-  }
-  else {
-//    std::cerr << "HitStats unavailable at time of Features.gather()" << std::endl;
-    f[11] = std::numeric_limits<uint16_t>::min();
-    f[12] = std::numeric_limits<uint16_t>::min();
-  }
-  */
-
   // Few other stateless trial features (reorganize later):
-  f[11] = k_->ipLength;
+  f[11] = k_->ipLength; // combine with frag offset?
   f[12] = k_->ipFlowLabel;
   f[13] = k_->ipLength ^ k_->ipFlowLabel;
 
+  f[21] = k_->ipLength ^ f[7];
+  f[22] = k_->ipLength ^ f[8];
+  f[23] = k_->ipLength ^ f[9];
+  f[24] = f[13] ^ k_->ipFragOffset ^ make_flags_bitset(*k_);
+
+  // Cache Metadata:
+  if (h_) {
+    f[14] = std::min(std::accumulate(h_->begin(), h_->end(), 0),
+                     int(std::numeric_limits<uint16_t>::max()));  // ref count
+    f[15] = std::min(h_->back(), int(std::numeric_limits<uint16_t>::max()));  // burst count
+    // Combine burst and ref count:
+    f[16] = std::min(f[15], uint16_t(std::numeric_limits<uint8_t>::max()))<<8 ^ f[14];
+    // Burst and ref count mixed with flowID:
+    f[17] = f[16] ^ f[12];
+    // Burst and ref count mixed with Host Pair Subnets:
+    f[18] = f[16] ^ f[7];
+    f[19] = f[16] ^ f[8]; // best?
+    f[20] = f[16] ^ f[9];
+  }
+  else {
+//    std::cerr << "HitStats unavailable at time of Features.gather()" << std::endl;
+    f[14] = std::numeric_limits<uint16_t>::min();
+    f[15] = std::numeric_limits<uint16_t>::min();
+    f[16] = std::numeric_limits<uint16_t>::min();
+    f[17] = std::numeric_limits<uint16_t>::min() ^ f[12];
+    f[18] = std::numeric_limits<uint16_t>::min() ^ f[7];
+    f[19] = std::numeric_limits<uint16_t>::min() ^ f[8];
+    f[20] = std::numeric_limits<uint16_t>::min() ^ f[9];
+  }
+
   return f;
+}
+
+std::array<std::string_view, Features::FEATURES> Features::names() {
+  std::array<std::string_view, Features::FEATURES> n;
+  n[0] = "Random";
+  n[1] = "Proto Port";
+  n[2] = "Dest Service";
+  n[3] = "Source Service";
+  n[4] = "Flags";
+  n[5] = "Ports";
+  n[6] = "Flags Service";
+  n[7] = "IpPair Upper";
+  n[8] = "IpPair Mid";
+  n[9] = "IpPair Low";
+  n[10] = "Packets";
+  n[11] = "IpLength";
+  n[12] = "5Tuple";
+  n[13] = "IpLength ^ Tuple";
+
+  n[14] = "RefCount";
+  n[15] = "BrustCount";
+  n[16] = "Ref ^ Burst";
+  n[17] = "Ref ^ Burst ^ Tuple";
+  n[18] = "Ref ^ Burst ^ Upper";
+  n[19] = "Ref ^ Burst ^ Mid";
+  n[20] = "Ref ^ Burst ^ Low";
+
+  n[21] = "IpLength ^ Upper";
+  n[22] = "IpLength ^ Mid";
+  n[23] = "IpLength ^ Low";
+  n[24] = "IpLength ^ Tuple ^ Frag";
+  return n;
 }
 
 

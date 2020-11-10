@@ -4,6 +4,7 @@
 #include <memory>
 #include <array>
 #include <vector>
+#include <string_view>
 
 // Foward declares from util_extract.hpp
 class Fields;
@@ -14,7 +15,8 @@ using BurstStats = std::vector<int>;  // mru burst hit counter
 // Abstracts gathering of packet / simulation features from consumer.
 // Delays gathering until data is needed, requires use of shared pointers.
 struct Features {
-  using FeatureType = std::array<uint16_t, 14>;
+  constexpr static size_t FEATURES = 25;
+  using FeatureType = std::array<uint16_t, FEATURES>;
 
   Features() = default;
   Features(std::shared_ptr<const Fields> k,
@@ -40,6 +42,8 @@ struct Features {
   Features& merge(const Features& f); // copy assignment that merges state
   void bless();
   FeatureType gather(bool force = false) const;
+
+  static std::array<std::string_view, FEATURES> names();
 
   // Handles to original structures:
 private:
