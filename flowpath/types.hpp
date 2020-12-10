@@ -52,8 +52,15 @@ public:
   constexpr bool operator==(const ClampedInt&) const;
 
 private:
-  IntType_t value_;
+  IntType_t value_ {};
 };
+
+
+// ClampedInt sanity checks
+static_assert (sizeof(ClampedInt<8>) == 1, "ClampedInt<8> should be 1 byte");
+static_assert (sizeof(ClampedInt<16>) == 2, "ClampedInt<16> should be 2 bytes");
+static_assert (sizeof(ClampedInt<32>) == 4, "ClampedInt<32> should be 4 bytes");
+static_assert (sizeof(ClampedInt<33>) == 8, "ClampedInt<33> should be 8 bytes");
 
 
 template<size_t bits>

@@ -187,6 +187,7 @@ struct hpHandle {
 //CSV evictLog("evictLog_"+CONFIG.simStartTime_str+".csv");
 constexpr bool DUMP_PREDICTIONS = false;
 constexpr bool DUMP_TRAINING = false;
+constexpr bool DUMP_RATIO = true;
 CSV bypassPred;
 CSV evictPred;
 CSV trainingEvents;
@@ -292,7 +293,7 @@ void PredictionStats::write_stats(std::string filename) const {
   // Per-feature Reputation and Influence:
   Ratios evictRatio, keepRep, evictRep, totalRep;
   Ratios keepCorrectInfluence, keepIncorrectInfluence, evictCorrectInfluence, evictIncorrectInfluence;
-  Ratios correctInfluence, incorrectInfluence, keepInfluence, evictInfluence, totalInfluence;
+  Ratios correctInfluence, incorrectInfluence, keepInfluence, evictInfluence, totalInfluence, partialInfluence;
   for (size_t i = 0; i < std::tuple_size_v<Weights>; i++) {
     concur[i] = sKeepConcur_[i] + sEvictConcur_[i];
     opposition[i] = sKeepOpposition_[i] + sEvictOpposition_[i];
@@ -313,6 +314,7 @@ void PredictionStats::write_stats(std::string filename) const {
     correctInfluence[i] = correctSum[i] / double(correctEvents);
     incorrectInfluence[i] = incorrectSum[i] / double(incorrectEvents);
     totalInfluence[i] = (correctSum[i] + incorrectSum[i]) / double(events);
+    partialInfluence[i] = correctInfluence[i] + incorrectInfluence[i];
   }
 
   csv.append( std::tuple_cat(std::make_tuple("Concur Counts"), concur) );
@@ -329,6 +331,7 @@ void PredictionStats::write_stats(std::string filename) const {
   csv.append( std::tuple_cat(std::make_tuple("Correct Influence"), correctInfluence) );
   csv.append( std::tuple_cat(std::make_tuple("Incorrect Influence"), incorrectInfluence) );
   csv.append( std::tuple_cat(std::make_tuple("Total Influence"), totalInfluence) );
+  csv.append( std::tuple_cat(std::make_tuple("Partial Influence Sum"), partialInfluence) );
 }
 
 
@@ -350,10 +353,10 @@ public:
     pKeepHistory_.reserve(pKeepDepth);
     cutoff_ = hp_.decision_threshold() / (hp_.TABLES_-1);  // ignore table 0
     if (DUMP_PREDICTIONS) {
-      bypassPred = CSV("bypassPred.csv");
-      evictPred = CSV("evictPred.csv");
+      bypassPred = CSV("BypassEvents.csv");
+      evictPred = CSV("EvictEvents.csv");
     }
-    if (DUMP_TRAINING) {
+    if (DUMP_TRAINING || DUMP_RATIO) {
       trainingEvents = CSV("trainingEvents.csv");
     }
   }
@@ -491,20 +494,31 @@ void HistoryTrainer<Key>::prediction(Key k, Features f, Weights w, bool keep,
 template<typename Key>
 void HistoryTrainer<Key>::reinforce(Prediction& p, bool touched) {
   const auto features = p.f_.gather(true);
-  auto [updated, reinforced, weights] = hp_.reinforce(features, touched);
+  auto [updated, correction, weights] = hp_.reinforce(features, touched);
   ++sTotal;
   if (updated) {
-    if (reinforced) {
-      p.u_ = Prediction::UpdateType::Reinforcement;
-      ++sReinforcements;
-    }
-    else {
+    if (correction) {
       p.u_ = Prediction::UpdateType::Correction;
       ++sCorrections;
+    }
+    else {
+      p.u_ = Prediction::UpdateType::Reinforcement;
+      ++sReinforcements;
     }
   }
   else {
     p.u_ = Prediction::UpdateType::Sufficient;
+  }
+
+  // Quick and dirty study on update ratios:
+  // print stats every 1k updates
+  if (DUMP_RATIO && ((sTotal % (1<<14)) == 0)) {
+    trainingEvents.append(
+      std::make_tuple(sCorrections, sReinforcements, sTotal, sCorrections/double(sReinforcements))
+    );
+    sCorrections = 0;
+    sReinforcements = 0;
+    sTotal = 0;
   }
 
   if (DUMP_TRAINING && updated) {
@@ -1313,8 +1327,9 @@ auto AssociativeSet<Key>::find_Rank(Key k, Features f) {
 
   auto [keep, sum, weights] = hp_.hp_.inference(f.gather(), false);
   double absolute = hp_.hp_.quantize(f.gather(), false);
-  float TRAINING_RATIO = 0.25;
-  std::array<int64_t, 2> t = hp_.hp_.training_thresholds(TRAINING_RATIO);
+
+//  float TRAINING_RATIO = 0.25;
+//  std::array<int64_t, 2> t = hp_.hp_.calc_training_ratio(TRAINING_RATIO);
   // TODO: find a way of determining
 //  if (sum < hp_.hp_)
 

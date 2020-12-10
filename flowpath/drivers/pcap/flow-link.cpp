@@ -137,7 +137,7 @@ po::variables_map parse_options(int argc, const char* argv[]) {
     ("sim.cache.ip", po::value<string>(&CONFIG.POLICY_Insertion)->default_value("MRU"), "Insertion Policy")
     ("sim.cache.insertion", po::value<int>()->default_value(0), "Insertion position for cache simulation")
 
-    ("sim.cache.hp.threshold", po::value<int>(&CONFIG.Threshold)->default_value(0), "Hashed Perceptron Threshold")
+    ("sim.cache.hp.threshold", po::value<int>(&CONFIG.Threshold)->default_value(0), "Hashed Perceptron Inference Threshold")
     ("sim.cache.hp.dbp", po::value<bool>(&CONFIG.ENABLE_Perceptron_DeadBlock_Prediction)->default_value(false), "Enable Perceptron DeadBlock predictor")
     ("sim.cache.hp.dbp.alpha", po::value<int>(&CONFIG.Perceptron_DeadBlock_Alpha)->default_value(0), "Perceptron DeadBlock predictor alpha decision threshold")
 
@@ -331,7 +331,6 @@ int main(int argc, const char* argv[]) {
 
   runLog << simCache.get_hp_handle().hp_.get_settings();
   runLog.flush();
-
 
   std::mutex mtx_misses; // covers both missesMIN and missesCache
   std::map<flow_id_t, std::vector<uint64_t>> missesMIN;
