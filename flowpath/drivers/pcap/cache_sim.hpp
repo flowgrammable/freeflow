@@ -140,7 +140,7 @@ struct PT_entry {
 
 // Metadata of past prediction for Hashed Perceptron training:
 struct Prediction {
-  using Weights = entangle::HashedPerceptron<Features::FeatureType>::Weights;
+  using Weights = entangle::HashedPerceptron<Features::FeatureVector>::Weights;
   enum Question {Evict, Bypass, Q_Invalid};
   enum Result {keep_correct, keep_incorrect, evict_correct, evict_incorrect, R_Invalid};
   enum UpdateType {Correction, Reinforcement, Sufficient, UT_Invalid};
@@ -172,7 +172,7 @@ struct hpHandle {
     }
   }
 
-  entangle::HashedPerceptron<Features::FeatureType> hp_;
+  entangle::HashedPerceptron<Features::FeatureVector> hp_;
 
   // features for min eval:
   std::map<Key, Features> lastFeature_; // hack to evaluate MIN as training input.
@@ -196,7 +196,7 @@ struct PredictionStats {
   static constexpr bool PREDICTION_STATS = true;
 //  enum Result {keep_correct, keep_incorrect, evict_correct, evict_incorrect, invalid};
   using Result = Prediction::Result;
-  using Weights = entangle::HashedPerceptron<Features::FeatureType>::Weights;
+  using Weights = entangle::HashedPerceptron<Features::FeatureVector>::Weights;
   using Stats = std::array<int64_t, std::tuple_size_v<Weights>>;
 
   Stats sKeepCorrectSum_{};    // Weight towards correct keep decisions
@@ -343,9 +343,9 @@ public:
   using Entry = std::pair<Key, Prediction>;
   const size_t pKEEP_DEPTH;
   const size_t pEVICT_DEPTH;
-  using Weights = entangle::HashedPerceptron<Features::FeatureType>::Weights;
+  using Weights = entangle::HashedPerceptron<Features::FeatureVector>::Weights;
 
-  HistoryTrainer(entangle::HashedPerceptron<Features::FeatureType>& hp,
+  HistoryTrainer(entangle::HashedPerceptron<Features::FeatureVector>& hp,
                  size_t pEvictDepth, size_t pKeepDepth) :
     hp_(hp), pEVICT_DEPTH(pEvictDepth), pKEEP_DEPTH(pKeepDepth)
   {
@@ -369,7 +369,7 @@ public:
   void reinforce(Prediction& p, bool touched);
 
 private:
-  entangle::HashedPerceptron<Features::FeatureType>& hp_;
+  entangle::HashedPerceptron<Features::FeatureVector>& hp_;
   std::vector<Entry> pKeepHistory_;
   std::vector<Entry> pEvictHistory_;
 
@@ -537,14 +537,14 @@ void HistoryTrainer<Key>::reinforce(Prediction& p, bool touched) {
 template<typename Key>
 class BeladyTrainer {
 public:
-  BeladyTrainer(entangle::HashedPerceptron<Features::FeatureType>& hp,
+  BeladyTrainer(entangle::HashedPerceptron<Features::FeatureVector>& hp,
                  size_t entries) : hp_(hp), belady_(entries) {}
 
   void touch(Key k, Features f, Time t);
   void reinforce(Key k, Features f, bool keep);
 
 private:
-  entangle::HashedPerceptron<Features::FeatureType>& hp_;
+  entangle::HashedPerceptron<Features::FeatureVector>& hp_;
   SimMIN<Key> belady_;
   std::map<Key, Features> fmap_;
 };
