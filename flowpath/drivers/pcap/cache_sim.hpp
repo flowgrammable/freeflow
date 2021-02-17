@@ -145,11 +145,12 @@ struct Prediction {
   enum Result {keep_correct, keep_incorrect, evict_correct, evict_incorrect, R_Invalid};
   enum UpdateType {Correction, Reinforcement, Sufficient, UT_Invalid};
 
-  Prediction(Features f, Weights w, Question q, bool pKeep, bool demand) :
-    f_(f), w_(w), q_(q), pKeep_(pKeep), priority_(demand) {}
+  Prediction(Features f, Features::FeatureVector fv, Weights w,
+             Question q, bool pKeep, bool demand) :
+    fv_(fv), w_(w), q_(q), pKeep_(pKeep), priority_(demand), f_(f) {}
 
   // Prediction State:
-  Features f_;    // original features used for training
+  Features::FeatureVector fv_;  // feature vector at time of prediction
   Weights w_;     // weights used in original prediction
   Question q_;    // prediction question
   bool pKeep_;    // original prediction (T: keep, F: evict)
@@ -158,6 +159,10 @@ struct Prediction {
   // Result State:
   Result r_ {Result::R_Invalid};  // prediction confirmation result
   UpdateType u_ {UpdateType::UT_Invalid};
+
+private:
+  // note: for debugging, state has changed past point of initial prediction:
+  Features f_;    // feature handle used for training (pointers)
 };
 
 
@@ -167,9 +172,15 @@ struct hpHandle {
   static constexpr bool RANDOM_INIT = false;
 
   hpHandle(size_t ptElements) : hp_(ptElements) {
-    if (RANDOM_INIT) {
-      hp_.init();
-    }
+    if (RANDOM_INIT) { hp_.init(); }
+  }
+
+  std::string get_settings() const {
+    std::stringstream ss;
+    ss << print_sequence(Features::FeatureSeq{}) << '\n';
+    print_tuple(ss, a2t(Features::names()));
+    ss << hp_.get_settings();
+    return ss.str();
   }
 
   entangle::HashedPerceptron<Features::FeatureVector> hp_;
@@ -244,18 +255,22 @@ void PredictionStats::note(const Prediction& p, Weights::value_type threshold) {
     case Result::keep_correct:
       sKeepCorrectSum_[i] += delta;  // positive was correct
       if (delta >= confidence) { ++sKeepConcur_[i]; }
+      // else ++sKeepOppositionMistakes
       break;
     case Result::keep_incorrect:
       sKeepIncorrectSum_[i] -= delta; // evict: invert sign; negative was correct
       if (delta < -confidence) { ++sKeepOpposition_[i]; }
+      // else ++sKeepConcurMistakes
       break;
     case Result::evict_correct:
       sEvictCorrectSum_[i] -= delta;  // evict: invert sign; negative was correct
       if (delta < -confidence) { ++sEvictConcur_[i]; }
+      // else ++sEvictOppositionMistakes
       break;
     case Result::evict_incorrect:
       sEvictIncorrectSum_[i] += delta; // positive was correct
       if (delta >= confidence) { ++sEvictOpposition_[i]; }
+      // else ++sEvictConcurMistakes
       break;
     default:
       throw std::logic_error("Invalid Result enum");
@@ -263,27 +278,16 @@ void PredictionStats::note(const Prediction& p, Weights::value_type threshold) {
   }
 }
 
+static double matthewsCorrelationCoefficient(double tp, double tn, double fp, double fn) {
+  return (tp*tn - fp*fn) / sqrt((tp+fp)*(tp+fn)*(tn+fp)*(tn+fn));
+}
+
 void PredictionStats::write_stats(std::string filename) const {
   using Ratios = std::array<double, std::tuple_size_v<Weights>>;
   if (!PREDICTION_STATS)
     return;
-  CSV csv(filename);
-  Stats concur, opposition, correctSum, incorrectSum;
-  std::generate(concur.begin(), concur.end(), [n=1]() mutable {return n++;});
-  csv.append( std::tuple_cat(std::make_tuple(filename), concur) );
-  csv.append( std::tuple_cat(std::make_tuple(""), Features::names()) );
 
-  csv.append( std::tuple_cat(std::make_tuple("Keep Correct Sum"), sKeepCorrectSum_) );
-  csv.append( std::tuple_cat(std::make_tuple("Keep Incorrect Sum"), sKeepIncorrectSum_) );
-  csv.append( std::tuple_cat(std::make_tuple("Evict Correct Sum"), sEvictCorrectSum_) );
-  csv.append( std::tuple_cat(std::make_tuple("Evict Incorrect Sum"), sEvictIncorrectSum_) );
-
-  csv.append( std::tuple_cat(std::make_tuple("Keep Correct"), sKeepConcur_, std::make_tuple(sKeepCorrectEvents_)) );
-  csv.append( std::tuple_cat(std::make_tuple("Keep Incorrect"), sKeepOpposition_, std::make_tuple(sKeepIncorrectEvents_)) );
-  csv.append( std::tuple_cat(std::make_tuple("Evict Correct"), sEvictConcur_, std::make_tuple(sEvictCorrectEvents_)) );
-  csv.append( std::tuple_cat(std::make_tuple("Evict Incorrect"), sEvictOpposition_, std::make_tuple(sEvictIncorrectEvents_)) );
-
-  // Global Training Counts:
+  // Global Training Event Counts:
   int64_t keepEvents = sKeepCorrectEvents_ + sKeepIncorrectEvents_;
   int64_t evictEvents = sEvictCorrectEvents_ + sEvictIncorrectEvents_;
   int64_t correctEvents = sKeepCorrectEvents_ + sEvictCorrectEvents_;
@@ -291,22 +295,46 @@ void PredictionStats::write_stats(std::string filename) const {
   int64_t events = keepEvents + evictEvents;
 
   // Per-feature Reputation and Influence:
-  Ratios evictRatio, keepRep, evictRep, totalRep;
+  Stats sKeepConcurMistakes, sEvictConcurMistakes, sKeepOppositionMistakes, sEvictOppositionMistakes;
+  Stats sContribConcur, sContribOpposition, sMistakeConcur, sMistakeOpposition;
+  Stats sTruePositive, sTrueNegative, sFalsePositive, sFalseNegative;
+  Stats correctSum, incorrectSum;
+  Ratios evictRatio, keepRep, evictRep, totalRep, mcc;
   Ratios keepCorrectInfluence, keepIncorrectInfluence, evictCorrectInfluence, evictIncorrectInfluence;
-  Ratios correctInfluence, incorrectInfluence, keepInfluence, evictInfluence, totalInfluence, partialInfluence;
+  Ratios correctInfluence, incorrectInfluence, totalInfluence;
   for (size_t i = 0; i < std::tuple_size_v<Weights>; i++) {
-    concur[i] = sKeepConcur_[i] + sEvictConcur_[i];
-    opposition[i] = sKeepOpposition_[i] + sEvictOpposition_[i];
+    // Calculate Per-Feature Mistakes as inverse of concur/opposition and total events:
+    // - note inversion of opposition and concur for mistakes (inversion of correct portion of confusion matrix).
+    sKeepOppositionMistakes[i] = sKeepCorrectEvents_ - sKeepConcur_[i];   // wrongly predicted evict against system
+    sKeepConcurMistakes[i] = sKeepIncorrectEvents_ - sKeepOpposition_[i];   // wongly predicted keep with system
+    sEvictOppositionMistakes[i] = sEvictCorrectEvents_ - sEvictConcur_[i];  // wrongly predicted keep against system
+    sEvictConcurMistakes[i] = sEvictIncorrectEvents_ - sEvictOpposition_[i];  // wronglypredicted evict with system
+
+    // Per-Feature contributions and mistakes to System:
+    sContribConcur[i] = sKeepConcur_[i] + sEvictConcur_[i];
+    sContribOpposition[i] = sKeepOpposition_[i] + sEvictOpposition_[i];
+    sMistakeConcur[i] = sKeepConcurMistakes[i] + sEvictConcurMistakes[i];
+    sMistakeOpposition[i] = sKeepOppositionMistakes[i] + sEvictOppositionMistakes[i];
+
+    // Per-Feature Confusion Matrix:
+    sTruePositive[i] = sKeepConcur_[i] + sEvictOpposition_[i];  // Correct Keep
+    sTrueNegative[i] = sEvictConcur_[i] + sKeepOpposition_[i];  // Correct Evict
+    sFalsePositive[i] = sKeepConcurMistakes[i] + sKeepOppositionMistakes[i];    // Incorrect Keep
+    sFalseNegative[i] = sEvictConcurMistakes[i] + sEvictOppositionMistakes[i];  // Incorrect Evict
+
+    // Weight Accumulations:
     correctSum[i] = sKeepCorrectSum_[i] + sEvictCorrectSum_[i];
     incorrectSum[i] = sKeepIncorrectSum_[i] + sEvictIncorrectSum_[i];
 
-    // Reputation Ratios
-    evictRatio[i] = (sEvictConcur_[i] + sEvictOpposition_[i]) / double(events);
+    // Reputation Ratios:
+    evictRatio[i] = (sTrueNegative[i] + sFalseNegative[i]) / double(events);
     keepRep[i] = (sKeepConcur_[i] + sKeepOpposition_[i]) / double(keepEvents);
     evictRep[i] = (sEvictConcur_[i] + sEvictOpposition_[i]) / double(evictEvents);
-    totalRep[i] = (concur[i] + opposition[i]) / double(events);
+    totalRep[i] = (sContribConcur[i] + sContribOpposition[i]) / double(events);
+    mcc[i] = matthewsCorrelationCoefficient(sTruePositive[i], sTrueNegative[i],
+                                            sFalsePositive[i], sFalseNegative[i]);
 
-    // Influencial Weight
+    // Influencial Weight:
     keepCorrectInfluence[i] = sKeepCorrectSum_[i] / double(sKeepCorrectEvents_);
     keepIncorrectInfluence[i] = sKeepIncorrectSum_[i] / double(sKeepIncorrectEvents_);
     evictCorrectInfluence[i] = sEvictCorrectSum_[i] / double(sEvictCorrectEvents_);
@@ -314,24 +342,69 @@ void PredictionStats::write_stats(std::string filename) const {
     correctInfluence[i] = correctSum[i] / double(correctEvents);
     incorrectInfluence[i] = incorrectSum[i] / double(incorrectEvents);
     totalInfluence[i] = (correctSum[i] + incorrectSum[i]) / double(events);
-    partialInfluence[i] = correctInfluence[i] + incorrectInfluence[i];
+//    gmInfluence[i] = sqrt(correctInfluence[i] * incorrectInfluence[i]);  // Geometric-mean
   }
 
-  csv.append( std::tuple_cat(std::make_tuple("Concur Counts"), concur) );
-  csv.append( std::tuple_cat(std::make_tuple("Opposition Counts"), opposition) );
+  // Name Columns:
+  CSV csv(filename);
+  csv.append( std::tuple_cat(std::make_tuple(filename), sequence2array(Features::FeatureSeq{}), std::make_tuple("-")) );
+  csv.append( std::tuple_cat(std::make_tuple("Features"), Features::names(), std::make_tuple("System")) );
+
+  // Weighted Sums:
+  csv.append( std::tuple_cat(std::make_tuple("Keep Correct Sum"), sKeepCorrectSum_,
+              std::make_tuple(std::accumulate(sKeepCorrectSum_.begin(), sKeepCorrectSum_.end(), 0)) ));
+  csv.append( std::tuple_cat(std::make_tuple("Keep Incorrect Sum"), sKeepIncorrectSum_,
+                             std::make_tuple(std::accumulate(sKeepIncorrectSum_.begin(), sKeepIncorrectSum_.end(), 0)) ));
+  csv.append( std::tuple_cat(std::make_tuple("Evict Correct Sum"), sEvictCorrectSum_,
+                             std::make_tuple(std::accumulate(sEvictCorrectSum_.begin(), sEvictCorrectSum_.end(), 0)) ));
+  csv.append( std::tuple_cat(std::make_tuple("Evict Incorrect Sum"), sEvictIncorrectSum_,
+                             std::make_tuple(std::accumulate(sEvictIncorrectSum_.begin(), sEvictIncorrectSum_.end(), 0)) ));
+
+  /// Per-Feature Confusion Matrix:
+  // Partial Decisions (Correct):
+  csv.append( std::tuple_cat(std::make_tuple("Keep Correct (TPc)"), sKeepConcur_) );
+  csv.append( std::tuple_cat(std::make_tuple("Keep Incorrect (FPd)"), sKeepOpposition_) );
+  csv.append( std::tuple_cat(std::make_tuple("Evict Correct (TNc)"), sEvictConcur_) );
+  csv.append( std::tuple_cat(std::make_tuple("Evict Incorrect (FNd)"), sEvictOpposition_) );
+
+  // Partial Decisions (Mistakes):
+  csv.append( std::tuple_cat(std::make_tuple("Keep Correct (TPd)"), sKeepConcurMistakes) );
+  csv.append( std::tuple_cat(std::make_tuple("Keep Incorrect (FPc)"), sKeepOppositionMistakes) );
+  csv.append( std::tuple_cat(std::make_tuple("Evict Correct (TNd)"), sEvictConcurMistakes) );
+  csv.append( std::tuple_cat(std::make_tuple("Evict Incorrect (FNc)"), sEvictOppositionMistakes) );
+
+  // Partial Confusion Matrix (by Feature):
+  csv.append( std::tuple_cat(std::make_tuple("TP"), sTruePositive, std::make_tuple(sKeepCorrectEvents_)) );
+  csv.append( std::tuple_cat(std::make_tuple("FP"), sFalsePositive, std::make_tuple(sKeepIncorrectEvents_)) );
+  csv.append( std::tuple_cat(std::make_tuple("TN"), sTrueNegative, std::make_tuple(sEvictCorrectEvents_)) );
+  csv.append( std::tuple_cat(std::make_tuple("FN"), sFalseNegative, std::make_tuple(sEvictIncorrectEvents_)) );
+
+  // Per-Feature contributions and mistakes:
+  csv.append( std::tuple_cat(std::make_tuple("Contribution Concur Counts"), sContribConcur) );
+  csv.append( std::tuple_cat(std::make_tuple("Contribution Opposition Counts"), sContribOpposition) );
+  csv.append( std::tuple_cat(std::make_tuple("Mistake Concur Counts"), sMistakeConcur) );
+  csv.append( std::tuple_cat(std::make_tuple("Mistake Opposition Counts"), sMistakeOpposition) );
+
+  // Reputation:
   csv.append( std::tuple_cat(std::make_tuple("Evict Ratio"), evictRatio) );
   csv.append( std::tuple_cat(std::make_tuple("Keep Reputation"), keepRep) );
   csv.append( std::tuple_cat(std::make_tuple("Evict Reputation"), evictRep) );
   csv.append( std::tuple_cat(std::make_tuple("Total Reputation"), totalRep) );
 
-  csv.append( std::tuple_cat(std::make_tuple("Keep Correct Influence"), keepCorrectInfluence) );
-  csv.append( std::tuple_cat(std::make_tuple("Keep Incorrect Influence"), keepIncorrectInfluence) );
-  csv.append( std::tuple_cat(std::make_tuple("Evict Correct Influence"), evictCorrectInfluence) );
-  csv.append( std::tuple_cat(std::make_tuple("Evict Incorrect Influence"), evictIncorrectInfluence) );
+  // Reputation weighted as Influence:
+  csv.append( std::tuple_cat(std::make_tuple("Keep Correct (TP) Influence"), keepCorrectInfluence) );
+  csv.append( std::tuple_cat(std::make_tuple("Keep Incorrect (FP) Influence"), keepIncorrectInfluence) );
+  csv.append( std::tuple_cat(std::make_tuple("Evict Correct (TN) Influence"), evictCorrectInfluence) );
+  csv.append( std::tuple_cat(std::make_tuple("Evict Incorrect (FN) Influence"), evictIncorrectInfluence) );
   csv.append( std::tuple_cat(std::make_tuple("Correct Influence"), correctInfluence) );
   csv.append( std::tuple_cat(std::make_tuple("Incorrect Influence"), incorrectInfluence) );
   csv.append( std::tuple_cat(std::make_tuple("Total Influence"), totalInfluence) );
-  csv.append( std::tuple_cat(std::make_tuple("Partial Influence Sum"), partialInfluence) );
+
+  // Matthews Correlation Coefficient per-feature followed by total system:
+  csv.append( std::tuple_cat(std::make_tuple("MCC"), mcc, std::make_tuple(
+      matthewsCorrelationCoefficient(sKeepCorrectEvents_, sEvictCorrectEvents_,
+                                     sKeepIncorrectEvents_, sEvictIncorrectEvents_)
+  ) ));
 }
 
 
@@ -364,7 +437,7 @@ public:
   // Legacy hp event prediction interface:
   // TODO: is there a clean way to seperate questions asked of HP..?
   void touch(Key k, Features f);
-  void prediction(Key k, Features f, Weights w, bool keep,
+  void prediction(Key k, Features f, Features::FeatureVector fv, Weights w, bool keep,
                   Prediction::Question q = Prediction::Q_Invalid, bool demand = true);
   void reinforce(Prediction& p, bool touched);
 
@@ -442,10 +515,11 @@ void HistoryTrainer<Key>::touch(Key k, Features f) {
 
 // Takes note of prediction in history for later confirmation:
 template<typename Key>
-void HistoryTrainer<Key>::prediction(Key k, Features f, Weights w, bool keep,
+void HistoryTrainer<Key>::prediction(Key k, Features f, Features::FeatureVector fv,
+                                     Weights w, bool keep,
                                      Prediction::Question q, bool demand) {
   // Take note of prediction:
-  Prediction p{f, w, q, keep, demand};
+  Prediction nextPred{f, fv, w, q, keep, demand};
 
   // OPTIONAL: only insert sample if queue does not contain flow?
   if (keep) {
@@ -466,7 +540,7 @@ void HistoryTrainer<Key>::prediction(Key k, Features f, Weights w, bool keep,
       }
       pKeepHistory_.erase(std::begin(pKeepHistory_));
     }
-    pKeepHistory_.emplace_back(k, p);
+    pKeepHistory_.emplace_back(k, nextPred);
   }
   else {
     if (pEvictHistory_.size() >= pEVICT_DEPTH) {
@@ -486,14 +560,14 @@ void HistoryTrainer<Key>::prediction(Key k, Features f, Weights w, bool keep,
       }
       pEvictHistory_.erase(std::begin(pEvictHistory_));
     }
-    pEvictHistory_.emplace_back(k, p);
+    pEvictHistory_.emplace_back(k, nextPred);
   }
 }
 
 // Performs actual reinforcement:
 template<typename Key>
 void HistoryTrainer<Key>::reinforce(Prediction& p, bool touched) {
-  const auto features = p.f_.gather(true);
+  const auto features = p.fv_;
   auto [updated, correction, weights] = hp_.reinforce(features, touched);
   ++sTotal;
   if (updated) {
@@ -845,14 +919,15 @@ auto AssociativeSet<Key>::insert(Key k, const Time& t, Features f) {
   // TODO: Add Insertion policy for HP...
   if (p_insert_ == InsertionPolicy::HP_BYPASS) {
     // Predict resue if sum >= inference_threshold.
-    auto [keep, sum, weights] = hp_.hp_.inference(f.gather(true));
+    Features::FeatureVector fv = f.gather(true);
+    auto [keep, sum, weights] = hp_.hp_.inference(fv);
     if (ENABLE_History_Training) {
-      hpHistory_.prediction(k, f, weights, keep, Prediction::Bypass);
+      hpHistory_.prediction(k, f, fv, weights, keep, Prediction::Bypass);
     }
     if (!keep) {
       ++predictionHPBypass_;
       if (DUMP_PREDICTIONS) {
-        bypassPred.append( std::tuple_cat(std::make_tuple(k), weights, f.gather(true)) );
+        bypassPred.append( std::tuple_cat(std::make_tuple(k), weights, fv) );
       }
       return std::optional<Evict_t>{};  // bypass
     }
@@ -941,16 +1016,17 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
     if (ENABLE_Perceptron_DeadBlock_Prediction_on_Touch &&
         p_replace_ == ReplacementPolicy::HP_LRU) {
       const Features& df = entry.features;
-     auto [keep, sum, weights] = hp_.hp_.inference(df.gather());
+      Features::FeatureVector dfv = df.gather();
+      auto [keep, sum, weights] = hp_.hp_.inference(dfv);
       if (!keep) {
         ++predictionHPEvict_;
         entry.eol = true;
         if (DUMP_PREDICTIONS) {
-          evictPred.append( std::tuple_cat(std::make_tuple(k), weights, df.gather()) );
+          evictPred.append( std::tuple_cat(std::make_tuple(k), weights, dfv) );
         }
       }
       if (ENABLE_History_Training) {
-        hpHistory_.prediction(k, df, weights, keep, Prediction::Evict);
+        hpHistory_.prediction(k, df, dfv, weights, keep, Prediction::Evict);
       }
     }
 
@@ -962,14 +1038,15 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
     // Consult Hashed Perceptron on bypass:
     // TODO: Add Insertion policy for HP...
     if (p_insert_ == InsertionPolicy::HP_BYPASS) {
-      auto [keep, sum, weights] = hp_.hp_.inference(f.gather(true));
+      Features::FeatureVector fv = f.gather(true);
+      auto [keep, sum, weights] = hp_.hp_.inference(fv);
       if (ENABLE_History_Training) {
-        hpHistory_.prediction(k, f, weights, keep, Prediction::Bypass);
+        hpHistory_.prediction(k, f, fv, weights, keep, Prediction::Bypass);
       }
       if (!keep) {
         ++predictionHPBypass_;
         if (DUMP_PREDICTIONS) {
-          bypassPred.append( std::tuple_cat(std::make_tuple(k), weights, f.gather(true)) );
+          bypassPred.append( std::tuple_cat(std::make_tuple(k), weights, fv) );
         }
         return std::make_pair(false, std::optional<Evict_t>{});  // bypass
       }
@@ -1159,16 +1236,17 @@ void AssociativeSet<Key>::event_mru_demotion(Stack_it demoted) {
     if (ENABLE_Perceptron_DeadBlock_Prediction_on_MRU_Demotion &&
         p_replace_ == ReplacementPolicy::HP_LRU) {
       const Features& df = entry.features;
-      auto [keep, sum, weights] = hp_.hp_.inference(df.gather());
+      Features::FeatureVector dfv = df.gather();
+      auto [keep, sum, weights] = hp_.hp_.inference(dfv);
       if (!keep) {
         ++predictionHPEvict_;
         entry.eol = true;
         if (DUMP_PREDICTIONS) {
-          evictPred.append( std::tuple_cat(std::make_tuple(k), weights, df.gather()) );
+          evictPred.append( std::tuple_cat(std::make_tuple(k), weights, dfv) );
         }
       }
       if (ENABLE_History_Training) {
-        hpHistory_.prediction(k, df, weights, keep, Prediction::Evict);
+        hpHistory_.prediction(k, df, dfv, weights, keep, Prediction::Evict);
       }
     }
   }

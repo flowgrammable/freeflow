@@ -118,6 +118,19 @@ public:
     return ++lines_;
   }
 
+  template<class InputIt>
+  size_t append(InputIt it, InputIt end) {
+    while (it != end) {
+      f_ << *it;
+      if (++it != end)
+        f_ << ',';
+      else
+        f_ << '\n';
+    }
+    return ++lines_;
+  }
+
+
 private:
   std::ofstream f_;
   size_t lines_ = 0;

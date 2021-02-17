@@ -15,6 +15,7 @@ struct global_config {
   fs::path outputDir;
   std::vector<std::string> configFiles;
   std::string simStartTime_str;
+  std::string simRunName_str;
 
   // Trace File Generation:
   opt_string logFilename;

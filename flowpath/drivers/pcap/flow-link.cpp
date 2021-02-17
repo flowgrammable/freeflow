@@ -43,7 +43,12 @@
 #include "absl/container/inlined_vector.h"
 
 // Wolfram Symbolic Transfer Protocol (WSTP):
+#ifndef WSTP_LINK
+//#define WSTP_LINK
+#endif
+#ifdef WSTP_LINK
 #include "wstp.hpp"
+#endif
 
 using namespace std;
 namespace po = boost::program_options;
@@ -121,7 +126,11 @@ po::variables_map parse_options(int argc, const char* argv[]) {
       "Output timeseries trace (assumed TCP Scans)")
     ("timeseries",
       po::value<bool>(&CONFIG.flowRecordTimeseries)->default_value(false)->implicit_value(true),
-      "Enable timeseries recording in FlowRecord");
+      "Enable timeseries recording in FlowRecord")
+    ("dirname",
+      po::value<std::string>(&CONFIG.simRunName_str),
+      "Name given to run (prepended to output directory)")
+    ;
 
   po::options_description hiddenOpts("Hidden Options");
   hiddenOpts.add_options()
@@ -198,15 +207,15 @@ int main(int argc, const char* argv[]) {
   signal(SIGHUP, sig_handle);
 
   po::variables_map config = parse_options(argc, argv);
-  CONFIG.outputDir = fs::path(CONFIG.simStartTime_str);
+  CONFIG.outputDir = fs::path(CONFIG.simRunName_str + "_" + CONFIG.simStartTime_str);
   std::cout << "Working Directory: " << fs::current_path() << '\n';
   if ( fs::create_directory(CONFIG.outputDir) ) {
-    std::cout << "Switching to Output Directory: " << CONFIG.outputDir << std::endl;
+    std::cout << "Switching to Directory: " << CONFIG.outputDir << std::endl;
     fs::current_path(CONFIG.outputDir);
   }
   else {
     std::cout << "Failed to Create Output Directory: " << CONFIG.outputDir
-              << "\nFalling back to Working Directory..." << std::endl;
+              << "\nFalling back to: " << fs::current_path() << std::endl;
   }
 
   // Output Files:
@@ -329,8 +338,12 @@ int main(int argc, const char* argv[]) {
   InsertionPolicy insertPolicy(InsertionPolicy::P::HP_BYPASS);
   simCache.set_insert_policy(insertPolicy);
 
-  runLog << simCache.get_hp_handle().hp_.get_settings();
-  runLog.flush();
+  {
+    const auto& hp = simCache.get_hp_handle();
+    string settings = hp.get_settings();
+    runLog << settings << endl;
+    cout << settings << endl;
+  }
 
   std::mutex mtx_misses; // covers both missesMIN and missesCache
   std::map<flow_id_t, std::vector<uint64_t>> missesMIN;
@@ -526,6 +539,7 @@ int main(int argc, const char* argv[]) {
   };
 
 
+#ifdef WSTP_LINK
   /////////////////////////////////////////////////////////////////////////////
   /// WSTP INTERFACE FUNCTIONS/////////////////////////////////////////////////
   // WSTP interface functions used for exploration
@@ -717,6 +731,7 @@ int main(int argc, const char* argv[]) {
     string interface = wstp.listen();
     runLog << "WSTP Server listening on " << interface << endl;
   }
+#endif // WSTP_LINK
 
 
   /// PCAP file read loop: /////////////////////////////////////////////////////
@@ -948,7 +963,7 @@ int main(int argc, const char* argv[]) {
                  << double(simCache.get_replacements_eager())/hpReplace * 100 << '%'
                  << endl;
             auto& hp_handle = simCache.get_hp_handle();
-            cout << hp_handle.hp_.print_stats();
+            hp_handle.hp_.epoc_stats();
             hp_handle.hp_.clear_stats();
           }
 
@@ -1064,28 +1079,39 @@ int main(int argc, const char* argv[]) {
   // Print Cache Simulation Stats:
   // TODO: move print into class function...
   if (ENABLE_simMIN) {
-    runLog << simMIN.print_stats() << '\n';
-//    debugLog << simOPT.print_stats() << '\n';
+    auto s = simMIN.print_stats();
+    runLog << s << endl;
+    cout << s << endl;
   }
   if (ENABLE_simCache) {
-    runLog << simCache.print_stats() << '\n';
+    {
+    auto s = simCache.print_stats();
+    runLog << s << '\n';
+    cout << s << '\n';
+    }
 
     // Console out:
     auto [compulsory, capacity, conflict] = simCache.get_misses();
     auto [hpBypass, hpReplace] = simCache.get_prediction_hp();
     int64_t total = simCache.get_hits() + compulsory + capacity + conflict;
-    runLog << "Hit Rate: " << double(simCache.get_hits())/total * 100 << '%'
-         << "\nBad Early Replace Predictions: "
-         << double(simCache.get_replacements_eager())/hpReplace * 100 << '%'
-         << "\nBypass/Miss Ratio: "
-         << double(hpBypass)/(compulsory+capacity+conflict) * 100 << '%'
-         << "\nEarlyReplace/(Hits-Compulsory) Ratio: "
-         << double(hpReplace)/(simCache.get_hits()-compulsory) * 100 << '%'
-         << "\nEarlyReplace/Replacements Ratio: "
-         << double(hpReplace)/(simCache.get_replacements_lru()+simCache.get_replacements_early()) * 100 << '%'
-         << endl;
-    auto& hp_handle = simCache.get_hp_handle();
-    runLog << hp_handle.hp_.print_stats();
+
+    {
+    stringstream ss;
+    ss << "Hit Rate: " << double(simCache.get_hits())/total * 100 << '%'
+       << "\nBad Early Replace Predictions: "
+       << double(simCache.get_replacements_eager())/hpReplace * 100 << '%'
+       << "\nBypass/Miss Ratio: "
+       << double(hpBypass)/(compulsory+capacity+conflict) * 100 << '%'
+       << "\nEarlyReplace/(Hits-Compulsory) Ratio: "
+       << double(hpReplace)/(simCache.get_hits()-compulsory) * 100 << '%'
+       << "\nEarlyReplace/Replacements Ratio: "
+       << double(hpReplace)/(simCache.get_replacements_lru()+simCache.get_replacements_early()) * 100 << '%';
+    auto s = ss.str();
+    runLog << s << '\n';
+    cout << s << '\n';
+    }
+
+    simCache.get_hp_handle().hp_.final_stats();
   }
 
 //  debugLog << "Burst Histogram:\n";
@@ -1117,8 +1143,10 @@ int main(int argc, const char* argv[]) {
   cout << "Processed " << totalPackets << " packets ("
        << flowIDs.size() << " flows)." << endl;
 
+#ifdef WSTP_LINK
   // Simulation finished, wait for uninstall from WSTP:
   wstp.wait_for_unlink();
+#endif
   cerr << "Main thread terminating." << endl;
   return EXIT_SUCCESS;
 }

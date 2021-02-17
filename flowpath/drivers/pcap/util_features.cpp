@@ -1,4 +1,4 @@
-#include "util_features.hpp"
+﻿#include "util_features.hpp"
 
 #include "util_extract.hpp"
 
@@ -64,7 +64,10 @@ Features& Features::merge(const Features& f) {
 // control feature; not used in actual inference
 template<> auto Features::gather_idx(std::integer_sequence<size_t, 0>) const {
   FeatureType x = randomVariable();
-  return std::make_pair(x, "Random");
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 0>) {
+  return "Random";
 }
 
 /// Stateless Packet Features:
@@ -72,7 +75,10 @@ template<> auto Features::gather_idx(std::integer_sequence<size_t, 0>) const {
 template<> auto Features::gather_idx(std::integer_sequence<size_t, 1>) const {
   // min(src, dst): smallest port number tends to provide meaning
   FeatureType x = (uint16_t(k_->ipProto)<<8) ^ std::min(k_->srcPort, k_->dstPort);
-  return std::make_pair(x, "Proto Port");
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 1>) {
+  return "Proto Port";
 }
 
 // TODO: compare performance of above with better notion of service.
@@ -80,65 +86,101 @@ template<> auto Features::gather_idx(std::integer_sequence<size_t, 1>) const {
 // Directional service by dst:
 template<> auto Features::gather_idx(std::integer_sequence<size_t, 2>) const {
   FeatureType x = (k_->ipv4Dst>>16) ^ k_->dstPort;
-  return std::make_pair(x, "Dest Service");
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 2>) {
+  return "Dest Service";
 }
 // Directional service by src:
 template<> auto Features::gather_idx(std::integer_sequence<size_t, 3>) const {
   FeatureType x = (k_->ipv4Src>>16) ^ k_->srcPort;
-  return std::make_pair(x, "Source Service");
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 3>) {
+  return "Source Service";
 }
 
 // Useful flags from IP and TCP headers:
 template<> auto Features::gather_idx(std::integer_sequence<size_t, 4>) const {
   FeatureType x = make_flags_bitset(*k_);
-  return std::make_pair(x, "Flags");
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 4>) {
+  return "Flags";
 }
 
 // Bi-directonal Port:
 template<> auto Features::gather_idx(std::integer_sequence<size_t, 5>) const {
   FeatureType x = k_->srcPort ^ k_->dstPort;
-  return std::make_pair(x, "Ports");
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 5>) {
+  return "Ports";
 }
 
 // Mix ipv4 protocol (8b), tcp flags (9b), and lowest port number:
 template<> auto Features::gather_idx(std::integer_sequence<size_t, 6>) const {
   FeatureType x = uint16_t(k_->ipProto) ^ (uint16_t(k_->fTCP)<<7) ^
       std::min(k_->srcPort, k_->dstPort);
-  return std::make_pair(x, "Flags Service");
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 6>) {
+  return "Flags Service";
 }
 
 // Host Pair Subnet Association:
 template<> auto Features::gather_idx(std::integer_sequence<size_t, 7>) const {
   FeatureType x = (k_->ipv4Dst>>16) ^ (k_->ipv4Src>>16);
-  return std::make_pair(x, "IpPair Upper");
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 7>) {
+  return "IpPair Upper";
 }
 template<> auto Features::gather_idx(std::integer_sequence<size_t, 8>) const {
   FeatureType x = (k_->ipv4Dst>>8) ^ (k_->ipv4Src>>8);
-  return std::make_pair(x, "IpPair Mid");
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 8>) {
+  return "IpPair Mid";
 }
 template<> auto Features::gather_idx(std::integer_sequence<size_t, 9>) const {
   FeatureType x = (k_->ipv4Dst) ^ (k_->ipv4Src);
-  return std::make_pair(x, "IpPair Low");
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 9>) {
+  return "IpPair Low";
 }
 
 /// Stateful Flow Features:
 // Packets since start of flow as tracked in Flow State:
 template<> auto Features::gather_idx(std::integer_sequence<size_t, 10>) const {
   FeatureType x = std::min(r_->packets(), size_t(std::numeric_limits<uint16_t>::max()));
-  return std::make_pair(x, "Packets");
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 10>) {
+  return "Packets";
 }
 
 template<> auto Features::gather_idx(std::integer_sequence<size_t, 11>) const {
   FeatureType x = k_->ipLength; // combine with frag offset?
-  return std::make_pair(x, "IpLength");
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 11>) {
+  return "IpLength";
 }
 template<> auto Features::gather_idx(std::integer_sequence<size_t, 12>) const {
   FeatureType x = k_->ipFlowLabel;
-  return std::make_pair(x, "5Tuple");
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 12>) {
+  return "5Tuple";
 }
 template<> auto Features::gather_idx(std::integer_sequence<size_t, 13>) const {
   FeatureType x = get<11>() ^ get<12>();
-  return std::make_pair(x, "IpLength ^ Tuple");
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 13>) {
+  return "IpLength ^ Tuple";
 }
 
 /// Cache Metadata:
@@ -147,59 +189,125 @@ template<> auto Features::gather_idx(std::integer_sequence<size_t, 14>) const {
   FeatureType x = h_ ?
     std::min(std::accumulate(h_->begin(),h_->end(),0), int(std::numeric_limits<uint16_t>::max()))
     : std::numeric_limits<uint16_t>::min();
-  return std::make_pair(x, "RefCount");
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 14>) {
+  return "RefCount";
 }
 // BurstCount:
 template<> auto Features::gather_idx(std::integer_sequence<size_t, 15>) const {
   FeatureType x = h_ ?
     std::min(h_->back(), int(std::numeric_limits<uint16_t>::max()))
     : std::numeric_limits<uint16_t>::min();
-  return std::make_pair(x, "BrustCount");
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 15>) {
+  return "BrustCount";
 }
 
 // Combine RefCount and BurstCount:
 template<> auto Features::gather_idx(std::integer_sequence<size_t, 16>) const {
-  FeatureType x = std::min(get<15>(), uint16_t(std::numeric_limits<uint8_t>::max()))<<8 ^ get<14>();
-  return std::make_pair(x, "Ref ^ Burst");
+  FeatureType x = std::min(get<15>(), uint16_t(std::numeric_limits<uint8_t>::max()))<<8 ^
+                  get<14>();
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 16>) {
+  return "Ref ^ Burst";
 }
 // Combine RefCount and BurstCount and FlowID:
 template<> auto Features::gather_idx(std::integer_sequence<size_t, 17>) const {
   FeatureType x = get<16>() ^ get<12>();
-  return std::make_pair(x, "Ref ^ Burst ^ Tuple");
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 17>) {
+  return "Ref ^ Burst ^ Tuple";
 }
 
 // Burst and ref count mixed with Host Pair Subnets:
 template<> auto Features::gather_idx(std::integer_sequence<size_t, 18>) const {
   FeatureType x = get<16>() ^ get<7>();
-  return std::make_pair(x, "Ref ^ Burst ^ Upper");
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 18>) {
+  return "Ref ^ Burst ^ Upper";
 }
 //Burst and ref count mixed with Host Pair Subnets:
 template<> auto Features::gather_idx(std::integer_sequence<size_t, 19>) const {
   FeatureType x = get<16>() ^ get<8>();
-  return std::make_pair(x, "Ref ^ Burst ^ Mid");
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 19>) {
+  return "Ref ^ Burst ^ Mid";
 }
 // Burst and ref count mixed with Host Pair Subnets:
 template<> auto Features::gather_idx(std::integer_sequence<size_t, 20>) const {
   FeatureType x = get<16>() ^ get<9>();
-  return std::make_pair(x, "Ref ^ Burst ^ Low");
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 20>) {
+  return "Ref ^ Burst ^ Low";
 }
 
 /// Stateful Flow Features:
 template<> auto Features::gather_idx(std::integer_sequence<size_t, 21>) const {
   FeatureType x = get<11>() ^ get<7>();
-  return std::make_pair(x, "IpLength ^ Upper");
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 21>) {
+  return "IpLength ^ Upper";
 }
 template<> auto Features::gather_idx(std::integer_sequence<size_t, 22>) const {
   FeatureType x = get<11>() ^ get<8>();
-  return std::make_pair(x, "IpLength ^ Mid");
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 22>) {
+  return "IpLength ^ Mid";
 }
 template<> auto Features::gather_idx(std::integer_sequence<size_t, 23>) const {
   FeatureType x = get<11>() ^ get<9>();
-  return std::make_pair(x, "IpLength ^ Low");
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 23>) {
+  return "IpLength ^ Low";
 }
 template<> auto Features::gather_idx(std::integer_sequence<size_t, 24>) const {
   FeatureType x = k_->ipFragOffset ^ get<4>() ^ get<13>();
-  return std::make_pair(x, "IpLength ^ Tuple ^ Frag");
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 24>) {
+  return "IpLength ^ Tuple ^ Frag";
+}
+
+template<> auto Features::gather_idx(std::integer_sequence<size_t, 25>) const {
+  FeatureType x = get<4>() ^ get<7>();
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 25>) {
+  return "Flags ^ Upper";
+}
+
+template<> auto Features::gather_idx(std::integer_sequence<size_t, 26>) const {
+  FeatureType x = std::numeric_limits<uint16_t>::min();   // always 0
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 26>) {
+  return "NULL";
+}
+
+template<> auto Features::gather_idx(std::integer_sequence<size_t, 27>) const {
+  FeatureType x = std::min(get<15>(), uint16_t(std::numeric_limits<uint8_t>::max()))<<8 ^
+                  get<11>();
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 27>) {
+  return "Burst ^ IpLength";
+}
+template<> auto Features::gather_idx(std::integer_sequence<size_t, 28>) const {
+  FeatureType x = get<16>() ^ get<11>();
+  return x;
+}
+template<> auto Features::name_idx(std::integer_sequence<size_t, 28>) {
+  return "Ref ^ Burst ^ IpLength";
 }
 
 
@@ -215,7 +323,7 @@ Features::FeatureVector Features::gather(bool force) const {
 
 
 std::array<std::string_view, Features::FEATURES> Features::names() {
-  return Features{}.names_seq(FeatureSeq{});
+  return names_seq(FeatureSeq{});
 }
 
 
