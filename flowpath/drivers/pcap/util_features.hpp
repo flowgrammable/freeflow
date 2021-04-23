@@ -6,6 +6,7 @@
 #include <vector>
 #include <sstream>
 #include <string_view>
+#include <limits>
 
 //#define SCRIPT_SEQ
 
@@ -67,9 +68,14 @@ struct Features {
 
 private:
   // Gather values for selected features:
+  template<size_t Index> auto gather_idx(std::integer_sequence<size_t, Index>) const;
   template<size_t... seq> FeatureVector gather_seq() const;
   template<size_t... seq> FeatureVector gather_seq(std::integer_sequence<size_t, seq...>) const;
-  template<size_t Index> auto gather_idx(std::integer_sequence<size_t, Index>) const;
+
+  template<int bits, size_t Index> FeatureType gather_idx_fold(std::integer_sequence<size_t, Index>) const;
+  template<int bits, size_t... seq> FeatureVector gather_seq_fold() const;
+  template<int bits, size_t... seq> FeatureVector gather_seq_fold(std::integer_sequence<size_t, seq...>) const;
+
   template<size_t Index> FeatureType get() const;  // helper mimicing std::get
 
   // Gather names for selected features:
@@ -100,6 +106,43 @@ template<size_t... seq>
 Features::FeatureVector Features::gather_seq(std::integer_sequence<size_t, seq...>) const {
   return gather_seq<seq...>();
 }
+
+
+// Trivial fold (right shift):  0XXYYYYY >> 2 = {X^Y, X^Y, YYY}
+// bits: 5
+// shift: 2
+template<int bits, size_t Index>
+Features::FeatureType Features::gather_idx_fold(std::integer_sequence<size_t, Index>) const {
+  static_assert(std::is_integral_v<FeatureType>, "FeatureType must be an integral type");
+  static_assert(!std::is_signed_v<FeatureType>, "FeatureType must be an unsigned type");
+
+  constexpr int shift = sizeof(FeatureType)*8 - bits;
+  static_assert (shift <= bits, "Potentially dropping bits: bits <= FeatureType/2");
+
+  constexpr FeatureType xMASK = FeatureType(std::numeric_limits<FeatureType>::max() << bits);
+  constexpr FeatureType yMASK = FeatureType(~xMASK);
+
+  auto n = gather_idx(std::integer_sequence<size_t, Index>());
+  return (n & yMASK) | ((n & xMASK)>>shift);
+}
+
+// Initializes feature vector from template parameter pack:
+// - trivial fold (right shift)
+template<int bits, size_t... seq>
+Features::FeatureVector Features::gather_seq_fold() const {
+  constexpr size_t FEATURES = sizeof...(seq);
+  FeatureVector features = {
+    gather_idx_fold<bits>(std::integer_sequence<size_t, seq>())... };
+  return features;
+}
+
+// Initializes feature vector from integer_sequence argument:
+// - trivial fold (right shift)
+template<int bits, size_t... seq>
+Features::FeatureVector Features::gather_seq_fold(std::integer_sequence<size_t, seq...>) const {
+  return gather_seq_fold<bits, seq...>();
+}
+
 
 // Helper to generate call to gather_index(N) from get<N>; mimiking std::get<N>
 template<size_t Index>
