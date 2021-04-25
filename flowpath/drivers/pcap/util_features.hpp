@@ -8,7 +8,8 @@
 #include <string_view>
 #include <limits>
 
-//#define SCRIPT_SEQ
+//#define SCRIPT_SEQ  // SCRIPT_REPLACE is modified externally because macro's and commas are awkward
+//#define SCRIPT_FOLD 8 // bits to fold down to
 
 // Foward declares from util_extract.hpp
 class Fields;
@@ -123,7 +124,12 @@ Features::FeatureType Features::gather_idx_fold(std::integer_sequence<size_t, In
   constexpr FeatureType yMASK = FeatureType(~xMASK);
 
   auto n = gather_idx(std::integer_sequence<size_t, Index>());
-  return (n & yMASK) | ((n & xMASK)>>shift);
+  n = (n & yMASK) | ((n & xMASK)>>shift);
+#ifdef DEBUG
+  if (n >= (1<<SCRIPT_FOLD))
+    throw std::runtime_error("gather_idx_fold out of max range.");
+#endif
+  return n;
 }
 
 // Initializes feature vector from template parameter pack:

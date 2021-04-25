@@ -207,7 +207,12 @@ int main(int argc, const char* argv[]) {
   signal(SIGHUP, sig_handle);
 
   po::variables_map config = parse_options(argc, argv);
-  CONFIG.outputDir = fs::path(CONFIG.simRunName_str + "_" + CONFIG.simStartTime_str);
+  if (!CONFIG.simRunName_str.empty())
+    CONFIG.outputDir = fs::path(CONFIG.simRunName_str + "_" + CONFIG.simStartTime_str);
+  else
+    CONFIG.outputDir = fs::path(CONFIG.simStartTime_str);
+
+
   std::cout << "Working Directory: " << fs::current_path() << '\n';
   if ( fs::create_directory(CONFIG.outputDir) ) {
     std::cout << "Switching to Directory: " << CONFIG.outputDir << std::endl;

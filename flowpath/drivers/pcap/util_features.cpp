@@ -317,8 +317,11 @@ Features::FeatureVector Features::gather(bool force) const {
   if (!force && !blessed)
     throw std::logic_error("Gather before blessing of Feature class.");
 
-//  return gather_seq(FeatureSeq{});
-  return gather_seq_fold<8>(FeatureSeq{});
+#ifdef SCRIPT_FOLD
+  return gather_seq_fold<SCRIPT_FOLD>(FeatureSeq{});
+#else
+  return gather_seq(FeatureSeq{});
+#endif
 }
 
 
