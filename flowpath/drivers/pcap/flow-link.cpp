@@ -242,8 +242,11 @@ int main(int argc, const char* argv[]) {
 
   // Configuration:
   constexpr bool ENABLE_simCache = true;
-  constexpr bool ENABLE_simMIN = false;
+  constexpr bool ENABLE_simMIN = true;
   constexpr bool ENABLE_WSTP = false;
+  constexpr bool ENABLE_CACHE_EVICTION_DUMP = true;
+  constexpr bool ENABLE_MIN_EVICTION_DUMP = true;
+  constexpr bool ENABLE_CACHE_BASELINE = true;
 
 //  constexpr bool ENABLE_FLOW_LOG = false;
 //  const bool enable_simMIN(config["sim.min"].as<bool>());
@@ -328,20 +331,33 @@ int main(int argc, const char* argv[]) {
   //////////////////////////////////////////////////////////////////////////////
   /// Simulation bookeeping structures:
   SimMIN<flow_id_t> simMIN(config["sim.min.entries"].as<int>());
-//  SimOPT<flow_id_t> simOPT(config["sim.min.entries"].as<int>());
-  // TODO: find way of defining polices...
   CacheSim<flow_id_t> simCache(config["sim.cache.entries"].as<int>(),
                                config["sim.cache.associativity"].as<int>());
-//  Policy replacePolicy(Policy::PolicyType::BURST_LRU);
-  ReplacementPolicy replacePolicy(ReplacementPolicy::P::HP_LRU);
-  simCache.set_replacement_policy(replacePolicy);
 
-//  Policy insertPolicy(Policy::MRU);
-//  insertPolicy.offset_ = 2;
-//  Policy insertPolicy(Policy::PolicyType::BYPASS);
-//  Policy insertPolicy(Policy::PolicyType::SHIP);
-  InsertionPolicy insertPolicy(InsertionPolicy::P::HP_BYPASS);
-  simCache.set_insert_policy(insertPolicy);
+  // Replacement Policy:
+  if (ENABLE_CACHE_BASELINE) {
+    ReplacementPolicy replacePolicy(ReplacementPolicy::P::BURST_LRU);
+    simCache.set_replacement_policy(replacePolicy);
+  }
+  else {
+    ReplacementPolicy replacePolicy(ReplacementPolicy::P::HP_LRU);
+    simCache.set_replacement_policy(replacePolicy);
+  }
+
+  // Insertion Policy:
+  if (ENABLE_CACHE_BASELINE) {
+    Policy insertPolicy(Policy::MRU);
+    simCache.set_insert_policy(insertPolicy);
+  }
+  else {
+    InsertionPolicy insertPolicy(InsertionPolicy::P::HP_BYPASS);
+    simCache.set_insert_policy(insertPolicy);
+  }
+  //  Policy insertPolicy(Policy::MRU);
+  //  insertPolicy.offset_ = 2;
+  //  Policy insertPolicy(Policy::PolicyType::BYPASS);
+  //  Policy insertPolicy(Policy::PolicyType::SHIP);
+
 
   {
     const auto& hp = simCache.get_hp_handle();
@@ -358,13 +374,19 @@ int main(int argc, const char* argv[]) {
 //  using HitStats = typename CacheSim<flow_id_t>::HitStats;
   // TODO, place these cache sim / stats types in a namespace
   using Lifetime = std::tuple<Reservation, std::shared_ptr<BurstStats>>;
-  std::map<flow_id_t, std::vector<Lifetime>> minLifetimes;
   std::map<flow_id_t, std::vector<Lifetime>> cacheLifetimes;
+  std::map<flow_id_t, std::vector<Reservation>> minLifetimes;
 //  RollingBuffer<Reservation, 1024*100> reservations;
-  constexpr bool ENABLE_EVICTION_DUMP = false;
-  CSV csv_evictions;
-  if (ENABLE_EVICTION_DUMP) {
-    csv_evictions = CSV("evictions.txt");
+
+  // Entry Lifetime Logging:
+  CSV csv_cache_evictions, csv_min_evictions;
+  if (ENABLE_CACHE_EVICTION_DUMP) {
+    csv_cache_evictions = CSV("cache_evictions.csv");
+    csv_cache_evictions.append(std::make_tuple("flowID", "hits", "minTime", "clockTime"));
+  }
+  if (ENABLE_MIN_EVICTION_DUMP) {
+    csv_min_evictions = CSV("min_evictions.csv");
+    csv_min_evictions.append(std::make_tuple("flowID", "minTime", "clockTime"));
   }
 
 
@@ -405,58 +427,66 @@ int main(int argc, const char* argv[]) {
   };
 
 
-  // Insert called once (first packet on flow startup)
+  // Insert called once (first packet of flow)
   std::function<void(flow_id_t, const std::pair<uint64_t,timespec>&&, Features)> f_sim_insert =
       [&](flow_id_t flowID, const std::pair<uint64_t,timespec>&& pktTime, Features features) {
     auto [ns, ts] = pktTime;
     if (ENABLE_simMIN) {
       simMIN.insert(flowID, ts);
-//      simOPT.insert(flowID, ts);
     }
 
     if (ENABLE_simCache) {
       auto victim = simCache.insert(flowID, ts, features);
-      if (ENABLE_WSTP && victim) {
+      if (victim) {
         // If victim exists (something was replaced).
         // victim: std::tuple<Key, Reservation, HitStats>
         auto& [id, res, hits] = *victim;
-        cacheLifetimes[id].emplace_back(res, hits);
-        auto line = std::make_tuple(
-          id,
-          std::accumulate(hits->begin(), hits->end(), int64_t{}),
-          res.duration_minTime(),
-          res.duration_time()
-        );
-        if (ENABLE_EVICTION_DUMP) {
-          csv_evictions.append(line);
+        if (ENABLE_CACHE_EVICTION_DUMP) {
+          auto line = std::make_tuple(
+            id,
+            std::accumulate(hits->begin(), hits->end(), int64_t{}),
+            res.duration_minTime(),
+            to_string(res.duration_time())
+          );
+          csv_cache_evictions.append(line);
         }
-//        std::cout << "Evicted FlowID: " << id
-//          << ", Hits: " << std::accumulate(hits->begin(), hits->end(), int64_t{})
-//          << ", MinTime: " << res.duration_minTime()
-//          << ", Duration: " << res.duration_time()
-//          << std::endl;
+        if (ENABLE_WSTP) {
+          cacheLifetimes[id].emplace_back(std::move(res), std::move(hits));
+        }
       }
     }
   };
 
-  // - Update called on each subsequent packet
+
+  // - Update called on each subsequent packet of flow
   std::function<void(flow_id_t, const std::pair<uint64_t,timespec>&&, Features)> f_sim_update =
       [&](flow_id_t flowID, const std::pair<uint64_t,timespec>&& pktTime, Features features) {
     auto [ns, ts] = pktTime;
     if (ENABLE_simMIN) {
-//      auto [hit, evictSet] = simMIN.update(flowID, ts);
-      { // simMIN
-        bool hit = simMIN.update(flowID, ts);
-        auto [evictSet, keepSet] = simMIN.evictions();
-        if (ENABLE_WSTP && !hit) {
-          std::lock_guard lock(mtx_misses);
-          missesMIN[flowID].emplace_back(ns);
+      bool hit = simMIN.update(flowID, ts);
+      if (ENABLE_WSTP && !hit) {
+        std::lock_guard lock(mtx_misses);
+        missesMIN[flowID].emplace_back(ns);
+      }
+//        auto [evictSet, keepSet] = simMIN.evictions();
+      auto [evictSpans, keepSet] = simMIN.eviction_spans();
+      for (const auto& [id, spans] : evictSpans) {
+        // currently missing hits for simMIN...
+        for (const auto& res : spans) {
+          if (ENABLE_MIN_EVICTION_DUMP) {
+            auto line = std::make_tuple(
+              id,
+  //              std::accumulate(hits->begin(), hits->end(), int64_t{}),
+              res.duration_minTime(),
+              to_string(res.duration_time())
+            );
+            csv_min_evictions.append(line);
+          }
+          if (ENABLE_WSTP) {
+            minLifetimes[id].emplace_back(std::move(res));
+          }
         }
       }
-//      { // simOPT
-//        bool hit = simOPT.update(flowID, ts);
-//        auto evictSet = simOPT.evictions();
-//      }
     }
 
     if (ENABLE_simCache) {
@@ -465,25 +495,22 @@ int main(int argc, const char* argv[]) {
       // TODO: take note of miss statistics...
         std::lock_guard lock(mtx_misses);
         missesCache[flowID].emplace_back(ns);
-        if (victim) {
-          // If victim exists (something was replaced).
-          // victim: std::tuple<Key, Reservation, HitStats>
-          auto& [id, res, hits] = *victim;
-          cacheLifetimes[id].emplace_back(res, hits);
-//          std::cout << "+ FlowID: " << id
-//            << ", Hits: " << std::accumulate(hits->begin(), hits->end(), int64_t{})
-//            << ", MinTime: " << res.duration_minTime()
-//            << ", Duration: " << res.duration_time()
-//            << std::endl;
+      }
+      if (victim) {
+        // If victim exists (something was replaced).
+        // victim: std::tuple<Key, Reservation, HitStats>
+        auto& [id, res, hits] = *victim;
+        if (ENABLE_CACHE_EVICTION_DUMP) {
           auto line = std::make_tuple(
             id,
             std::accumulate(hits->begin(), hits->end(), int64_t{}),
             res.duration_minTime(),
-            res.duration_time()
+            to_string(res.duration_time())
           );
-          if (ENABLE_EVICTION_DUMP) {
-            csv_evictions.append(line);
-          }
+          csv_cache_evictions.append(line);
+        }
+        if (ENABLE_WSTP) {
+          cacheLifetimes[id].emplace_back(std::move(res), std::move(hits));
         }
       }
     }

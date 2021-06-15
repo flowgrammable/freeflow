@@ -51,7 +51,7 @@ timespec operator+(const timespec& lhs, const timespec& rhs) {
 }
 
 std::ostream& operator<<(std::ostream& os, const timespec& ts) {
-  os << ts.tv_sec << "s, " << ts.tv_nsec << "ns";
+  os << '{' << ts.tv_sec << "s," << ts.tv_nsec << "ns}";
   return os;
 }
 

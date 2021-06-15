@@ -44,12 +44,13 @@ struct Reservation {
   std::pair<Time, Time> reservation_time_;
 };
 
+using History = std::vector<Reservation>;
+
 
 template<typename Key>
 class SimMIN {
 public:
   static constexpr bool ENABLE_DELAY_STATS = false;
-  using History = std::vector<Reservation>;  
 
   SimMIN(size_t entries);
 
@@ -57,6 +58,7 @@ public:
   bool update(const Key& k, const Time& t);
   void remove(const Key& k);  // does nothing...
   std::pair<std::set<Key>, std::set<Key>> evictions() {return trim_to_barrier();}
+  std::pair<std::map<Key, History>, std::set<Key>> eviction_spans() {return trim_to_barrier_spans();}
 
   size_t get_size() const {return ENTRIES_;}
   uint64_t get_hits() const {return hits_;}
@@ -66,6 +68,7 @@ public:
   std::string print_stats() const;
 
 private:
+  std::pair<std::map<Key, History>, std::set<Key>> trim_to_barrier_spans();
   std::pair<std::set<Key>, std::set<Key>> trim_to_barrier();
 
   const size_t ENTRIES_;
@@ -168,11 +171,14 @@ bool SimMIN<Key>::update(const Key& k, const Time& t) {
 // - Update trim offset to number of columns 'deleted'
 // -- 'time' moves on, but capacity vector's index is adjusted back to 0
 template<typename Key>
-std::pair<std::set<Key>, std::set<Key>> SimMIN<Key>::trim_to_barrier() {
+std::pair<std::map<Key, History>, std::set<Key>>
+SimMIN<Key>::trim_to_barrier_spans() {
   std::set<Key> evict_set, keep_set;
+  std::map<Key, History> spans;
+
   MIN_Time advance = barrier_ - trim_offset_;
   if (advance == 0) {
-    return std::make_pair(evict_set, keep_set);
+    return std::make_pair(spans, keep_set);
   }
   static Time tempSum{};
 
@@ -211,7 +217,8 @@ std::pair<std::set<Key>, std::set<Key>> SimMIN<Key>::trim_to_barrier() {
     }
   }
 
-  for (Key k : evict_set) {
+  for (const Key& k : evict_set) {
+    spans.emplace(k, std::move(reserved_[k]));
     reserved_.erase(k);
   }
 
@@ -225,6 +232,18 @@ std::pair<std::set<Key>, std::set<Key>> SimMIN<Key>::trim_to_barrier() {
   std::cout << "MIN: Barrier hit at " << trim_offset_
             << ", advanced by " << advance << " demands." << std::endl;
 #endif
+  return std::make_pair(spans, keep_set);
+}
+
+
+// Emulates old trim_to_barrier interface where just evict and keep sets are returned.
+template<typename Key>
+std::pair<std::set<Key>, std::set<Key>> SimMIN<Key>::trim_to_barrier() {
+  std::set<Key> evict_set;
+  auto [spans, keep_set] = trim_to_barrier_spans();
+  for (const auto& [k,v] : spans) {
+    evict_set.insert(k);
+  }
   return std::make_pair(evict_set, keep_set);
 }
 
