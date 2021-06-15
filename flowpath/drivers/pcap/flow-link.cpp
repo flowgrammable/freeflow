@@ -386,7 +386,7 @@ int main(int argc, const char* argv[]) {
   }
   if (ENABLE_MIN_EVICTION_DUMP) {
     csv_min_evictions = CSV("min_evictions.csv");
-    csv_min_evictions.append(std::make_tuple("flowID", "minTime", "clockTime"));
+    csv_min_evictions.append(std::make_tuple("flowID", "hits", "minTime", "clockTime"));
   }
 
 
@@ -471,12 +471,11 @@ int main(int argc, const char* argv[]) {
 //        auto [evictSet, keepSet] = simMIN.evictions();
       auto [evictSpans, keepSet] = simMIN.eviction_spans();
       for (const auto& [id, spans] : evictSpans) {
-        // currently missing hits for simMIN...
         for (const auto& res : spans) {
           if (ENABLE_MIN_EVICTION_DUMP) {
             auto line = std::make_tuple(
               id,
-  //              std::accumulate(hits->begin(), hits->end(), int64_t{}),
+              res.hits,
               res.duration_minTime(),
               to_string(res.duration_time())
             );

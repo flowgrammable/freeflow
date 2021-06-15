@@ -42,6 +42,7 @@ struct Reservation {
   // Times stored are inclusive [first, last]
   std::pair<MIN_Time, MIN_Time> reservation_min_;
   std::pair<Time, Time> reservation_time_;
+  uint64_t hits = 0;
 };
 
 using History = std::vector<Reservation>;
@@ -124,7 +125,8 @@ bool SimMIN<Key>::update(const Key& k, const Time& t) {
   History& hist = reserved_[k];
 //  if (hist.size() > 0 && barrier_ <= hist.back().second) {
   if (!hist.empty() && hist.back().covers(barrier_)) {
-    hits_++;
+    hist.back().hits++; // hits per reservation
+    hits_++;            // total cache hits
 
     Reservation& res = hist.back();
     MIN_Time column_begin = res.last_col();
