@@ -57,6 +57,6 @@ std::ostream& operator<<(std::ostream& os, const timespec& ts) {
 
 std::string to_string(const timespec& ts) {
   const std::string ns = std::to_string(ts.tv_nsec);
-  return std::to_string(ts.tv_sec) + ":" +
+  return std::to_string(ts.tv_sec) + "." +
          std::string(9 - ns.length(), '0') + ns;
 }
