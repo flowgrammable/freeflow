@@ -232,6 +232,7 @@ void for_each(Tuple&& t, Func&& f) {
 /// Timespec arithmatic
 timespec operator-(const timespec& lhs, const timespec& rhs);
 timespec operator+(const timespec& lhs, const timespec& rhs);
+bool operator==(const timespec& lhs, const timespec& rhs);
 std::ostream& operator<<(std::ostream& os, const timespec& ts);
 std::string to_string(const timespec& ts);
 

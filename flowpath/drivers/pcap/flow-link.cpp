@@ -130,21 +130,26 @@ po::variables_map parse_options(int argc, const char* argv[]) {
     ("dirname",
       po::value<std::string>(&CONFIG.simRunName_str),
       "Name given to run (prepended to output directory)")
+    ("trace-evictions,e",
+      po::value<bool>(&CONFIG.traceEvictions)->default_value(false)->implicit_value(true),
+      "Enable dumping a trace of all CacheSIM and CacheMIN eviction stats to CSV file")
     ;
 
   po::options_description hiddenOpts("Hidden Options");
   hiddenOpts.add_options()
-    ("pcaps", po::value<vector<string>>(), "PCAP input files")
-    ("sim.min", po::value<bool>()->default_value(false), "Enable MIN simulation")
-    ("sim.min.entries", po::value<int>()->default_value(1<<10), "Cache elements for MIN simulation")
-    ("sim.cache", po::value<bool>()->default_value(false), "Enable cache simulation")
-    ("sim.cache.entries", po::value<int>()->default_value(1<<10), "Cache elements for cache simulation")
-    ("sim.cache.associativity", po::value<int>()->default_value(8), "Number of ways in cache simulation")
+    ("pcaps", po::value<vector<string>>()->required(), "PCAP input files")
+    ("sim.min", po::value<bool>(&CONFIG.simMIN)->required(), "Enable MIN simulation")
+    ("sim.cache", po::value<bool>(&CONFIG.simCache)->required(), "Enable cache simulation")
+    ("sim.cache.entries", po::value<int>()->required(), "Cache elements for cache simulation")
+    ("sim.cache.associativity", po::value<int>()->required(), "Number of ways in cache simulation")
 
-    ("sim.cache.rp", po::value<string>(&CONFIG.POLICY_Replacement)->default_value("LRU"), "Replacement Policy")
-    ("sim.cache.replacement", po::value<int>()->default_value(7), "Replacement position for cache simulation")
-    ("sim.cache.ip", po::value<string>(&CONFIG.POLICY_Insertion)->default_value("MRU"), "Insertion Policy")
-    ("sim.cache.insertion", po::value<int>()->default_value(0), "Insertion position for cache simulation")
+    ("sim.cache.mode", po::value<string>(&CONFIG.POLICY_mode)->default_value("LRU"), "Predefined cache policy")
+    ("sim.cache.mode.fa", po::value<bool>(&CONFIG.POLICY_modeFA)->default_value(false), "Fully-associative defaults to LRU unless this flag is set.")
+
+//    ("sim.cache.rp", po::value<string>(&CONFIG.POLICY_Replacement)->default_value("LRU"), "Replacement Policy")
+//    ("sim.cache.replacement", po::value<int>()->default_value(7), "Replacement position for cache simulation")
+//    ("sim.cache.ip", po::value<string>(&CONFIG.POLICY_Insertion)->default_value("MRU"), "Insertion Policy")
+//    ("sim.cache.insertion", po::value<int>()->default_value(0), "Insertion position for cache simulation")
 
     ("sim.cache.hp.threshold", po::value<int>(&CONFIG.Threshold)->default_value(0), "Hashed Perceptron Inference Threshold")
     ("sim.cache.hp.dbp", po::value<bool>(&CONFIG.ENABLE_Perceptron_DeadBlock_Prediction)->default_value(false), "Enable Perceptron DeadBlock predictor")
@@ -241,17 +246,10 @@ int main(int argc, const char* argv[]) {
   };
 
   // Configuration:
-  constexpr bool ENABLE_simCache = true;
-  constexpr bool ENABLE_simMIN = true;
   constexpr bool ENABLE_WSTP = false;
-  constexpr bool ENABLE_CACHE_EVICTION_DUMP = true;
-  constexpr bool ENABLE_MIN_EVICTION_DUMP = true;
-  constexpr bool ENABLE_CACHE_BASELINE = true;
-
+  const bool ENABLE_CACHE_EVICTION_DUMP = true && CONFIG.traceEvictions;
+  const bool ENABLE_MIN_EVICTION_DUMP = true && CONFIG.traceEvictions;
 //  constexpr bool ENABLE_FLOW_LOG = false;
-//  const bool enable_simMIN(config["sim.min"].as<bool>());
-//  const bool enable_simCache(config["sim.cache"].as<bool>());
-
 
   // Log/Trace Output Files:
   ofstream runLog(*CONFIG.logFilename); // TODO: Allow no log?
@@ -330,34 +328,40 @@ int main(int argc, const char* argv[]) {
 
   //////////////////////////////////////////////////////////////////////////////
   /// Simulation bookeeping structures:
-  SimMIN<flow_id_t> simMIN(config["sim.min.entries"].as<int>());
+  SimMIN<flow_id_t> simMIN(config["sim.cache.entries"].as<int>());
   CacheSim<flow_id_t> simCache(config["sim.cache.entries"].as<int>(),
                                config["sim.cache.associativity"].as<int>());
 
-  // Replacement Policy:
-  if (ENABLE_CACHE_BASELINE) {
-    ReplacementPolicy replacePolicy(ReplacementPolicy::P::BURST_LRU);
-    simCache.set_replacement_policy(replacePolicy);
+  std::transform(CONFIG.POLICY_mode.begin(), CONFIG.POLICY_mode.end(),
+                 CONFIG.POLICY_mode.begin(), ::toupper);
+  if (CONFIG.POLICY_mode == "LRU") {
+    Policy replacePolicy(Policy::LRU);
+    simCache.set_replacement_policy(replacePolicy, true);
+    Policy insertPolicy(Policy::MRU);
+    simCache.set_insert_policy(insertPolicy, true);
+    CONFIG.simMIN = true;
   }
-  else {
+  else if (CONFIG.POLICY_mode == "HP") {
     ReplacementPolicy replacePolicy(ReplacementPolicy::P::HP_LRU);
     simCache.set_replacement_policy(replacePolicy);
+    InsertionPolicy insertPolicy(InsertionPolicy::P::HP_BYPASS);
+    simCache.set_insert_policy(insertPolicy);
   }
-
-  // Insertion Policy:
-  if (ENABLE_CACHE_BASELINE) {
+  else if (CONFIG.POLICY_mode == "BURST") {
+    ReplacementPolicy replacePolicy(ReplacementPolicy::P::BURST_LRU);
+    simCache.set_replacement_policy(replacePolicy);
     Policy insertPolicy(Policy::MRU);
     simCache.set_insert_policy(insertPolicy);
   }
   else {
-    InsertionPolicy insertPolicy(InsertionPolicy::P::HP_BYPASS);
-    simCache.set_insert_policy(insertPolicy);
+    throw std::runtime_error("Invalid CONFIG.POLICY_mode: " + CONFIG.POLICY_mode);
   }
+
+  //  ReplacementPolicy replacePolicy(ReplacementPolicy::P::BURST_LRU);
   //  Policy insertPolicy(Policy::MRU);
   //  insertPolicy.offset_ = 2;
   //  Policy insertPolicy(Policy::PolicyType::BYPASS);
   //  Policy insertPolicy(Policy::PolicyType::SHIP);
-
 
   {
     const auto& hp = simCache.get_hp_handle();
@@ -382,11 +386,15 @@ int main(int argc, const char* argv[]) {
   CSV csv_cache_evictions, csv_min_evictions;
   if (ENABLE_CACHE_EVICTION_DUMP) {
     csv_cache_evictions = CSV("cache_evictions.csv");
-    csv_cache_evictions.append(std::make_tuple("flowID", "hits", "minTime", "clockTime"));
+    // [t0 --> tl --> te]: where t0 is insert, tl is last hit, te is eviction
+    csv_cache_evictions.append(std::make_tuple("flowID","hits",
+      "minTimeLast","accessTimeLast","clockTimeLast",
+      "minTimeEvict","accessTimeEvict","clockTimeEvict"));
   }
   if (ENABLE_MIN_EVICTION_DUMP) {
     csv_min_evictions = CSV("min_evictions.csv");
-    csv_min_evictions.append(std::make_tuple("flowID", "hits", "minTime", "clockTime"));
+    csv_min_evictions.append(std::make_tuple("flowID", "hits",
+      "minTimeLast","accessTimeLast","clockTimeLast"));
   }
 
 
@@ -431,22 +439,27 @@ int main(int argc, const char* argv[]) {
   std::function<void(flow_id_t, const std::pair<uint64_t,timespec>&&, Features)> f_sim_insert =
       [&](flow_id_t flowID, const std::pair<uint64_t,timespec>&& pktTime, Features features) {
     auto [ns, ts] = pktTime;
-    if (ENABLE_simMIN) {
+    if (CONFIG.simMIN) {
       simMIN.insert(flowID, ts);
     }
 
-    if (ENABLE_simCache) {
+    if (CONFIG.simCache) {
       auto victim = simCache.insert(flowID, ts, features);
       if (victim) {
         // If victim exists (something was replaced).
         // victim: std::tuple<Key, Reservation, HitStats>
-        auto& [id, res, hits] = *victim;
+        auto& [id, res, hits, evictTS] = *victim;
         if (ENABLE_CACHE_EVICTION_DUMP) {
           auto line = std::make_tuple(
-            id,
-            std::accumulate(hits->begin(), hits->end(), int64_t{}),
+            id, res.hits(),
+            // tl - t0:
             res.duration_minTime(),
-            to_string(res.duration_time())
+            res.duration_access(),
+            to_string(res.duration_time()),
+            // te - t0:
+            res.duration_minTime(evictTS.col),
+            res.duration_access(evictTS.access),
+            to_string(res.duration_time(evictTS.t))
           );
           csv_cache_evictions.append(line);
         }
@@ -462,7 +475,7 @@ int main(int argc, const char* argv[]) {
   std::function<void(flow_id_t, const std::pair<uint64_t,timespec>&&, Features)> f_sim_update =
       [&](flow_id_t flowID, const std::pair<uint64_t,timespec>&& pktTime, Features features) {
     auto [ns, ts] = pktTime;
-    if (ENABLE_simMIN) {
+    if (CONFIG.simMIN) {
       bool hit = simMIN.update(flowID, ts);
       if (ENABLE_WSTP && !hit) {
         std::lock_guard lock(mtx_misses);
@@ -474,9 +487,9 @@ int main(int argc, const char* argv[]) {
         for (const auto& res : spans) {
           if (ENABLE_MIN_EVICTION_DUMP) {
             auto line = std::make_tuple(
-              id,
-              res.hits,
+              id, res.hits(),
               res.duration_minTime(),
+              res.duration_access(),
               to_string(res.duration_time())
             );
             csv_min_evictions.append(line);
@@ -488,7 +501,7 @@ int main(int argc, const char* argv[]) {
       }
     }
 
-    if (ENABLE_simCache) {
+    if (CONFIG.simCache) {
       auto [hit, victim] = simCache.update(flowID, ts, features);
       if (ENABLE_WSTP && !hit) {
       // TODO: take note of miss statistics...
@@ -498,13 +511,18 @@ int main(int argc, const char* argv[]) {
       if (victim) {
         // If victim exists (something was replaced).
         // victim: std::tuple<Key, Reservation, HitStats>
-        auto& [id, res, hits] = *victim;
+        auto& [id, res, hits, evictTS] = *victim;
         if (ENABLE_CACHE_EVICTION_DUMP) {
           auto line = std::make_tuple(
-            id,
-            std::accumulate(hits->begin(), hits->end(), int64_t{}),
+            id, res.hits(),
+            // tl - t0:
             res.duration_minTime(),
-            to_string(res.duration_time())
+            res.duration_access(),
+            to_string(res.duration_time()),
+            // te - t0:
+            res.duration_minTime(evictTS.col),
+            res.duration_access(evictTS.access),
+            to_string(res.duration_time(evictTS.t))
           );
           csv_cache_evictions.append(line);
         }
@@ -984,12 +1002,13 @@ int main(int argc, const char* argv[]) {
                << " seconds."
                << endl;
 
-          if (ENABLE_simCache) {
+          if (CONFIG.simCache) {
+            auto [hits, conflict_hits] = simCache.get_hits();
             auto [compulsory, capacity, conflict] = simCache.get_misses();
             auto [hpBypass, hpReplace] = simCache.get_prediction_hp();
-            int64_t total = simCache.get_hits() + compulsory + capacity + conflict;
+            int64_t total = hits + compulsory + capacity + conflict;
             cout << "(" << diffBegin.tv_sec << "s) "
-                 << "Hit Rate: " << double(simCache.get_hits())/total * 100 << '%'
+                 << "Hit Rate: " << double(hits)/total * 100 << '%'
                  << "\tBad Early Replace Predictions "
                  << double(simCache.get_replacements_eager())/hpReplace * 100 << '%'
                  << endl;
@@ -1109,12 +1128,12 @@ int main(int argc, const char* argv[]) {
 
   // Print Cache Simulation Stats:
   // TODO: move print into class function...
-  if (ENABLE_simMIN) {
+  if (CONFIG.simMIN) {
     auto s = simMIN.print_stats();
     runLog << s << endl;
     cout << s << endl;
   }
-  if (ENABLE_simCache) {
+  if (CONFIG.simCache) {
     {
     auto s = simCache.print_stats();
     runLog << s << '\n';
@@ -1122,19 +1141,20 @@ int main(int argc, const char* argv[]) {
     }
 
     // Console out:
+    auto [hits, conflict_hits] = simCache.get_hits();
     auto [compulsory, capacity, conflict] = simCache.get_misses();
     auto [hpBypass, hpReplace] = simCache.get_prediction_hp();
-    int64_t total = simCache.get_hits() + compulsory + capacity + conflict;
+    int64_t total = hits + compulsory + capacity + conflict;
 
     {
     stringstream ss;
-    ss << "Hit Rate: " << double(simCache.get_hits())/total * 100 << '%'
+    ss << "Hit Rate: " << double(hits)/total * 100 << '%'
        << "\nBad Early Replace Predictions: "
        << double(simCache.get_replacements_eager())/hpReplace * 100 << '%'
        << "\nBypass/Miss Ratio: "
        << double(hpBypass)/(compulsory+capacity+conflict) * 100 << '%'
        << "\nEarlyReplace/(Hits-Compulsory) Ratio: "
-       << double(hpReplace)/(simCache.get_hits()-compulsory) * 100 << '%'
+       << double(hpReplace)/(hits-compulsory) * 100 << '%'
        << "\nEarlyReplace/Replacements Ratio: "
        << double(hpReplace)/(simCache.get_replacements_lru()+simCache.get_replacements_early()) * 100 << '%';
     auto s = ss.str();

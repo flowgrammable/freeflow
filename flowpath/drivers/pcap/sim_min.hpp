@@ -24,25 +24,31 @@ using MIN_Time = size_t;
 // Global sim time references:
 extern Time SIM_TS_LATEST;
 
-struct Reservation {
+class Reservation {
+public:
   Reservation();
-  explicit Reservation(Time t, MIN_Time col);
+  explicit Reservation(Time t, MIN_Time col, MIN_Time acc);
 
   MIN_Time last_col() const;
+  MIN_Time last_acc() const;
   Time last_ts() const;
+  uint64_t hits() const;
 
   bool covers(MIN_Time col) const;
   bool strictlyCovers(MIN_Time col) const;
 
-  MIN_Time duration_minTime() const;
-  Time duration_time() const;
+  MIN_Time duration_minTime(MIN_Time t = {}) const;
+  MIN_Time duration_access(MIN_Time t = {}) const;
+  Time duration_time(Time = {}) const;
 
-  void extend(Time t, MIN_Time col);
+  void extend(Time t, MIN_Time col, MIN_Time acc);
 
+private:
   // Times stored are inclusive [first, last]
   std::pair<MIN_Time, MIN_Time> reservation_min_;
+  std::pair<MIN_Time, MIN_Time> reservation_access_;
   std::pair<Time, Time> reservation_time_;
-  uint64_t hits = 0;
+  uint64_t hits_ = 0;
 };
 
 using History = std::vector<Reservation>;
@@ -63,8 +69,9 @@ public:
 
   size_t get_size() const {return ENTRIES_;}
   uint64_t get_hits() const {return hits_;}
-  uint64_t get_capacity_miss() const {return capacityMiss_;}
   uint64_t get_compulsory_miss() const {return compulsoryMiss_;}
+  uint64_t get_capacity_miss() const {return capacityMiss_;}
+  uint64_t get_access() const {return hits_ + compulsoryMiss_ + capacityMiss_;}
   size_t get_max_elements() const {return max_rows_;}
   std::string print_stats() const;
 
@@ -80,8 +87,8 @@ private:
 
   // Stats (summary from columns in MIN table):
   uint64_t hits_ = 0;
-  uint64_t capacityMiss_ = 0;
   uint64_t compulsoryMiss_ = 0;
+  uint64_t capacityMiss_ = 0;
 
   // Belady Matrix Dimension Stats:
   size_t max_rows_ = 0;     // y-dimension (cache entries tracked)
@@ -108,7 +115,7 @@ void SimMIN<Key>::insert(const Key& k, const Time& t) {
   compulsoryMiss_++;
 
   History& hist = reserved_[k];
-  hist.emplace_back(t, column);
+  hist.emplace_back(t, column, get_access());
   capacity_.emplace_back(1);
   assert(capacity_.size() == compulsoryMiss_ + capacityMiss_ - trim_offset_);
 }
@@ -125,7 +132,6 @@ bool SimMIN<Key>::update(const Key& k, const Time& t) {
   History& hist = reserved_[k];
 //  if (hist.size() > 0 && barrier_ <= hist.back().second) {
   if (!hist.empty() && hist.back().covers(barrier_)) {
-    hist.back().hits++; // hits per reservation
     hits_++;            // total cache hits
 
     Reservation& res = hist.back();
@@ -133,7 +139,7 @@ bool SimMIN<Key>::update(const Key& k, const Time& t) {
     MIN_Time column = compulsoryMiss_ + capacityMiss_ - 1;  // t-1
 
     // Update history to reserve item to t:
-    res.extend(t, column);
+    res.extend(t, column, get_access());
 
     // Determine if barrier moved:
     MIN_Time last = barrier_;
@@ -159,7 +165,7 @@ bool SimMIN<Key>::update(const Key& k, const Time& t) {
     // miss, re-insert into cache:
     MIN_Time column = compulsoryMiss_ + capacityMiss_;  // t
     capacityMiss_++;
-    hist.emplace_back(t, column);
+    hist.emplace_back(t, column, get_access());
     capacity_.emplace_back(1);
     assert(capacity_.size() == compulsoryMiss_ + capacityMiss_ - trim_offset_);
     return false; // miss
@@ -253,11 +259,12 @@ std::pair<std::set<Key>, std::set<Key>> SimMIN<Key>::trim_to_barrier() {
 template<typename Key>
 std::string SimMIN<Key>::print_stats() const {
   std::stringstream ss;
-  ss << "SimMIN Cache Size: " << get_size() << '\n';
+  ss << "SimMIN Size: " << get_size() << '\n';
   ss << " - Hits: " << get_hits() << '\n';
+  ss << " - Miss: " << get_compulsory_miss() + get_capacity_miss() << '\n';
   ss << " - Miss (Compulsory): " << get_compulsory_miss() << '\n';
   ss << " - Miss (Capacity): " << get_capacity_miss() << '\n';
-  ss << " - Max elements between barrier: " << get_max_elements();
+//  ss << " - Max elements between barrier: " << get_max_elements();
   // TODO:
   // print stats on element lifetime, average + std-dev hits over lifetime
   // print distribution on ref count over lifetime

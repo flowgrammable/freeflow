@@ -27,17 +27,21 @@ struct global_config {
   opt_string traceUDPFilename;
   opt_string traceOtherFilename;
   opt_string traceScansFilename;
-  bool flowRecordTimeseries;
   opt_string hpFeatureCorrelationFiledir;
 
   // Cache Simulation Configs:
+  std::string POLICY_mode; // config mode covering both replacement and insertion
   std::string POLICY_Replacement;
   std::string POLICY_Insertion;
+  bool simMIN, simCache;
+  bool POLICY_modeFA;
+  bool traceEvictions;
+  bool flowRecordTimeseries;
 
   // Hashed Perceptron Configs:
   bool ENABLE_Perceptron_DeadBlock_Prediction;
-  int Perceptron_DeadBlock_Alpha;
   bool ENABLE_Perceptron_Bypass_Prediction;
+  int Perceptron_DeadBlock_Alpha;
   int Perceptron_Bypass_Alpha;
   int Threshold;
 //  bool ENABLE_History_Training = false;

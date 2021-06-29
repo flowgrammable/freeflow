@@ -50,6 +50,18 @@ timespec operator+(const timespec& lhs, const timespec& rhs) {
   return result;
 }
 
+bool operator==(const timespec& lhs, const timespec& rhs) {
+  constexpr auto NS_IN_SEC = 1000000000LL;
+
+  if (lhs.tv_nsec < 0 || lhs.tv_nsec > NS_IN_SEC)
+    throw std::runtime_error("lhs timespec not normalized!");
+  if (rhs.tv_nsec < 0 || rhs.tv_nsec > NS_IN_SEC)
+    throw std::runtime_error("rhs timespec not normalized!");
+
+  return lhs.tv_sec == rhs.tv_sec && lhs.tv_nsec == rhs.tv_nsec;
+}
+
+
 std::ostream& operator<<(std::ostream& os, const timespec& ts) {
   os << '{' << ts.tv_sec << "s," << ts.tv_nsec << "ns}";
   return os;

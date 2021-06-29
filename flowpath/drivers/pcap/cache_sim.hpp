@@ -1,4 +1,4 @@
-#ifndef CACHE_SIM_HPP
+﻿#ifndef CACHE_SIM_HPP
 #define CACHE_SIM_HPP
 
 #include <vector>
@@ -429,8 +429,13 @@ public:
       bypassPred = CSV("BypassEvents.csv");
       evictPred = CSV("EvictEvents.csv");
     }
-    if (DUMP_TRAINING || DUMP_RATIO) {
+    if (DUMP_RATIO) {
       trainingEvents = CSV("trainingEvents.csv");
+      trainingEvents.append(std::make_tuple("Corrections", "Reinforcements", "Total", "C/R Ratio"));
+    }
+    if (DUMP_TRAINING) {
+      trainingEvents = CSV("trainingLog.csv");
+      trainingEvents.append(std::make_tuple("Polarity", "Type", "Weights", "Features"));
     }
   }
 
@@ -676,6 +681,14 @@ void BeladyTrainer<Key>::reinforce(Key k, Features f, bool keep) {
 }
 
 
+/// Evict timestamp used for Lifetime analysis
+struct SimTS {
+  MIN_Time col{};
+  MIN_Time access{};
+  Time t{};
+};
+
+
 ////////////////////////////////////////////////////////////////////////////////
 /// ASSOCIATIVE SET ////////////////////////////////////////////////////////////
 template<typename Key>
@@ -684,7 +697,7 @@ public:
   using Stack = std::list< std::pair<Key, Stack_entry> >;
   using Stack_it = typename Stack::iterator;
   using Stack_value = typename Stack::value_type;
-  using Evict_t = std::tuple<Key, Reservation, std::shared_ptr<BurstStats>>;
+  using Evict_t = std::tuple<Key, Reservation, std::shared_ptr<BurstStats>, SimTS>;
 
   using PatternTable = std::map<Key, PT_entry>;
 //  using RejectTable = std::list< std::pair<Key, Features> >;
@@ -711,6 +724,7 @@ public:
   int64_t get_hits() const {return hits_;}
   int64_t get_capacity_miss() const {return capacityMiss_;}
   int64_t get_compulsory_miss() const {return compulsoryMiss_;}
+  int64_t get_access() const {return hits_ + compulsoryMiss_ + capacityMiss_;}
 
   // Replacement Stats:
   int64_t get_replacement_lru() const {return replacementLRU_;}
@@ -840,20 +854,17 @@ public:
   }
   AssociativeSet<Key>& get_set(size_t i) const { return sets_.at(i); }
 
-  void set_insert_policy(Policy insert);
-  void set_replacement_policy(Policy insert);
+  void set_insert_policy(Policy insert, bool setFA = false);
+  void set_replacement_policy(Policy insert,  bool setFA = false);
 
   // Stats:
-  int64_t get_hits() const;
-  int64_t get_compulsory_miss() const;
+  std::tuple<int64_t,int64_t> get_hits() const; // {hits, compulsory_hits}
   std::tuple<int64_t,int64_t,int64_t> get_misses() const; // {compulsory, capacity, conflict}
-  int64_t get_pure_capacity_miss() const;   // does not take into account conflict hits..
-  int64_t get_pure_conflict_misses() const; // does not take into account conflict hits...
 
   // Fully-Associative Stats:
   int64_t get_fa_hits() const;
-  int64_t get_fa_capacity_miss() const;  
-  int64_t get_pure_conflict_hits() const;
+  int64_t get_fa_compulsory_miss() const;
+  int64_t get_fa_capacity_miss() const;
 
   // Replacement Stats:
   int64_t get_replacements_lru() const;
@@ -875,19 +886,21 @@ private:
 
   // Shared Prediction State:
   hpHandle<Key> hp_;
+  hpHandle<Key> hpFA_;  // copy of tables for fully asociative version
 //  using FeatureType = std::result_of<decltype(&Features::gather)>::type;
 //  entangle::HashedPerceptron<Features::FeatureType> hp_;
 //  std::vector< std::pair<Key,Features> > hp_NegativeHistory_;
 //  std::vector< std::pair<Key,Features> > hp_PositiveHistory_;
 
-  // Cache Containers:
+  // Cache Containers (must be defined/initialized after hpHandle):
   AssociativeSet<Key> fa_ref_;  // Conflict reference: Fully Associative
-  std::vector< AssociativeSet<Key> > sets_;  // Vector of associative sets
+  std::vector< AssociativeSet<Key> > sets_;  // Vector length cache ways
 
-  // Sanity check stats:
-  int64_t capacityMiss_ = 0;
-  int64_t conflictMiss_ = 0;
-  int64_t conflictHit_ = 0;
+  // Sanity check stats (conflict miss estimations):
+  int64_t compulsoryMiss_ = 0;
+  int64_t capacityMiss_ = 0;  // miss in both SA and FA
+  int64_t conflictMiss_ = 0;  // miss in SA, hit in FA (normal conflict miss)
+  int64_t conflictHits_ = 0;  // hit in SA, miss in FA (lucky conflict hit)
 };
 
 
@@ -973,7 +986,7 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
   }
 
   // Cache Simulation:
-  MIN_Time column = compulsoryMiss_ + capacityMiss_;  // Comparable to Min's t
+  MIN_Time column = compulsoryMiss_ + capacityMiss_;  // Comparable to Min's t (per way)
   auto status = lookup_.find(k);
   if (status != lookup_.end()) {
     hits_++;
@@ -983,7 +996,7 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
     BurstStats& hitStats = *(entry.hits);
 
     ++entry.refCount;
-    res.extend(t, column);
+    res.extend(t, column, get_access());
 
     // TODO: factor out into promotion function if modularity is needed:
     if (it == stack_.begin()) {
@@ -1065,7 +1078,7 @@ auto AssociativeSet<Key>::internal_insert(const Key& k, const Time& t, Features 
   MIN_Time column = compulsoryMiss_ + capacityMiss_;  // Comparable to Min's t
 //  Stack_entry new_e = Stack_entry(Reservation(column,column), f);
 //  Stack_entry new_e = Stack_entry(Reservation_t(t, t), f);
-  Stack_entry new_e = Stack_entry(Reservation(t, column), f);
+  Stack_entry new_e = Stack_entry(Reservation(t, column, get_access()), f);
 
   // Replacement Policy:
   std::optional<Evict_t> eviction;
@@ -1078,7 +1091,8 @@ auto AssociativeSet<Key>::internal_insert(const Key& k, const Time& t, Features 
     event_eviction(victim_it);
     lookup_.erase(victim_key);
 
-    eviction = Evict_t(victim_key, std::move(victim_e.res), victim_e.hits);
+    SimTS evictTS {column, get_access(), t};
+    eviction = Evict_t{victim_key, std::move(victim_e.res), victim_e.hits, evictTS};
     stack_.erase(victim_it);
 
     // Consult Belady's Algorithm:
@@ -1097,6 +1111,12 @@ auto AssociativeSet<Key>::internal_insert(const Key& k, const Time& t, Features 
 
   // Insert Policy:
   auto insert_it = insert_find(k, f);
+
+  // Debug printing:
+//  auto idx = std::distance(stack_.begin(), insert_it);
+//  std::cerr << "insert stack[" << stack_.size() << "]: " << idx << '\n';
+//  assert(idx == 0);
+
   auto item_it = stack_.emplace(insert_it, Stack_value(k, std::move(new_e)));
   lookup_.insert( std::make_pair(k,item_it) );
   assert(lookup_.size() == stack_.size());
@@ -1194,6 +1214,11 @@ void AssociativeSet<Key>::event_eviction(Stack_it eviction) {
 //  auto MINLifetime = res.second - res.first;  // how many misses did this element survive?
 //  pte.history_hits.insert(pte.history_hits.end(), hitStats.begin(), hitStats.end());
 //  pte.history_res.push_back(res);
+
+  // Debug printing:
+//  auto idx = std::distance(stack_.begin(), eviction);
+//  std::cerr << "evict stack[" << stack_.size() << "]: " << idx << '\n';
+//  assert(idx == stack_.size()-1);
 }
 
 
@@ -1303,10 +1328,10 @@ auto AssociativeSet<Key>::find_MRU(size_t pos) {
   if (stack_.empty()) {
     return stack_.end();
   }
-  if (stack_.size() < MAX_) {
-    return std::next(stack_.rbegin()).base();
-  }
-  return std::next(stack_.begin(), pos);
+  // ensure offset is bound between index [0 .. N]
+  size_t i = std::min(pos, stack_.size()-1);
+  // stack_[0, .. N, end_it]:  end_it --> N --> N-i
+  return std::next(stack_.begin(), i);
 }
 
 
@@ -1315,10 +1340,10 @@ auto AssociativeSet<Key>::find_LRU(size_t pos) {
   if (stack_.empty()) {
     return stack_.end();
   }
-  if (stack_.size() < MAX_) {
-    return std::next(stack_.rbegin()).base();
-  }
-  return std::next(stack_.rbegin(), pos+1).base();
+  // ensure offset is bound between index [0 .. N]
+  size_t i = std::min(pos, stack_.size()-1);
+  // stack_[0, .. N, end_it]:  end_it --> N --> N-i
+  return std::next(stack_.rbegin(), i+1).base();
 }
 
 
@@ -1495,6 +1520,7 @@ auto AssociativeSet<Key>::insert_find(Key k, Features f) {
     break;
   case InsertionPolicy::HP_RANK:
     // Insert position relative to confidence of resuse:
+    // Warning: not pursued fully...
     it = find_Rank(k, f);
     break;
   case InsertionPolicy::SHIP:
@@ -1588,7 +1614,7 @@ bool AssociativeSet<Key>::operator==(const Stack& other) {
 ///////////////////////////////
 template<typename Key>
 CacheSim<Key>::CacheSim(size_t entries, size_t ways) :
-  MAX_(entries),  hp_(64*1024), fa_ref_(entries, hp_) {
+  MAX_(entries),  hp_(64*1024), hpFA_(64*1024), fa_ref_(entries, hpFA_) {
   // Sanity checks:
   if (ways > 0) {
     if (entries%ways != 0) {
@@ -1602,18 +1628,20 @@ CacheSim<Key>::CacheSim(size_t entries, size_t ways) :
 // Key has been created (first occurance)
 template<typename Key>
 auto CacheSim<Key>::insert(const Key& k, const Time& t, Features f) {
+  ++compulsoryMiss_;
   auto ref_victim = fa_ref_.insert(k, t, f);
-//  test_ref_.insert(k, t);
-//  assert(fa_ref_ == test_ref_.get_stack());
+
+  // If only FA running:
+  if (sets_.empty()) {
+    return ref_victim;
+  }
 
   // Determine index->set mapping:
-  if (!sets_.empty()) {
-    std::size_t hash = std::hash<Key>{}(k);
-    hash %= sets_.size();
-    auto way_victim = sets_[hash].insert(k, t, f);
-    return way_victim;
-  }
-  return ref_victim;
+  std::size_t hash = std::hash<Key>{}(k);
+  hash %= sets_.size();
+  auto way_victim = sets_[hash].insert(k, t, f);
+
+  return way_victim;
 }
 
 
@@ -1622,25 +1650,26 @@ auto CacheSim<Key>::insert(const Key& k, const Time& t, Features f) {
 template<typename Key>
 auto CacheSim<Key>::update(const Key& k, const Time& t, Features f) {
   auto ref_victim = fa_ref_.update(k, t, f);
-//  test_ref_.update(k, t);
-//  assert(fa_ref_.get_stack() == test_ref_.get_stack());
+
+  // If only FA running:
+  if (sets_.empty()) {
+    return ref_victim;
+  }
 
   // Determine index->set mapping:
-  if (!sets_.empty()) {
-    std::size_t hash = std::hash<Key>{}(k);
-    hash %= sets_.size();
-    auto way_victim = sets_[hash].update(k, t, f);
-    // sanity check (true=hit, false=miss):
-    if (ref_victim.first && !way_victim.first)
-      conflictMiss_++;
-    else if (!ref_victim.first && !way_victim.first)
-      capacityMiss_++;
-    else if (!ref_victim.first && way_victim.first)
-      conflictHit_++;
+  std::size_t hash = std::hash<Key>{}(k);
+  hash %= sets_.size();
+  auto way_victim = sets_[hash].update(k, t, f);
 
-    return way_victim;
-  }
-  return ref_victim;
+  // sanity check (true=hit, false=miss):
+  if (ref_victim.first && !way_victim.first)
+    conflictMiss_++;
+  else if (!ref_victim.first && !way_victim.first)
+    capacityMiss_++;
+  else if (!ref_victim.first && way_victim.first)
+    conflictHits_++;  // lucky hits
+
+  return way_victim;
 }
 
 
@@ -1649,15 +1678,19 @@ template<typename Key>
 auto CacheSim<Key>::flush(const Key& k) {
   auto ref_victim = fa_ref_.flush(k);
 
-  // Determine index->set mapping:
-  if (!sets_.empty()) {
-    std::size_t hash = std::hash<Key>{}(k);
-    hash %= sets_.size();
-    auto way_victim = sets_[hash].flush(k);
-    return way_victim;
+  // If only FA running:
+  if (sets_.empty()) {
+    return ref_victim;
   }
-  return ref_victim;
+
+  // Determine index->set mapping:
+  std::size_t hash = std::hash<Key>{}(k);
+  hash %= sets_.size();
+  auto way_victim = sets_[hash].flush(k);
+
+  return way_victim;
 }
+
 
 template<typename Key>
 auto CacheSim<Key>::flush() {
@@ -1693,16 +1726,20 @@ auto CacheSim<Key>::flush() {
 //}
 
 template<typename Key>
-void CacheSim<Key>::set_insert_policy(Policy insert) {
-//  fa_ref_.set_insert_policy(insert);
+void CacheSim<Key>::set_insert_policy(Policy insert, bool setFA) {
+  if (setFA)
+    fa_ref_.set_insert_policy(insert);
+
   for (auto& set : sets_) {
     set.set_insert_policy(insert);
   }
 }
 
 template<typename Key>
-void CacheSim<Key>::set_replacement_policy(Policy replace) {
-//  fa_ref_.set_replacement_policy(replace);
+void CacheSim<Key>::set_replacement_policy(Policy replace, bool setFA) {
+  if (setFA)
+    fa_ref_.set_replacement_policy(replace);
+
   for (auto& set : sets_) {
     set.set_replacement_policy(replace);
   }
@@ -1721,54 +1758,43 @@ int64_t CacheSim<Key>::get_fa_capacity_miss() const {
 }
 
 template<typename Key>
-int64_t CacheSim<Key>::get_hits() const {
-  int64_t sum = 0;
-  for (const auto& set : sets_) {
-    sum += set.get_hits();
-  }
-  return sum;
-}
-
-template<typename Key>
-int64_t CacheSim<Key>::get_compulsory_miss() const {
-  int64_t sum = 0;
-  for (const auto& set : sets_) {
-    sum += set.get_compulsory_miss();
-  }
-  assert(sum == fa_ref_.get_compulsory_miss());
+int64_t CacheSim<Key>::get_fa_compulsory_miss() const {
+//  int64_t sum = 0;
+//  for (const auto& set : sets_) {
+//    sum += set.get_compulsory_miss();
+//  }
+//  assert(sum == fa_ref_.get_compulsory_miss());
   return fa_ref_.get_compulsory_miss();
 }
 
 template<typename Key>
-int64_t CacheSim<Key>::get_pure_capacity_miss() const {
-  return capacityMiss_;
-}
-
-template<typename Key>
-int64_t CacheSim<Key>::get_pure_conflict_misses() const {
-  return conflictMiss_;
+std::tuple<int64_t, int64_t> CacheSim<Key>::get_hits() const {
+  int64_t hits = 0;
+  for (const auto& set : sets_) {
+    hits += set.get_hits();
+  }
+  return std::make_tuple(hits, conflictHits_);
 }
 
 template<typename Key>
 std::tuple<int64_t,int64_t,int64_t> CacheSim<Key>::get_misses() const {
-  int64_t compulsory = 0, capacity = 0;
-  for (const auto& set : sets_) {
-    compulsory += set.get_compulsory_miss();
-    capacity += set.get_capacity_miss();
-  }
-  int64_t conflict = capacity - fa_ref_.get_capacity_miss();
-  capacity -= conflict;
+//  int64_t compulsory = 0, capacity = 0;
+//  for (const auto& set : sets_) {
+//    compulsory += set.get_compulsory_miss();
+//    capacity += set.get_capacity_miss();
+//  }
+//  int64_t conflict = capacity - fa_ref_.get_capacity_miss();
+//  capacity -= conflict; // if conflict is (-), invlates capacity miss calculation
 
-  assert(compulsory == fa_ref_.get_compulsory_miss());
-  assert(conflict == conflictMiss_ - conflictHit_);
-  assert(capacity == capacityMiss_ + conflictHit_);
-  return std::make_tuple(compulsory, capacity, conflict);
+//  assert(compulsory == fa_ref_.get_compulsory_miss());
+//  assert(conflict == conflictMiss_ - conflictHits_);
+//  assert(capacity == capacityMiss_ + conflictHits_);
+//  return std::make_tuple(compulsory, capacity, conflict);
+
+//  int64_t compulsory = fa_ref_.get_compulsory_miss();
+  return std::make_tuple(compulsoryMiss_, capacityMiss_, conflictMiss_);
 }
 
-template<typename Key>
-int64_t CacheSim<Key>::get_pure_conflict_hits() const {
-  return conflictHit_;
-}
 
 template<typename Key>
 int64_t CacheSim<Key>::get_replacements_lru() const {
@@ -1860,30 +1886,22 @@ std::string CacheSim<Key>::print_stats() {
   ss << "SimCache Size: " << get_size() << '\n';
   ss << " - Associativity: " << get_associativity() << "-way\n";
   ss << " - Sets: " << num_sets() << '\n';
-  ss << " - Hits: " << get_hits() << '\n';
   {
+    auto [hits, conflict_hits] = get_hits();
+    ss << " - Hits: " << hits << '\n';
+    ss << " - Hits (Conflict): " << conflict_hits << '\n';
     auto [compulsory, capacity, conflict] = get_misses();
+    ss << " - Miss:" << compulsory + capacity + conflict << '\n';
     ss << " - Miss (Compulsory): " << compulsory << '\n';
     ss << " - Miss (Capacity): " << capacity << '\n';
     ss << " - Miss (Conflict): " << conflict << '\n';
   }
   ss << " - Hits FA: " << get_fa_hits() << '\n';
+  ss << " - Miss FA (Compulsory): " << get_fa_compulsory_miss() << '\n';
   ss << " - Miss FA (Capacity): " << get_fa_capacity_miss() << '\n';
-  ss << " - Pure Conflict Hits: " << get_pure_conflict_hits() << '\n';
-  ss << " - Pure Conflict Misses: " << get_pure_conflict_misses() << '\n';
   ss << " - Replacements LRU: " << get_replacements_lru() << '\n';
   ss << " - Replacements Early: " << get_replacements_early() << '\n';
-  ss << " - Confident BurstCount: " << get_prediction_bc() << '\n';
-  ss << " - Confident RefCount: " << get_prediction_rc() << '\n';
-  ss << " - RefCount tops BurstCount: " << get_prediction_rc_better() << '\n';
   ss << " - Eager Replace Caught: " << get_replacements_eager() << '\n';
-  ss << " - Insert Predict Distant: " << get_insert_predict_distant() << '\n';
-  ss << " - Replacement Reciency: " << get_replacement_reciency() << '\n';
-  // TODO:
-  // print incorrect prediction
-  // dont penalize on prediction too much, bound confidence for flexibility?
-  // way to leverage min for replacement insight?
-//  ss << hp_.hp_.print_stats();
 
   HistoryTrainer<Key>::BypassStats_.write_stats("BypassPredictions.csv");
   HistoryTrainer<Key>::EvictStats_.write_stats("EvictPredictions.csv");
