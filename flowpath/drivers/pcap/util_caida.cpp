@@ -38,8 +38,8 @@ int caidaHandler::advance(int id) {
       string file = list.front();
       list.pop();
 
-      cerr << "Opening PCAP file: " << file
-           /*<< "\n - Transition at packet " << pkt_pos_.at(id)*/ << endl;
+      cout << "Opening PCAP file: " << file
+         /*<< "\n - Transition at packet " << pkt_pos_.at(id)*/ << endl;
       pcap_.erase(id);
       pcap_.emplace(std::piecewise_construct,
                     std::forward_as_tuple(id),
@@ -48,7 +48,7 @@ int caidaHandler::advance(int id) {
       return advance(id); // recursive call to handle 1st read
     }
   }
-  cerr << "No packets to read from Port: " << id << endl;
+  cout << "No packets to read from Port: " << id << endl;
   return 0; // no packets to read
 }
 

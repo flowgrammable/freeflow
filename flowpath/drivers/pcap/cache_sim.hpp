@@ -1156,58 +1156,58 @@ void AssociativeSet<Key>::event_eviction(Stack_it eviction) {
   const BurstStats& hitStats = *(entry.hits);
   const Reservation& res = entry.res;
 
-  // Calculate burst & reference count:
-  const int burstCount = hitStats.size();
-
   // Create/Update Pattern Table entry.
-  PT_entry& pte = pt_[key];
+  if ( !(p_replace_ == ReplacementPolicy::LRU || p_replace_ == ReplacementPolicy::HP_LRU) ) {
+    const int burstCount = hitStats.size();  // Calculate burst & reference count
+    PT_entry& pte = pt_[key]; // lookup or create pattern table entry
 
-  // Update BurstCount pattern table:
-  const auto BC_delta = pte.BC_saved - burstCount;   // +: less pkts than saved
-  if (BC_delta == 0) {
-    ++pte.BC_confidence;
-  }
-  else {
-    if (abs(BC_delta) > PT_entry::C_delta) {
-      --pte.BC_confidence;
-      pte.BC_saved = burstCount;
+    // Update BurstCount pattern table:
+    const auto BC_delta = pte.BC_saved - burstCount;   // +: less pkts than saved
+    if (BC_delta == 0) {
+      ++pte.BC_confidence;
     }
     else {
-      pte.BC_saved = std::min(burstCount, pte.BC_saved);
+      if (abs(BC_delta) > PT_entry::C_delta) {
+        --pte.BC_confidence;
+        pte.BC_saved = burstCount;
+      }
+      else {
+        pte.BC_saved = std::min(burstCount, pte.BC_saved);
+      }
     }
-  }
 
-  // Update ReferenceCount pattern table:
-  const auto RC_delta = pte.RC_saved - entry.refCount; // +: less pkts than saved
-  if (RC_delta == 0) {
-    ++pte.RC_confidence;
-  }
-  else {
-    if (abs(RC_delta) > PT_entry::C_delta) {
-      --pte.RC_confidence;
-      pte.RC_saved = entry.refCount;
+    // Update ReferenceCount pattern table:
+    const auto RC_delta = pte.RC_saved - entry.refCount; // +: less pkts than saved
+    if (RC_delta == 0) {
+      ++pte.RC_confidence;
     }
     else {
-      pte.RC_saved = std::min(entry.refCount, pte.RC_saved);
+      if (abs(RC_delta) > PT_entry::C_delta) {
+        --pte.RC_confidence;
+        pte.RC_saved = entry.refCount;
+      }
+      else {
+        pte.RC_saved = std::min(entry.refCount, pte.RC_saved);
+      }
+    }
+
+    // Update SHIP re-reference interval on eviction:
+    if (entry.refCount == 1) {
+      --pte.SHiP_reuse;     // Not re-referenced before eviction, decrement.
+    }
+    else {
+      ++pte.SHiP_reuse;   // BurstCount like increment.
     }
   }
 
   // Train Hashed Perceptron:
-  if (ENABLE_Eviction_Training) {
+  if (ENABLE_Eviction_Training && p_replace_ == ReplacementPolicy::HP_LRU) {
     const Features& df = entry.features;
     // Since entry.features is always last feature set,
     // possibly can reinforce evict on last packet unconditionally...
     if (entry.refCount <= 1) {
       hp_.hp_.reinforce(df.gather(), false);  // reinforce as non-cachable
     }
-  }
-
-  // Update SHIP re-reference interval on eviction:
-  if (entry.refCount == 1) {
-    --pte.SHiP_reuse;     // Not re-referenced before eviction, decrement.
-  }
-  else {
-    ++pte.SHiP_reuse;   // BurstCount like increment.
   }
 
   // Update statistics:
@@ -1230,18 +1230,15 @@ void AssociativeSet<Key>::event_mru_demotion(Stack_it demoted) {
     auto& [k, entry] = *demoted;
     const BurstStats& hitStats = *(entry.hits);
 
+    // Burst Count MRU-demotion Event:
     if (p_replace_ == ReplacementPolicy::BURST_LRU) {
       const int64_t burstCount = hitStats.size();
       PT_entry& pte = pt_[k];
-  ///    assert(!entry.eol); // sanity check
       if (pte.BC_confidence >= 0 && burstCount >= pte.BC_saved) {
         predictionBC_++;
   //      entry.eol = true;   // mark as candidate for replacement
       }
       if (pte.RC_confidence >= 0 && entry.refCount >= pte.RC_saved) {
-  //      if (!entry.eol) {   // hack to count if RC > BC
-  //        predictionRC_better_++;
-  //      }
         predictionRC_++;
         entry.eol = true;   // mark as candidate for replacement
       }
@@ -1283,7 +1280,7 @@ void AssociativeSet<Key>::event_mru_demotion(Stack_it demoted) {
     if (entry.eol) {
       eagerEarlyReplacement_++;
       entry.eol = false;
-      if (ENABLE_EoL_Hit_Correction) {
+      if (ENABLE_EoL_Hit_Correction && p_replace_ == ReplacementPolicy::HP_LRU) {
         // Note, Positive Eviction Training requires entry features to be updated after this call!
         const Features& df = entry.features;
         hp_.hp_.reinforce(df.gather(), true);   // reinforce as cachable
@@ -1313,7 +1310,7 @@ void AssociativeSet<Key>::event_mru_hit(Stack_it hit) {
     ++entry.RR_distance;  // Re-referenced on hit.
   }
 
-  if (ENABLE_MRU_Promotion_Training) {
+  if (ENABLE_MRU_Promotion_Training && p_replace_ == ReplacementPolicy::HP_LRU) {
     // Note, Positive Eviction Training requires entry features to be updated after this call!
     const Features& df = entry.features;
     hp_.hp_.reinforce(df.gather(), true);   // reinforce as cachable

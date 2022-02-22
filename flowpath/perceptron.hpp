@@ -36,7 +36,7 @@ class PerceptronTable {
 public:
   static constexpr bool ENABLE_TABLE_STATS = true; // inference count tracking
 
-  static constexpr size_t BITS_ = 5;  // resolution of single perceptron
+  static constexpr size_t BITS_ = 5;  // range of single perceptron
   using Perceptron = ClampedInt<BITS_>;
 
   PerceptronTable(size_t elements);
