@@ -37,12 +37,15 @@ class wstp_link {
 public:
   // Types:
   using pkt_id_t = int; // WSTP Packet ID
+
   // Return types:
-  using ts_t = std::vector<wsint64>;  // WSTP's 64-bit integer type
-  using vector_t = std::vector<ts_t>;
-  using miss_t = std::pair<ts_t, ts_t>;
-  using arg_t = std::variant<wsint64, ts_t, vector_t>;
+  using wsint64_v1_t = std::vector<wsint64>;
+  using wsint64_v2_t = std::vector<wsint64_v1_t>; // vector<vector<int>>
+  using wsint64_v3_t = std::vector<wsint64_v2_t>; // vector<vector<vector<int>>>
+//  using wsint64_t3_t = std::tuple<wsint64_v1_t, wsint64_v1_t, wsint64_v1_t>;
+
   // Function signatures:
+  using arg_t = std::variant<wsint64, wsint64_v1_t, wsint64_v2_t, wsint64_v3_t>;
   using fn_t = std::function<arg_t(arg_t)>;
   using sig_t = std::tuple<std::string, std::string>;
   // - Mathematica Definition of Function: Foo[x_Integer]
@@ -192,7 +195,7 @@ std::vector<Tuple> wstp_link::receive_list() {
   receive(RETURNPKT);
 
   // Expect List returned; len holds list length:
-  int listLength;
+  int listLength{};
   if ( !WSTestHead(link_, "List", &listLength) ) {
     std::cerr << "WSTestHead is NULL" << std::endl;
     if (error()) {

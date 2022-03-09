@@ -38,6 +38,9 @@ struct global_config {
   bool traceEvictions;
   bool flowRecordTimeseries;
 
+  // wstp link:
+  bool enable_wstp;
+
   // Hashed Perceptron Configs:
   bool ENABLE_Perceptron_DeadBlock_Prediction;
   bool ENABLE_Perceptron_Bypass_Prediction;

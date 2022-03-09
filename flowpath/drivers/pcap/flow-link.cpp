@@ -44,7 +44,7 @@
 
 // Wolfram Symbolic Transfer Protocol (WSTP):
 #ifndef WSTP_LINK
-//#define WSTP_LINK
+#define WSTP_LINK
 #endif
 #ifdef WSTP_LINK
 #include "wstp.hpp"
@@ -133,6 +133,9 @@ po::variables_map parse_options(int argc, const char* argv[]) {
     ("trace-evictions,e",
       po::value<bool>(&CONFIG.traceEvictions)->default_value(false)->implicit_value(true),
       "Enable dumping a trace of all CacheSIM and CacheMIN eviction stats to CSV file")
+    ("wstp",
+      po::value<bool>(&CONFIG.enable_wstp)->default_value(false)->implicit_value(true),
+      "Enable wolfram mathematica wstp link")
     ;
 
   po::options_description hiddenOpts("Hidden Options");
@@ -246,10 +249,11 @@ int main(int argc, const char* argv[]) {
   };
 
   // Configuration:
-  constexpr bool ENABLE_WSTP = false;
+  const bool ENABLE_WSTP = true && CONFIG.enable_wstp;
   const bool ENABLE_CACHE_EVICTION_DUMP = true && CONFIG.traceEvictions;
   const bool ENABLE_MIN_EVICTION_DUMP = true && CONFIG.traceEvictions;
 //  constexpr bool ENABLE_FLOW_LOG = false;
+  CONFIG.simMIN |= ENABLE_WSTP; // enable simMIN under interactive wstp mode
 
   // Log/Trace Output Files:
   ofstream runLog(*CONFIG.logFilename); // TODO: Allow no log?
@@ -372,11 +376,10 @@ int main(int argc, const char* argv[]) {
 
   std::mutex mtx_misses; // covers both missesMIN and missesCache
   std::map<flow_id_t, std::vector<uint64_t>> missesMIN;
-  std::map<flow_id_t, std::vector<uint64_t>> missesCache;
+  std::map<flow_id_t, std::vector<uint64_t>> missesSIM;
 
 //  using Reservation = typename CacheSim<flow_id_t>::Reservation;
 //  using HitStats = typename CacheSim<flow_id_t>::HitStats;
-  // TODO, place these cache sim / stats types in a namespace
   using Lifetime = std::tuple<Reservation, std::shared_ptr<BurstStats>>;
   std::map<flow_id_t, std::vector<Lifetime>> cacheLifetimes;
   std::map<flow_id_t, std::vector<Reservation>> minLifetimes;
@@ -396,43 +399,6 @@ int main(int argc, const char* argv[]) {
     csv_min_evictions.append(std::make_tuple("flowID", "hits",
       "minTimeLast","accessTimeLast","clockTimeLast"));
   }
-
-
-  // Lamba function interface for reporting misses:
-  auto f_sort_by_misses = [&mtx_RetiredFlows, &retiredRecords]
-      (const std::map<flow_id_t, std::vector<uint64_t>>& misses) {
-    using pq_pair_t = std::pair<size_t, flow_id_t>;
-    using pq_container_t = std::vector<pq_pair_t>;
-    auto pq_compare_f = [](const pq_pair_t& a, const pq_pair_t& b) {
-      // vector is popped from end, so most important items should be at end..
-      if (a.first == b.first)
-        return a.second > b.second; // oldest flow (smalled flow_id at end)
-      return a.first < b.first;     // largest misses at end
-    };
-
-    pq_container_t queue;
-    { lock_guard lock(mtx_RetiredFlows);
-      for (const auto& [fid, flowR] : retiredRecords) {
-        auto it = misses.find(fid);
-        if (it != misses.end()) {
-          const auto& fmv = it->second;
-          queue.push_back(std::make_pair(fmv.size(), fid));
-        }
-        else {
-          queue.push_back(std::make_pair(0, fid));
-        }
-      }
-    }
-//    { lock_guard lck(mtx_Misses);
-//      for (const auto& [fid, fmv] : misses) {
-//        if (retiredRecords.count(fid) > 0) {
-//          queue.push_back(std::make_pair(fmv.size(), fid));
-//        }
-//      }
-//    }
-    std::stable_sort(queue.begin(), queue.end(), pq_compare_f);
-    return queue;
-  };
 
 
   // Insert called once (first packet of flow)
@@ -504,9 +470,8 @@ int main(int argc, const char* argv[]) {
     if (CONFIG.simCache) {
       auto [hit, victim] = simCache.update(flowID, ts, features);
       if (ENABLE_WSTP && !hit) {
-      // TODO: take note of miss statistics...
         std::lock_guard lock(mtx_misses);
-        missesCache[flowID].emplace_back(ns);
+        missesSIM[flowID].emplace_back(ns);
       }
       if (victim) {
         // If victim exists (something was replaced).
@@ -544,54 +509,362 @@ int main(int argc, const char* argv[]) {
 
   // Filtering function to find 'interesting' flows once they retire:
   std::function<void(std::shared_ptr<FlowRecord>)> f_sample =
-              [&](std::shared_ptr<FlowRecord> r) {
-    // Only consider semi-large flows:
+      [&](std::shared_ptr<FlowRecord> r) {
     if (ENABLE_WSTP) {
-      const auto duration = r->last();
+      // Only consider semi-large flows:
+//      const auto duration = r->last();
 //      if (duration.second.tv_sec > 1 && r->packets() >= 32) {
-  //    if (r->packets() > 512) {
-        std::unique_lock missesLock(mtx_misses);
-        auto cache_it = missesCache.find(r->getFlowID());
-        auto min_it = missesMIN.find(r->getFlowID());
-        missesLock.unlock();
-        const auto& cache_ts = cache_it->second;
-        const auto& min_ts = min_it->second;
+//      if (r->packets() > 512) {
+      std::unique_lock missesLock(mtx_misses);
+      auto cache_it = missesSIM.find(r->getFlowID());
+      auto min_it = missesMIN.find(r->getFlowID());
+      const auto& cache_ts = cache_it->second;
+      const auto& min_ts = min_it->second;
+      auto unfriendly = int64_t(cache_ts.size()) - int64_t(min_ts.size());
+      missesLock.unlock();
 
-        // Only record multiple misses within MIN:
-        auto unfriendly = int64_t(cache_ts.size()) - int64_t(min_ts.size());
-        if (unfriendly > 0) {
+      // Only record multiple misses within MIN:
+      if (unfriendly > 0) {
 //        if ( min_it != missesMIN.end() && min_ts.size() >= 8 ) {
-          // Flow looks interesting, add to retiredRecords:
-          std::cout << "+ FlowID: " << r->getFlowID()
-                    << ", Packets: " << r->packets()
-                    << ", Misses: " << min_ts.size()
-                    << ", Unfriendly: " << unfriendly
-                    << "; " << print_flow_key_string( r->getFlowTuple() )
-                    // also print detected flow start time...
-                    << std::endl;
-          { std::lock_guard lock(mtx_RetiredFlows);
-            retiredRecords.emplace(r->getFlowID(), r);
-            // keep flow in missesCache, missesMIN, and cacheLifetimes
-          }
-//          return;
+        // Flow looks interesting, add to retiredRecords:
+        std::cout << "+ FlowID: " << r->getFlowID()
+                  << ", Packets: " << r->packets()
+                  << ", SIM: " << cache_ts.size()
+                  << ", MIN: " << min_ts.size()
+                  << ", Unfriendly: " << unfriendly
+                  << "; " << print_flow_key_string( r->getFlowTuple() )
+                  << '\n';
+        { std::lock_guard lock(mtx_RetiredFlows);
+          retiredRecords.emplace(r->getFlowID(), r);
+          // keep flow in missesCache, missesMIN, and cacheLifetimes
         }
-//      }
-      // Flow behaved unremarkibly, delete metadata:
+      }
       else {
+        // Flow behaved unremarkibly, delete metadata:
         std::lock_guard lock(mtx_misses);
-        missesCache.erase(r->getFlowID());
+        missesSIM.erase(r->getFlowID());
         missesMIN.erase(r->getFlowID());
-        cacheLifetimes.erase(r->getFlowID());
+//        cacheLifetimes.erase(r->getFlowID());
+        // FlowRecord: r is implicitly destroyed
       }
     }
-    // FlowRecord: r is implicitly destroyed (r-value reference)
   };
 
 
+  // Filtering function to find 'interesting' flows once they retire:
+  std::function<void(std::shared_ptr<FlowRecord>)> f_large =
+      [&](std::shared_ptr<FlowRecord> r) {
+    if (ENABLE_WSTP) {
+      // Only consider semi-large flows:
+      if (r->packets() > 512) {
+        std::lock_guard lock(mtx_RetiredFlows);
+        retiredRecords.emplace(r->getFlowID(), r);
+        // keep flow in missesCache, missesMIN, and cacheLifetimes
+      }
+      else {
+        std::lock_guard lock(mtx_misses);
+        missesSIM.erase(r->getFlowID());
+        missesMIN.erase(r->getFlowID());
+//        cacheLifetimes.erase(r->getFlowID());
+        // FlowRecord: r is implicitly destroyed
+      }
+    }
+  };
+
+
+  // Null Filtering function (keep all flows):
+  std::function<void(std::shared_ptr<FlowRecord>)> f_all =
+      [&](std::shared_ptr<FlowRecord> r) {
+    if (ENABLE_WSTP) {
+      std::lock_guard lock(mtx_RetiredFlows);
+      retiredRecords.emplace(r->getFlowID(), r);
+      // keep flow in missesCache, missesMIN, and cacheLifetimes
+    }
+  };
+
+  auto& f_filter = f_large;
+
 #ifdef WSTP_LINK
+  // Lamba function interface for reporting misses (depricated)
+  auto f_sort_by_misses = [&mtx_RetiredFlows, &retiredRecords]
+      (const std::map<flow_id_t, std::vector<uint64_t>>& misses) {
+    using pq_pair_t = std::pair<size_t, flow_id_t>;
+    using pq_container_t = std::vector<pq_pair_t>;
+    auto pq_compare_f = [](const pq_pair_t& a, const pq_pair_t& b) {
+      // vector is popped from end, so most important items should be at end..
+      if (a.first == b.first)
+        return a.second > b.second; // oldest flow (smalled flow_id at end)
+      return a.first < b.first;     // largest misses at end
+    };
+
+    pq_container_t queue;
+    { lock_guard lock(mtx_RetiredFlows);
+      for (const auto& [fid, flowR] : retiredRecords) {
+        auto it = misses.find(fid);
+        if (it != misses.end()) {
+          const auto& fmv = it->second;
+          queue.push_back(std::make_pair(fmv.size(), fid));
+        }
+        else {
+          queue.push_back(std::make_pair(0, fid));
+        }
+      }
+    }
+//    { lock_guard lck(mtx_Misses);
+//      for (const auto& [fid, fmv] : misses) {
+//        if (retiredRecords.count(fid) > 0) {
+//          queue.push_back(std::make_pair(fmv.size(), fid));
+//        }
+//      }
+//    }
+    std::stable_sort(queue.begin(), queue.end(), pq_compare_f);
+    return queue;
+  };
+
   /////////////////////////////////////////////////////////////////////////////
-  /// WSTP INTERFACE FUNCTIONS/////////////////////////////////////////////////
-  // WSTP interface functions used for exploration
+  /// WSTP INTERFACE LAMBDAS //////////////////////////////////////////////////
+  bool finished = false;
+  std::condition_variable cv_fin;
+  std::mutex cv_fin_m;
+
+  // Returns number of flows in retiredRecords
+  // FFNumFlows[]
+  wstp_link::fn_t f_num_flows = [&](wstp_link::arg_t) -> wstp_link::arg_t {
+    return static_cast<int64_t>(retiredRecords.size());
+  };
+
+
+  // Waits until condition variable is notified (last pcap file is read)
+  // On resume, returns number of flows in retiredRecords
+  // FFNumFlowsWait[]
+  wstp_link::fn_t f_num_flows_wait = [&](wstp_link::arg_t v) -> wstp_link::arg_t {
+    std::unique_lock<std::mutex> lk(cv_fin_m);
+    cv_fin.wait(lk, [&](){return finished;});
+    return f_num_flows(v);
+  };
+
+
+  // Returns flow-id's in retiredRecords (undefined order)
+  // FFGetFlowIDs[fid_Integer]
+  wstp_link::fn_t f_get_ids = [&](wstp_link::arg_t) {
+    wstp_link::wsint64_v1_t flows;
+    std::lock_guard lock(mtx_RetiredFlows);
+    flows.reserve(retiredRecords.size());
+    for (const auto& [key, value] : retiredRecords) {
+      flows.push_back(key);
+    }
+    return flows;
+  };
+
+
+  // Return arrival timeseries for single flow-id
+  // Arg: flow-id (native index)
+  // FFGetFlowTS[fid_Integer]
+  wstp_link::fn_t f_get_flow_ts = [&](wstp_link::arg_t v) -> wstp_link::arg_t {
+    wstp_link::wsint64_v1_t ts;
+    auto fid = std::get<int64_t>(v);
+
+    try {
+      std::lock_guard lock(mtx_RetiredFlows);
+      const std::shared_ptr<const FlowRecord> flowR = retiredRecords.at(fid);
+      const auto& arrivalv = flowR->getArrivalV();
+      ts = wstp_link::wsint64_v1_t(arrivalv.begin(), arrivalv.end());
+    }
+    catch (std::out_of_range& e) {
+      std::cerr << "Caught std::out_of_range exception retiredRecords.at(" << fid
+                << ") in " << __func__ << std::endl;
+    }
+    return ts;
+  };
+
+
+  // Return misses incursed by cacheSIM for single flow-id
+  // Arg: flow-id (native index)
+  // FFGetFlowMissSIM[fid_Integer]
+  wstp_link::fn_t f_get_flow_missSIM = [&](wstp_link::arg_t v) -> wstp_link::arg_t {
+    wstp_link::wsint64_v1_t ts;
+    auto fid = std::get<int64_t>(v);
+
+    try {
+      std::lock_guard lock(mtx_misses);
+      const auto& miss_ts = missesSIM.at(fid);
+      ts = wstp_link::wsint64_v1_t(miss_ts.begin(), miss_ts.end());
+    }
+    catch (std::out_of_range& e) {
+      std::cerr << "Caught std::out_of_range exception missesSIM.at(" << fid
+                << ") in " << __func__ << std::endl;
+    }
+    return ts;
+  };
+
+  // Return misses incursed by cacheMIN for single flow-id
+  // Arg: flow-id (native index)
+  // FFGetFlowMissMIN[fid_Integer]
+  wstp_link::fn_t f_get_flow_missMIN = [&](wstp_link::arg_t v) {
+    wstp_link::wsint64_v1_t ts;
+    auto fid = std::get<int64_t>(v);
+
+    try {
+      std::lock_guard lock(mtx_misses);
+      const auto& miss_ts = missesMIN.at(fid);
+      ts = wstp_link::wsint64_v1_t(miss_ts.begin(), miss_ts.end());
+    }
+    catch (std::out_of_range& e) {
+      std::cerr << "Caught std::out_of_range exception missesMIN.at(" << fid
+                << ") in " << __func__ << std::endl;
+    }
+    return ts;
+  };
+
+
+  // Return Tuple{timeseries, missesSIM, missesMIN} for single flow-id
+  // Arg: flow-id (native index)
+  // FFGetFlowTupleTS[fid_Integer]
+  wstp_link::fn_t f_get_flow_tuple_ts = [&](wstp_link::arg_t v) -> wstp_link::arg_t {
+    wstp_link::wsint64_v2_t samples;
+    auto fid = std::get<int64_t>(v);
+
+    samples.push_back( std::get<wstp_link::wsint64_v1_t>(f_get_flow_ts(fid)) );
+    samples.push_back( std::get<wstp_link::wsint64_v1_t>(f_get_flow_missSIM(fid)) );
+    samples.push_back( std::get<wstp_link::wsint64_v1_t>(f_get_flow_missMIN(fid)) );
+    return samples;
+  };
+
+
+  // Gathers all FlowIDs; indexes passed as list of int64_t
+  // Arg: List{flowIDs} (native index)
+  // FFGetTS[fid_IntegerList]
+  wstp_link::fn_t f_get_ts = [&](wstp_link::arg_t v) {
+    wstp_link::wsint64_v2_t samples;
+    auto flows = std::get<wstp_link::wsint64_v1_t>(v);
+
+    for (auto fid : flows) {
+      samples.push_back( std::get<wstp_link::wsint64_v1_t>(f_get_flow_ts(fid)) );
+    }
+    return samples;
+  };
+
+
+  // Gathers all FlowIDs; indexes passed as list of int64_t
+  // Arg: List{flowIDs} (native index)
+  // FFGetMissSIM[fid_IntegerList]
+  wstp_link::fn_t f_get_missSIM = [&](wstp_link::arg_t v) {
+    wstp_link::wsint64_v2_t samples;
+    auto flows = std::get<wstp_link::wsint64_v1_t>(v);
+
+    for (auto fid : flows) {
+      samples.push_back( std::get<wstp_link::wsint64_v1_t>(f_get_flow_missSIM(fid)) );
+    }
+    return samples;
+  };
+
+
+  // Gathers all FlowIDs; indexes passed as list of int64_t
+  // Arg: List{flowIDs} (native index)
+  // FFGetMissMIN[fid_IntegerList]
+  wstp_link::fn_t f_get_missMIN = [&](wstp_link::arg_t v) {
+    wstp_link::wsint64_v2_t samples;
+    auto flows = std::get<wstp_link::wsint64_v1_t>(v);
+
+    for (auto fid : flows) {
+      samples.push_back( std::get<wstp_link::wsint64_v1_t>(f_get_flow_missMIN(fid)) );
+    }
+    return samples;
+  };
+
+
+  // Gathers Tuple{timeseries, missesMIN, missesSIM} for all FlowIDs
+  // Arg: flow-id (native index)
+  // FFGetTupleTS[fids_IntegerList]
+  wstp_link::fn_t f_get_tuple_ts = [&](wstp_link::arg_t v) -> wstp_link::arg_t {
+    wstp_link::wsint64_v3_t samples;
+    auto flows = std::get<wstp_link::wsint64_v1_t>(v);
+
+    for (auto fid : flows) {
+      samples.push_back( std::get<wstp_link::wsint64_v2_t>(f_get_flow_tuple_ts(fid)) );
+    }
+    return samples;
+  };
+
+
+  // Removes all flowIDs; indexes passed as list of int64_t
+  // Mutates: retiredRecords, missesSIM, and missesMIN
+  // Arg: List{flowIDs} (native index)
+  // FFRemoveFlows[fid_IntegerList]
+  wstp_link::fn_t f_remove_flows = [&](wstp_link::arg_t v) {
+    auto flows = std::get<wstp_link::wsint64_v1_t>(v);
+
+    for (auto fid : flows) {
+      { std::lock_guard lock(mtx_misses);
+        missesMIN.erase(fid);
+        missesSIM.erase(fid);
+      }
+      { std::lock_guard lock(mtx_RetiredFlows);
+        retiredRecords.erase(fid);
+      }
+    }
+    return static_cast<int64_t>(flows.size());
+  };
+
+
+
+  /////////////////////////////////////////////////////////////////////////////
+  /// depricated:
+
+  // Return arrival deltas for single flow-id
+  // Arg: flow-id (native index)
+  // FFGetFlowDelta[fid_Integer]
+  wstp_link::fn_t f_get_flow_ts_deltas = [&](wstp_link::arg_t v) -> wstp_link::arg_t {
+    wstp_link::wsint64_v1_t deltas;
+    auto fid = std::get<int64_t>(v);
+    auto ts = std::get<wstp_link::wsint64_v1_t>(f_get_flow_ts(fid));
+
+    // Calculate timeseries deltas:
+    deltas.resize(ts.size());
+    std::adjacent_difference(ts.begin(), ts.end(), deltas.begin());
+    return deltas;
+  };
+
+
+  // Pops single retiredRecord and returns timeseries delta
+  // Mutates: Pops from retiredRecords
+  // FFSampleFlow[] (depricated)
+  wstp_link::fn_t f_get_arrival = [&](wstp_link::arg_t) -> wstp_link::arg_t {
+    if (retiredRecords.size() == 0) {
+      return wstp_link::wsint64_v1_t();
+    }
+
+    std::unique_lock lck(mtx_RetiredFlows);
+    auto record = retiredRecords.extract(retiredRecords.begin());
+    lck.unlock();
+
+    // Calculate deltas and return:
+    auto& ts = record.mapped()->getArrivalV();
+    wstp_link::wsint64_v1_t deltas(ts.size());
+    std::adjacent_difference(ts.begin(), ts.end(), deltas.begin());
+    return deltas;
+  };
+
+
+  // Return arrival timeseries for N flow-ids
+  // Arg: number of flows to retrieve (count); undefined order
+  // FFGetSamples[n_Integer]
+  wstp_link::fn_t f_get_samples = [&](wstp_link::arg_t v) -> wstp_link::arg_t {
+    auto n = std::get<int64_t>(v);
+    wstp_link::wsint64_v2_t samples;
+    for (const auto& [key, value] : retiredRecords) {
+      if (n-- == 0) { break; }
+      int64_t sKey = key;
+      wstp_link::wsint64_v1_t s = std::get<wstp_link::wsint64_v1_t>(f_get_flow_ts(sKey));
+      samples.push_back(s);
+    }
+    return samples;
+  };
+
+
+  // Returns all flows, sorted by SimMIN misses
+  // Mutates: Pops from retiredRecords, missesMIN
+  // FFGetMisses[] (depricated)
   wstp_link::fn_t f_get_misses_MIN = [&](wstp_link::arg_t) -> wstp_link::arg_t {
     static auto sorted_queue = f_sort_by_misses(missesMIN);
     static size_t update_triger = sorted_queue.size();
@@ -600,18 +873,20 @@ int main(int argc, const char* argv[]) {
       update_triger = sorted_queue.size();
     }
     if (update_triger == 0) {
-      std::cerr << "No flows in retiredRecrods." << std::endl;
+      std::cerr << "No flows in retiredRecords." << std::endl;
       return wstp_link::arg_t();
     }
 
     // Lock and pop a sample:
     auto [m_count, m_fid] = sorted_queue.back(); sorted_queue.pop_back();
     std::cout << "Misses: " << m_count << "; FID: " << m_fid << std::endl;
+
     std::unique_lock lck(mtx_RetiredFlows);
     auto record = retiredRecords.extract(m_fid);
     lck.unlock();
+
     if (record) {
-      std::cerr << "Missing FID (" << m_fid << ") in retiredRecrods." << std::endl;
+      std::cerr << "Missing FID (" << m_fid << ") in retiredRecords." << std::endl;
       return wstp_link::arg_t();
     }
     update_triger--;
@@ -619,147 +894,44 @@ int main(int argc, const char* argv[]) {
     // Calculate event deltas deltas:
     const std::shared_ptr<const FlowRecord> flowR = record.mapped();
     auto& ts = flowR->getArrivalV();
-    wstp_link::ts_t deltas(ts.size());
+    wstp_link::wsint64_v1_t deltas(ts.size());
     std::adjacent_difference(ts.begin(), ts.end(), deltas.begin());
 
     // Lock and search for miss vector:
     flow_id_t fid = flowR->getFlowID();
+
     std::unique_lock lck2(mtx_misses);
     auto miss_ts = missesMIN.extract(fid);
     lck2.unlock();
+
     if (miss_ts.empty()) {
       return wstp_link::arg_t(deltas);
     }
 
-    // Mark miss by returning netagive distances:
+    // Annotate miss by returning netagive distance:
     for (auto miss : miss_ts.mapped()) {
       auto x = std::find(ts.begin(), ts.end(), miss);
       deltas[std::distance(ts.begin(), x)] *= -1;
     }
-    return wstp_link::arg_t(deltas);
-  };
-
-  // Sampling of retired flows:
-  wstp_link::fn_t f_get_arrival = [&](wstp_link::arg_t) -> wstp_link::arg_t {
-    if (retiredRecords.size() == 0) {
-      return wstp_link::ts_t();
-    }
-    // Lock and pop:
-    std::unique_lock lck(mtx_RetiredFlows);
-    auto record = retiredRecords.extract(retiredRecords.begin());
-    lck.unlock();
-    // Calculate deltas and return:
-    auto& ts = record.mapped()->getArrivalV();
-    wstp_link::ts_t deltas(ts.size());
-    std::adjacent_difference(ts.begin(), ts.end(), deltas.begin());
     return deltas;
   };
 
-  wstp_link::fn_t f_num_flows = [&](wstp_link::arg_t) -> wstp_link::arg_t {
-    return static_cast<int64_t>(retiredRecords.size());
-  };
 
-  wstp_link::fn_t f_get_ids = [&](wstp_link::arg_t) {
-    wstp_link::ts_t ids;  // reusing timeseries type for vector of 64-bit ints
-    for (const auto& [key, value] : retiredRecords) {
-      ids.push_back(key);
-    }
-    // BUG: confirm why 1 record is missing on send...
-    return ids;
-  };
-
-  wstp_link::fn_t f_get_ts_deltas = [&](wstp_link::arg_t v) -> wstp_link::arg_t {
-    auto fid = std::get<int64_t>(v);
-    // Calculate event deltas deltas:
-    const std::shared_ptr<const FlowRecord> flowR = retiredRecords.at(fid);
-    const auto& ts = flowR->getArrivalV();
-    wstp_link::ts_t deltas(ts.size());
-    std::adjacent_difference(ts.begin(), ts.end(), deltas.begin());
-
-    try {
-      // Search for miss vector:
-      std::unique_lock lck2(mtx_misses);
-      auto miss_ts = missesMIN.at(fid);
-      lck2.unlock();
-      if (miss_ts.empty()) {
-        return wstp_link::arg_t(deltas);
-      }
-
-      // Mark miss by returning netagive distance:
-      for (auto miss : miss_ts) {
-        auto x = std::find(ts.begin(), ts.end(), miss);
-        deltas[std::distance(ts.begin(), x)] *= -1;
-      }
-    }
-    catch (std::out_of_range& e) {
-      std::cerr << "Caught std::out_of_range exception missesMIN.at(" << fid
-                << ") in " << __func__ << std::endl;
-    }
-    return wstp_link::arg_t(deltas);
-  };
-
-  wstp_link::fn_t f_get_ts = [&](wstp_link::arg_t v) -> wstp_link::arg_t {
-    auto fid = std::get<int64_t>(v);
-    const std::shared_ptr<const FlowRecord> flowR = retiredRecords.at(fid);
-    const auto& ts = flowR->getArrivalV();
-    wstp_link::ts_t ret(ts.begin(), ts.end());
-    return ret;
-  };
-
-  wstp_link::fn_t f_get_ts_miss_MIN = [&](wstp_link::arg_t v) {
-    auto fid = std::get<int64_t>(v);
-    wstp_link::ts_t ts;
-    try {
-      std::lock_guard lock(mtx_misses);
-      auto miss_ts = missesMIN.at(fid);
-      ts = wstp_link::ts_t(miss_ts.begin(), miss_ts.end());
-    }
-    catch (std::out_of_range& e) {
-      std::cerr << "Caught std::out_of_range exception missesMIN.at(" << fid
-                << ") in " << __func__ << std::endl;
-    }
-    return ts;
-  };
-
-  wstp_link::fn_t f_get_ts_miss_SIM = [&](wstp_link::arg_t v) -> wstp_link::arg_t {
-    auto fid = std::get<int64_t>(v);
-    wstp_link::ts_t ts;
-    try {
-      std::lock_guard lock(mtx_misses);
-      auto miss_ts = missesCache.at(fid);
-      ts = wstp_link::ts_t(miss_ts.begin(), miss_ts.end());
-    }
-    catch (std::out_of_range& e) {
-      std::cerr << "Caught std::out_of_range exception missesCache.at(" << fid
-                << ") in " << __func__ << std::endl;
-    }
-    return ts;
-  };
-
-  // depricated:
-  wstp_link::fn_t f_get_samples = [&](wstp_link::arg_t v) -> wstp_link::arg_t {
-    auto n = std::get<int64_t>(v);
-    wstp_link::vector_t samples;
-    for (const auto& [key, value] : retiredRecords) {
-      if (n-- == 0) { break; }
-      int64_t sKey = key;
-      wstp_link::ts_t s = std::get<wstp_link::ts_t>(f_get_ts_deltas(sKey));
-      samples.push_back(s);
-    }
-    return samples;
-  };
-
+  // Return misses incursed by SimCache for all flow-id
+  // Arg: number of flows to retrieve (count); undefined order
+  // FFGetMissesSIM[n_Integer]
   wstp_link::fn_t f_get_SIM_misses = [&](wstp_link::arg_t v) -> wstp_link::arg_t {
+    wstp_link::wsint64_v2_t samples;
     auto n = std::get<int64_t>(v);
-    wstp_link::vector_t samples;
+
     for (const auto& [key, value] : retiredRecords) {
       if (n-- == 0) { break; }
       int64_t sKey = key;
-      wstp_link::ts_t s = std::get<wstp_link::ts_t>(f_get_ts_miss_SIM(sKey));
-      samples.push_back(s);
+      samples.push_back( std::get<wstp_link::wsint64_v1_t>(f_get_flow_missSIM(sKey)) );
     }
     return samples;
   };
+
 
   // Instantiate Mathematica Link:
   wstp_singleton& wstp = wstp_singleton::getInstance();
@@ -767,18 +939,34 @@ int main(int argc, const char* argv[]) {
     using def_t = wstp_link::def_t;
     using fn_t = wstp_link::fn_t;
     using sig_t = wstp_link::sig_t;
+
+    // fetch flowIDs
     wstp_link::register_fn( def_t(sig_t("FFNumFlows[]", ""), fn_t(f_num_flows)) );
-    wstp_link::register_fn( def_t(sig_t("FFSampleFlow[]", ""), fn_t(f_get_arrival)) );
-    wstp_link::register_fn( def_t(sig_t("FFGetMisses[]", ""), fn_t(f_get_misses_MIN)) );
+    wstp_link::register_fn( def_t(sig_t("FFNumFlowsWait[]", ""), fn_t(f_num_flows_wait)) );
     wstp_link::register_fn( def_t(sig_t("FFGetFlowIDs[]", ""), fn_t(f_get_ids)) );
-    wstp_link::register_fn( def_t(sig_t("FFGetFlowTS[fid_Integer]", "fid"), fn_t(f_get_ts)) );
-    wstp_link::register_fn( def_t(sig_t("FFGetFlowDelta[fid_Integer]", "fid"), fn_t(f_get_ts_deltas)) );
-    wstp_link::register_fn( def_t(sig_t("FFGetFlowMissMIN[fid_Integer]", "fid"), fn_t(f_get_ts_miss_MIN)) );
-    wstp_link::register_fn( def_t(sig_t("FFGetFlowMissSIM[fid_Integer]", "fid"), fn_t(f_get_ts_miss_SIM)) );
+
+    // operates on single flowID
+    wstp_link::register_fn( def_t(sig_t("FFGetFlowTS[fid_Integer]", "fid"), fn_t(f_get_flow_ts)) );
+    wstp_link::register_fn( def_t(sig_t("FFGetFlowMissSIM[fid_Integer]", "fid"), fn_t(f_get_flow_missSIM)) );
+    wstp_link::register_fn( def_t(sig_t("FFGetFlowMissMIN[fid_Integer]", "fid"), fn_t(f_get_flow_missMIN)) );
+    wstp_link::register_fn( def_t(sig_t("FFGetFlowTupleTS[fid_Integer]", "fid"), fn_t(f_get_flow_tuple_ts)) );
+
+    // operates on flowID list
+    wstp_link::register_fn( def_t(sig_t("FFGetTS[fids_]", "fids"), fn_t(f_get_ts)) );
+    wstp_link::register_fn( def_t(sig_t("FFGetMissSIM[fids_]", "fids"), fn_t(f_get_missSIM)) );
+    wstp_link::register_fn( def_t(sig_t("FFGetMissMIN[fids_]", "fids"), fn_t(f_get_missMIN)) );
+    wstp_link::register_fn( def_t(sig_t("FFGetTupleTS[fids_]", "fids"), fn_t(f_get_tuple_ts)) );
+    wstp_link::register_fn( def_t(sig_t("FFRemoveFlows[fids_]", "fids"), fn_t(f_remove_flows)) );
+
+    // depricated (pulled and deleted):
+    wstp_link::register_fn( def_t(sig_t("FFGetFlowDelta[fid_Integer]", "fid"), fn_t(f_get_flow_ts_deltas)) );
+    wstp_link::register_fn( def_t(sig_t("FFSampleFlow[]", ""), fn_t(f_get_arrival)) );
     wstp_link::register_fn( def_t(sig_t("FFGetSamples[n_Integer]", "n"), fn_t(f_get_samples)) );
+    wstp_link::register_fn( def_t(sig_t("FFGetMisses[]", ""), fn_t(f_get_misses_MIN)) );
     wstp_link::register_fn( def_t(sig_t("FFGetMissesSIM[n_Integer]", "n"), fn_t(f_get_SIM_misses)) );
-    string interface = wstp.listen();
-    runLog << "WSTP Server listening on " << interface << endl;
+
+    std::string interface = wstp.listen(7769, "192.168.2.40");
+    std::cout << "WSTP Server listening on " << interface << endl;
   }
 #endif // WSTP_LINK
 
@@ -1037,8 +1225,8 @@ int main(int argc, const char* argv[]) {
             /////////////////////
             // Delete Flow lambda
             // - Removes flow from tracked flowRecords, samples if noteworthy.
-            auto delete_flow = [&flowRecords, &f_sample](decltype(flowRecords)::iterator flowR_i) {
-              f_sample( flowRecords.extract(flowR_i).mapped() );
+            auto delete_flow = [&flowRecords, &f_filter](decltype(flowRecords)::iterator flowR_i) {
+              f_filter( flowRecords.extract(flowR_i).mapped() );
             };
 
             auto flowR_i = flowRecords.find(i);
@@ -1109,7 +1297,7 @@ int main(int argc, const char* argv[]) {
     auto it = flowRecords.cbegin();
     while ( it != flowRecords.cend() ) {
       auto flowR = flowRecords.extract(it);
-      f_sample( std::move(flowR.mapped()) );
+      f_filter( std::move(flowR.mapped()) );
       it = flowRecords.cbegin();
     }
   }
@@ -1195,7 +1383,9 @@ int main(int argc, const char* argv[]) {
        << flowIDs.size() << " flows)." << endl;
 
 #ifdef WSTP_LINK
-  // Simulation finished, wait for uninstall from WSTP:
+  // Simulation finished, wait for WSTP link to close:
+  cv_fin.notify_all();
+  finished = true;
   wstp.wait_for_unlink();
 #endif
   cerr << "Main thread terminating." << endl;

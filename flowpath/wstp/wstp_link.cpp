@@ -240,14 +240,14 @@ void wstp_link::receive_worker() {
     }
     while (!worker_stop_) {
       if (ready()) {
-        pkt_id_t id = receive();
+        receive();
       }
       else {
         std::this_thread::sleep_for(std::chrono::seconds(1));
       }
     }
   }
-  catch (const std::runtime_error e) {
+  catch (const std::runtime_error& e) {
     std::cerr << "ERROR: Caught expection in wstp interface:\n" << e.what() << std::endl;
   }
   std::cerr << "WSTP worker thread terminated." << std::endl;
@@ -344,45 +344,76 @@ int wstp_link::decode_call() {
   }
   const size_t funcID = static_cast<size_t>(func);
 
-  // Execute appropriate function:
+  // Print Call Arguments:
   const sig_t& sig = std::get<sig_t>(wstp_signatures_[funcID]);
   std::string name = std::get<0>(sig);
   std::string args = std::get<1>(sig);
   std::cerr << "Evaluate: " << name << "; " << args << std::endl;
-  int64_t x = 0;
-  if (!args.empty()) {  // TODO: Support dynamic arguments if needed later...
-    x = wstp_link::get<int64_t>();
+
+  // Execute appropriate function:
+  arg_t result;
+  if (args == "fid") {
+    int64_t x = wstp_link::get<int64_t>();
+    result = worker_fTable_[funcID](x);
   }
-  arg_t v = worker_fTable_[funcID](x);
+  else if (args == "fids") {
+    wsint64* data;
+    int length;
+    if (!WSGetInteger64List(link_, &data, &length)) {
+      std::cerr << "Unable to get argument as IntegerList!" << std::endl;
+      put_symbol("$Failed");  // TODO: verify appropriate error...
+      goto jumpEnd;
+    }
+    wsint64_v1_t x(data, data+length);
+    WSReleaseInteger64List(link_, data, length);
+    result = worker_fTable_[funcID](x);
+  }
+  else {
+    result = worker_fTable_[funcID](0);
+  }
 
   // Send result back:
   put_function("ReturnPacket", 1);
-  if (std::holds_alternative<ts_t>(v)) {
-    const ts_t& list = std::get<ts_t>(v);
-//    std::cerr << "Returning list of size: " << list.size() << std::endl;
-    WSPutInteger64List(link_, list.data(), static_cast<int>(list.size()));
-  }
-  else if (std::holds_alternative<vector_t>(v)) {
-    const vector_t& data = std::get<vector_t>(v);
-//    std::cerr << "Creating outer list of size: " << data.size() << std::endl;
-    put_function("List", data.size());
-    for (const ts_t& list : data) {
-//      std::cerr << "Returning list of size: " << list.size() << std::endl;
-      WSPutInteger64List(link_, list.data(), static_cast<int>(list.size()));
-    }
-  }
-  else if (std::holds_alternative<wsint64>(v)) {
-    auto x = std::get<wsint64>(v);
-//    std::cerr << "Returning wsint64: " << x << std::endl;
+  if (std::holds_alternative<wsint64>(result)) {
+    auto x = std::get<wsint64>(result);
     WSPutInteger64(link_, x);
   }
+  else if (std::holds_alternative<wsint64_v1_t>(result)) {
+    const auto& v = std::get<wsint64_v1_t>(result);
+    WSPutInteger64List(link_, v.data(), static_cast<int>(v.size()));
+  }
+  else if (std::holds_alternative<wsint64_v2_t>(result)) {
+    const auto& v2 = std::get<wsint64_v2_t>(result);
+    put_function("List", v2.size());
+    for (const wsint64_v1_t& v : v2) {
+      WSPutInteger64List(link_, v.data(), static_cast<int>(v.size()));
+    }
+  }
+  else if (std::holds_alternative<wsint64_v3_t>(result)) {
+    const auto& v3 = std::get<wsint64_v3_t>(result);
+    put_function("List", v3.size());
+    for (const wsint64_v2_t& v2 : v3) {
+      put_function("List", v2.size());
+      for (const wsint64_v1_t& v : v2) {
+        WSPutInteger64List(link_, v.data(), static_cast<int>(v.size()));
+      }
+    }
+  }
+//  else if (std::holds_alternative<wsint64_t3_t>(arg)) {
+//    const auto& t = std::get<wsint64_t3_t>(arg);
+//    put_function("List", std::tuple_size_v<wsint64_t3_t>);
+//    std::apply([&](const auto&&... v) {
+//      (WSPutInteger64List(link_, v.data(), static_cast<int>(v.size())), ...);
+//    }, t);
+//  }
   else {
-    std::cerr << "Invalid return variant!" << std::endl;
+    std::cerr << "Unhandled return variant!" << std::endl;
     put_symbol("$Failed");  // TODO: verify appropriate error...
   }
+
+jumpEnd:
   put_end();
   flush();
-
   return func;
 }
 
@@ -607,6 +638,8 @@ int wstp_link::put<int>(int i) {
   }
   return 1;
 }
+
+// Already covered by WSPutIntegerList64
 //template<>
 //int wstp_link::put<std::vector<int64_t>>(std::vector<int64_t> list) const {
 //  static_assert(sizeof(wsint64) == sizeof(int64_t), "wsint64 is not 64-bits!");

@@ -57,10 +57,10 @@ extern std::shared_ptr<wstp_env> ENV;
 wstp_server::wstp_server(uint16_t port, std::string ip) :
   server_(nullptr) {
   int err = 0;
-  if (!ip.empty()) {
+  if (port != 0 && !ip.empty()) {
     server_ = WSNewLinkServerWithPortAndInterface(ENV->borrow_handle(), port, ip.c_str(), nullptr, &err);
   }
-  if (port != 0) {
+  else if (port != 0) {
     server_ = WSNewLinkServerWithPort(ENV->borrow_handle(), port, nullptr, &err);
   }
   else {
@@ -123,7 +123,7 @@ std::string wstp_server::get_interface() const {
 extern "C" {
 // Define handler with C ABI for wstp_server connection callback:
 void wstp_server_connection(WSLinkServer server, WSLINK wslink) {
-  std::cerr << "New Connection to WSLinkServer received" << std::endl;
+  std::cout << "New Connection to WSLinkServer received" << std::endl;
   try {
     auto link_it = wstp_take_connection(wslink);
     link_it->install();
