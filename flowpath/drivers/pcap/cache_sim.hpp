@@ -420,10 +420,10 @@ public:
 
   HistoryTrainer(entangle::HashedPerceptron<Features::FeatureVector>& hp,
                  size_t pEvictDepth, size_t pKeepDepth) :
-    hp_(hp), pEVICT_DEPTH(pEvictDepth), pKEEP_DEPTH(pKeepDepth)
+    hp_(hp), pKEEP_DEPTH(pKeepDepth), pEVICT_DEPTH(pEvictDepth)
   {
-    pEvictHistory_.reserve(pEvictDepth);
     pKeepHistory_.reserve(pKeepDepth);
+    pEvictHistory_.reserve(pEvictDepth);
     cutoff_ = hp_.decision_threshold() / (hp_.TABLES_-1);  // ignore table 0
     if (DUMP_PREDICTIONS) {
       bypassPred = CSV("BypassEvents.csv");
@@ -912,7 +912,9 @@ AssociativeSet<Key>::AssociativeSet(size_t entries,
     hpHandle<Key>& hp, Policy insert, Policy replace) :
   MAX_(entries), lookup_(entries), p_insert_(insert), p_replace_(replace),
   belady_(entries), hp_(hp),
-  hpHistory_(hp.hp_, entries, entries), hpBelady_(hp.hp_, entries) {}
+  hpHistory_(hp.hp_, CONFIG.keep_history?CONFIG.keep_history:entries,
+                     CONFIG.drop_history?CONFIG.drop_history:entries),
+  hpBelady_(hp.hp_, entries) {}
 
 
 // Key has been created (first occurance)

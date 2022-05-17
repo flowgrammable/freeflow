@@ -80,7 +80,8 @@ public:
   static constexpr bool ENABLE_TABLE_STATS = PerceptronTable<Key>::ENABLE_TABLE_STATS;
   static constexpr bool ENABLE_CORRELATION_ANALYSIS = true;
   static constexpr bool ENABLE_TABLE_DUMP = true;     // periodic weight dumps
-  static constexpr bool ENABLE_DYNAMIC_TRAINING_THRESHOLD = true;
+//  static constexpr bool ENABLE_DYNAMIC_TRAINING_THRESHOLD = true;
+  const bool ENABLE_DYNAMIC_TRAINING_THRESHOLD = {!CONFIG.ENABLE_Static_Threshold};
 
   using Feature = typename Key::value_type;
   using FeatureTable = PerceptronTable<Feature>;
@@ -103,7 +104,7 @@ public:
 
   int64_t decision_threshold();
   std::array<int64_t, 2> training_threshold();
-  std::array<int64_t, 2> calc_training_ratio(double ratio, bool set = false);  // (0.0, 1.0)
+  std::array<int64_t, 2> calc_threshold(double ratio, bool set = false);  // (0.0, 1.0)
 
   std::string get_settings() const;
   void epoc_stats();
@@ -122,14 +123,14 @@ private:
   // Member Variables:
   std::vector<FeatureTable> tables_;  // 1 table per feature
   // Tunable: related to bias of system:
-  int64_t inference_threshold_ {CONFIG.Threshold};
+  int64_t inference_threshold_ {};
 //  int64_t inference_threshold_ = -100;
 
-  double training_ratio_ {0.25};  // ensure between: {0,1}
+  double training_ratio_ {CONFIG.threshold};  // ensure between: {0,1}
   std::array<int64_t, 2> training_threshold_  // {-threshold, +threshold}
     {inference_threshold_ - (inference_threshold_ - INFERENCE_MIN) * training_ratio_,
      inference_threshold_ + (INFERENCE_MAX - inference_threshold_) * training_ratio_};
-  ClampedInt<8>  threshold_counter_;
+  ClampedInt<8>  threshold_pressure_;
   bool force_update_ {false};
 
 public:
@@ -237,9 +238,13 @@ HashedPerceptron<Key>::HashedPerceptron(size_t elements) :
 //  size_t range = size_t(1) << (FeatureTable::BITS_-1);
 //  training_threshold_ = TABLES_ * (FeatureTable::Perceptron::RANGE/2);
 //  inference_threshold_ = 0; // Tunable: related to bias of system!
-  int64_t inferenceHeadroom = (inference_threshold_ >= 0) ?
-    (INFERENCE_MAX - inference_threshold_) : (INFERENCE_MIN - inference_threshold_);
+//  int64_t inferenceHeadroom = (inference_threshold_ >= 0) ?
+//    (INFERENCE_MAX - inference_threshold_) : (INFERENCE_MIN - inference_threshold_);
 //  training_threshold_ = inference_threshold_ + inferenceHeadroom/2;
+//  training_threshold_ = calc_threshold(training_ratio_);
+  std::cout << "Training Ratio: " << training_ratio_ << " ("
+             << training_threshold_[0] << ","
+             << training_threshold_[1] << ")" << std::endl;
 
   if (ENABLE_CORRELATION_ANALYSIS) {
     csv_fCorrelation_ = CSV("feature-correlation.csv");
@@ -359,10 +364,10 @@ auto HashedPerceptron<Key>::reinforce(Key tuple, bool target) {
     if (incorrect) {  // correction
       ++train_corrections_;
       if (ENABLE_DYNAMIC_TRAINING_THRESHOLD) {
-        ++threshold_counter_;   // Saturating counter
-        if (threshold_counter_ == threshold_counter_.MAX) {
-          auto thr = calc_training_ratio(std::min(training_ratio_ + UPDATE_STEP, 1.0), true);
-          threshold_counter_ = 0;
+        ++threshold_pressure_;   // Saturating counter
+        if (threshold_pressure_ == threshold_pressure_.MAX) {
+          auto thr = calc_threshold(std::min(training_ratio_ + UPDATE_STEP, 1.0), true);
+          threshold_pressure_ = 0;
           std::cout << "Training Ratio: " << training_ratio_ << " ("
                      << thr[0] << "," << thr[1] << ")" << std::endl;
         }
@@ -371,10 +376,10 @@ auto HashedPerceptron<Key>::reinforce(Key tuple, bool target) {
     else {  // else is reinforcement
       ++train_reinforcements_;
       if (ENABLE_DYNAMIC_TRAINING_THRESHOLD) {
-        --threshold_counter_;
-        if (threshold_counter_ == threshold_counter_.MIN) {
-          auto thr = calc_training_ratio(std::max(training_ratio_ - UPDATE_STEP, 0.0), true);
-          threshold_counter_ = 0;
+        --threshold_pressure_;
+        if (threshold_pressure_ == threshold_pressure_.MIN) {
+          auto thr = calc_threshold(std::max(training_ratio_ - UPDATE_STEP, 0.0), true);
+          threshold_pressure_ = 0;
           std::cout << "Training Ratio: " << training_ratio_ << " ("
                      << thr[0] << "," << thr[1] << ")" << std::endl;
         }
@@ -417,7 +422,7 @@ std::array<int64_t, 2> HashedPerceptron<Key>::training_threshold() {
 
 // relative to decision threshold
 template<class Key>
-std::array<int64_t, 2> HashedPerceptron<Key>::calc_training_ratio(double ratio, bool set) {
+std::array<int64_t, 2> HashedPerceptron<Key>::calc_threshold(double ratio, bool set) {
   std::array<int64_t, 2> t =  // {-threshold, +threshold}
     {inference_threshold_ - (inference_threshold_ - INFERENCE_MIN) * ratio,
      inference_threshold_ + (INFERENCE_MAX - inference_threshold_) * ratio};

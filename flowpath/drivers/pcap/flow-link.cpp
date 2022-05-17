@@ -154,12 +154,13 @@ po::variables_map parse_options(int argc, const char* argv[]) {
 //    ("sim.cache.ip", po::value<string>(&CONFIG.POLICY_Insertion)->default_value("MRU"), "Insertion Policy")
 //    ("sim.cache.insertion", po::value<int>()->default_value(0), "Insertion position for cache simulation")
 
-    ("sim.cache.hp.threshold", po::value<int>(&CONFIG.Threshold)->default_value(0), "Hashed Perceptron Inference Threshold")
-    ("sim.cache.hp.dbp", po::value<bool>(&CONFIG.ENABLE_Perceptron_DeadBlock_Prediction)->default_value(false), "Enable Perceptron DeadBlock predictor")
-    ("sim.cache.hp.dbp.alpha", po::value<int>(&CONFIG.Perceptron_DeadBlock_Alpha)->default_value(0), "Perceptron DeadBlock predictor alpha decision threshold")
+    ("sim.cache.hp.threshold.static", po::value<bool>(&CONFIG.ENABLE_Static_Threshold)->default_value(false)->implicit_value(true), "Disable Dynamic Training Threshold")
+    ("sim.cache.hp.threshold", po::value<double>(&CONFIG.threshold)->default_value(0.25), "Hashed Perceptron Training Threshold")
+    ("sim.cache.hp.history.keep", po::value<int>(&CONFIG.keep_history)->default_value(0), "Hashed Perceptron Keep History")
+    ("sim.cache.hp.history.drop", po::value<int>(&CONFIG.drop_history)->default_value(0), "Hashed Perceptron Drop History")
 
-    ("sim.cache.hp.bp", po::value<bool>(&CONFIG.ENABLE_Perceptron_Bypass_Prediction)->default_value(false), "Enable Perceptron Bypass predictor")
-    ("sim.cache.hp.bp.alpha", po::value<int>(&CONFIG.Perceptron_Bypass_Alpha)->default_value(0), "Perceptron Bypass predictor alpha decision threshold")
+    ("sim.cache.hp.reuse", po::value<bool>(&CONFIG.ENABLE_Perceptron_Reuse_Prediction)->default_value(false), "Enable Perceptron Reuse prediction")
+    ("sim.cache.hp.bypass", po::value<bool>(&CONFIG.ENABLE_Perceptron_Bypass_Prediction)->default_value(false), "Enable Perceptron Bypass prediction")
   ;
 
   po::positional_options_description positionalOpts;
@@ -249,7 +250,7 @@ int main(int argc, const char* argv[]) {
   };
 
   // Configuration:
-  const bool ENABLE_WSTP = true && CONFIG.enable_wstp;
+  const bool ENABLE_WSTP = false && CONFIG.enable_wstp;
   const bool ENABLE_CACHE_EVICTION_DUMP = true && CONFIG.traceEvictions;
   const bool ENABLE_MIN_EVICTION_DUMP = true && CONFIG.traceEvictions;
 //  constexpr bool ENABLE_FLOW_LOG = false;
@@ -572,6 +573,27 @@ int main(int argc, const char* argv[]) {
   };
 
 
+  // Filtering function to find 'interesting' flows once they retire:
+  std::function<void(std::shared_ptr<FlowRecord>)> f_est =
+      [&](std::shared_ptr<FlowRecord> r) {
+    if (ENABLE_WSTP) {
+      // Only consider semi-large flows:
+      if (r->packets() > 8) {
+        std::lock_guard lock(mtx_RetiredFlows);
+        retiredRecords.emplace(r->getFlowID(), r);
+        // keep flow in missesCache, missesMIN, and cacheLifetimes
+      }
+      else {
+        std::lock_guard lock(mtx_misses);
+        missesSIM.erase(r->getFlowID());
+        missesMIN.erase(r->getFlowID());
+//        cacheLifetimes.erase(r->getFlowID());
+        // FlowRecord: r is implicitly destroyed
+      }
+    }
+  };
+
+
   // Null Filtering function (keep all flows):
   std::function<void(std::shared_ptr<FlowRecord>)> f_all =
       [&](std::shared_ptr<FlowRecord> r) {
@@ -582,10 +604,10 @@ int main(int argc, const char* argv[]) {
     }
   };
 
-  auto& f_filter = f_large;
+  auto& f_filter = f_est;
 
 #ifdef WSTP_LINK
-  // Lamba function interface for reporting misses (depricated)
+  // Lamba function interface for sorting by total misses (depricated)
   auto f_sort_by_misses = [&mtx_RetiredFlows, &retiredRecords]
       (const std::map<flow_id_t, std::vector<uint64_t>>& misses) {
     using pq_pair_t = std::pair<size_t, flow_id_t>;
@@ -597,16 +619,16 @@ int main(int argc, const char* argv[]) {
       return a.first < b.first;     // largest misses at end
     };
 
-    pq_container_t queue;
+    pq_container_t v;
     { lock_guard lock(mtx_RetiredFlows);
       for (const auto& [fid, flowR] : retiredRecords) {
         auto it = misses.find(fid);
         if (it != misses.end()) {
           const auto& fmv = it->second;
-          queue.push_back(std::make_pair(fmv.size(), fid));
+          v.push_back(std::make_pair(fmv.size(), fid));
         }
         else {
-          queue.push_back(std::make_pair(0, fid));
+          v.push_back(std::make_pair(0, fid));
         }
       }
     }
@@ -617,8 +639,39 @@ int main(int argc, const char* argv[]) {
 //        }
 //      }
 //    }
-    std::stable_sort(queue.begin(), queue.end(), pq_compare_f);
-    return queue;
+    std::stable_sort(v.begin(), v.end(), pq_compare_f);
+    return v;
+  };
+
+  // Lamba function interface for sorting by miss rate
+  auto f_sort_by_missrate = [&retiredRecords, &mtx_RetiredFlows, &mtx_misses]
+      (const std::map<flow_id_t, std::vector<uint64_t>>& misses) {
+    using pq_pair_t = std::pair<double, flow_id_t>;
+    using pq_container_t = std::vector<pq_pair_t>;
+    auto pq_compare_f = [](const pq_pair_t& a, const pq_pair_t& b) {
+      // vector is popped from end, so most important items should be at end..
+      if (a.first == b.first)
+        return a.second > b.second; // oldest flow (smalled flow_id at end)
+      return a.first < b.first;     // largest missrate at end
+    };
+
+    pq_container_t v;
+    { std::scoped_lock lock(mtx_RetiredFlows, mtx_misses);
+      for (const auto [fid, flowR] : retiredRecords) {
+        try {
+          const auto& missv = misses.at(fid);
+          const auto& arrivalv = flowR->getArrivalV();
+          v.push_back(std::make_pair(double(missv.size())/double(arrivalv.size()), fid));
+        }
+        catch (std::out_of_range& e) {
+          std::cerr << "Caught std::out_of_range exception missesSIM.at(" << fid
+                    << ") in " << __func__ << std::endl;
+        }
+      }
+    }
+
+    std::sort(v.begin(), v.end(), pq_compare_f);
+    return v;
   };
 
   /////////////////////////////////////////////////////////////////////////////

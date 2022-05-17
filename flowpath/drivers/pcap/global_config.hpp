@@ -42,11 +42,14 @@ struct global_config {
   bool enable_wstp;
 
   // Hashed Perceptron Configs:
-  bool ENABLE_Perceptron_DeadBlock_Prediction;
+  bool ENABLE_Perceptron_Reuse_Prediction;
   bool ENABLE_Perceptron_Bypass_Prediction;
+  bool ENABLE_Static_Threshold;
   int Perceptron_DeadBlock_Alpha;
   int Perceptron_Bypass_Alpha;
-  int Threshold;
+  double threshold;
+  int keep_history;
+  int drop_history;
 //  bool ENABLE_History_Training = false;
 
   // Positive Reinforcement:
