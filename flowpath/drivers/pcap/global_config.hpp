@@ -38,12 +38,16 @@ struct global_config {
   bool traceEvictions;
   bool flowRecordTimeseries;
 
+  int simCacheEntries;        // sim.cache.elements
+  int simCacheAssociativity;  // sim.cache.associativity
+
   // wstp link:
   bool enable_wstp;
 
   // Hashed Perceptron Configs:
   bool ENABLE_Perceptron_Reuse_Prediction;
   bool ENABLE_Perceptron_Bypass_Prediction;
+  bool ENABLE_Perceptron_Global_History;
   bool ENABLE_Static_Threshold;
   int Perceptron_DeadBlock_Alpha;
   int Perceptron_Bypass_Alpha;

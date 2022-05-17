@@ -28,6 +28,9 @@
 
 extern struct global_config CONFIG;
 
+// Definitions:
+template<typename Key> class HistoryTrainer;
+
 // Global Random Number Generator:
 std::mt19937 rE{std::random_device{}()};
 
@@ -171,19 +174,26 @@ template<typename Key>
 struct hpHandle {
   static constexpr bool RANDOM_INIT = false;
 
-  hpHandle(size_t ptElements) : hp_(ptElements) {
-    if (RANDOM_INIT) { hp_.init(); }
+  hpHandle(size_t ptElements) : hpTables_(ptElements),
+    hpHistory_(hpTables_, CONFIG.keep_history?CONFIG.keep_history:(CONFIG.simCacheEntries/CONFIG.simCacheAssociativity),
+                          CONFIG.drop_history?CONFIG.drop_history:(CONFIG.simCacheEntries/CONFIG.simCacheAssociativity)) {
+    if (RANDOM_INIT) { hpTables_.init(); }
   }
 
   std::string get_settings() const {
     std::stringstream ss;
     ss << print_sequence(Features::FeatureSeq{}) << '\n';
     print_tuple(ss, a2t(Features::names()));
-    ss << hp_.get_settings();
+    ss << hpTables_.get_settings();
+    if (CONFIG.ENABLE_Perceptron_Global_History) {
+      ss << "KeepHistory: " << hpHistory_.pKEEP_DEPTH << '\n';
+      ss << "DropHistory: " << hpHistory_.pEVICT_DEPTH << '\n';
+    }
     return ss.str();
   }
 
-  entangle::HashedPerceptron<Features::FeatureVector> hp_;
+  entangle::HashedPerceptron<Features::FeatureVector> hpTables_;
+  HistoryTrainer<Key> hpHistory_; // Global history-based perceptron trainer
 
   // features for min eval:
   std::map<Key, Features> lastFeature_; // hack to evaluate MIN as training input.
@@ -816,7 +826,9 @@ private:
   const bool ENABLE_Belady_EvictSet_Training = false; // (-) for Belady evictSet
 
   // Corrective Training:
-  const bool ENABLE_History_Training = true;    // (+/-) prediction feedback delay loop
+  const bool ENABLE_History_Training = true;  // (+/-) prediction feedback delay loop
+  const bool ENABLE_History_Training_Distributed = ENABLE_History_Training && !CONFIG.ENABLE_Perceptron_Global_History;
+  const bool ENABLE_History_Training_Global = ENABLE_History_Training && CONFIG.ENABLE_Perceptron_Global_History;
   const bool ENABLE_EoL_Hit_Correction = false;  // (+) on incorrect eol mark
 
   const bool ENABLE_Belady_Training =
@@ -912,9 +924,9 @@ AssociativeSet<Key>::AssociativeSet(size_t entries,
     hpHandle<Key>& hp, Policy insert, Policy replace) :
   MAX_(entries), lookup_(entries), p_insert_(insert), p_replace_(replace),
   belady_(entries), hp_(hp),
-  hpHistory_(hp.hp_, CONFIG.keep_history?CONFIG.keep_history:entries,
+  hpHistory_(hp.hpTables_, CONFIG.keep_history?CONFIG.keep_history:entries,
                      CONFIG.drop_history?CONFIG.drop_history:entries),
-  hpBelady_(hp.hp_, entries) {}
+  hpBelady_(hp.hpTables_, entries) {}
 
 
 // Key has been created (first occurance)
@@ -935,9 +947,12 @@ auto AssociativeSet<Key>::insert(Key k, const Time& t, Features f) {
   if (p_insert_ == InsertionPolicy::HP_BYPASS) {
     // Predict resue if sum >= inference_threshold.
     Features::FeatureVector fv = f.gather(true);
-    auto [keep, sum, weights] = hp_.hp_.inference(fv);
-    if (ENABLE_History_Training) {
+    auto [keep, sum, weights] = hp_.hpTables_.inference(fv);
+    if (ENABLE_History_Training_Distributed) {
       hpHistory_.prediction(k, f, fv, weights, keep, Prediction::Bypass);
+    }
+    if (ENABLE_History_Training_Global) {
+      hp_.hpHistory_.prediction(k, f, fv, weights, keep, Prediction::Bypass);
     }
     if (!keep) {
       ++predictionHPBypass_;
@@ -968,13 +983,13 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
       if (ENABLE_Belady_EvictSet_Training) {
         for (Key v : evictSet) {
           const Features& ef = hp_.lastFeature_.at(v);
-          hp_.hp_.reinforce(ef.gather(true), false);  // reinforce as non-cachable
+          hp_.hpTables_.reinforce(ef.gather(true), false);  // reinforce as non-cachable
         }
       }
       if (ENABLE_Belady_KeepSet_Training) {
         for (Key v : keepSet) {
           const Features& kf = hp_.lastFeature_.at(v);
-          hp_.hp_.reinforce(kf.gather(true), true);   // reinforce as cachable
+          hp_.hpTables_.reinforce(kf.gather(true), true);   // reinforce as cachable
         }
       }
       beladyVictims.swap(evictSet);
@@ -982,9 +997,13 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
   }
 
   // Update/Sample Hashed Perceptron:
-  if (ENABLE_History_Training &&
+  if (ENABLE_History_Training_Distributed &&
       (p_insert_ == InsertionPolicy::HP_BYPASS || p_replace_ == ReplacementPolicy::HP_LRU) ) {
     hpHistory_.touch(k, f);
+  }
+  if (ENABLE_History_Training_Global &&
+      (p_insert_ == InsertionPolicy::HP_BYPASS || p_replace_ == ReplacementPolicy::HP_LRU) ) {
+    hp_.hpHistory_.touch(k, f);
   }
 
   // Cache Simulation:
@@ -1021,7 +1040,7 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
     }
     if (ENABLE_Hit_Training) {
       const Features& df = entry.features;
-      hp_.hp_.reinforce(df.gather(), true);  // reinforce reciency on every hit
+      hp_.hpTables_.reinforce(df.gather(), true);  // reinforce reciency on every hit
     }
 
 //    entry.features = f; // update features to latest touch
@@ -1032,7 +1051,7 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
         p_replace_ == ReplacementPolicy::HP_LRU) {
       const Features& df = entry.features;
       Features::FeatureVector dfv = df.gather();
-      auto [keep, sum, weights] = hp_.hp_.inference(dfv);
+      auto [keep, sum, weights] = hp_.hpTables_.inference(dfv);
       if (!keep) {
         ++predictionHPEvict_;
         entry.eol = true;
@@ -1040,8 +1059,11 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
           evictPred.append( std::tuple_cat(std::make_tuple(k), weights, dfv) );
         }
       }
-      if (ENABLE_History_Training) {
+      if (ENABLE_History_Training_Distributed) {
         hpHistory_.prediction(k, df, dfv, weights, keep, Prediction::Evict);
+      }
+      if (ENABLE_History_Training_Global) {
+        hp_.hpHistory_.prediction(k, df, dfv, weights, keep, Prediction::Evict);
       }
     }
 
@@ -1054,9 +1076,12 @@ auto AssociativeSet<Key>::update(Key k, const Time& t, Features f) {
     // TODO: Add Insertion policy for HP...
     if (p_insert_ == InsertionPolicy::HP_BYPASS) {
       Features::FeatureVector fv = f.gather(true);
-      auto [keep, sum, weights] = hp_.hp_.inference(fv);
-      if (ENABLE_History_Training) {
+      auto [keep, sum, weights] = hp_.hpTables_.inference(fv);
+      if (ENABLE_History_Training_Distributed) {
         hpHistory_.prediction(k, f, fv, weights, keep, Prediction::Bypass);
+      }
+      if (ENABLE_History_Training_Global) {
+        hp_.hpHistory_.prediction(k, f, fv, weights, keep, Prediction::Bypass);
       }
       if (!keep) {
         ++predictionHPBypass_;
@@ -1208,7 +1233,7 @@ void AssociativeSet<Key>::event_eviction(Stack_it eviction) {
     // Since entry.features is always last feature set,
     // possibly can reinforce evict on last packet unconditionally...
     if (entry.refCount <= 1) {
-      hp_.hp_.reinforce(df.gather(), false);  // reinforce as non-cachable
+      hp_.hpTables_.reinforce(df.gather(), false);  // reinforce as non-cachable
     }
   }
 
@@ -1261,7 +1286,7 @@ void AssociativeSet<Key>::event_mru_demotion(Stack_it demoted) {
         p_replace_ == ReplacementPolicy::HP_LRU) {
       const Features& df = entry.features;
       Features::FeatureVector dfv = df.gather();
-      auto [keep, sum, weights] = hp_.hp_.inference(dfv);
+      auto [keep, sum, weights] = hp_.hpTables_.inference(dfv);
       if (!keep) {
         ++predictionHPEvict_;
         entry.eol = true;
@@ -1269,8 +1294,11 @@ void AssociativeSet<Key>::event_mru_demotion(Stack_it demoted) {
           evictPred.append( std::tuple_cat(std::make_tuple(k), weights, dfv) );
         }
       }
-      if (ENABLE_History_Training) {
+      if (ENABLE_History_Training_Distributed) {
         hpHistory_.prediction(k, df, dfv, weights, keep, Prediction::Evict);
+      }
+      if (ENABLE_History_Training_Global) {
+        hp_.hpHistory_.prediction(k, df, dfv, weights, keep, Prediction::Evict);
       }
     }
   }
@@ -1285,7 +1313,7 @@ void AssociativeSet<Key>::event_mru_demotion(Stack_it demoted) {
       if (ENABLE_EoL_Hit_Correction && p_replace_ == ReplacementPolicy::HP_LRU) {
         // Note, Positive Eviction Training requires entry features to be updated after this call!
         const Features& df = entry.features;
-        hp_.hp_.reinforce(df.gather(), true);   // reinforce as cachable
+        hp_.hpTables_.reinforce(df.gather(), true);   // reinforce as cachable
       }
     }
     // Update RRIP re-reference interval on promition:
@@ -1315,7 +1343,7 @@ void AssociativeSet<Key>::event_mru_hit(Stack_it hit) {
   if (ENABLE_MRU_Promotion_Training && p_replace_ == ReplacementPolicy::HP_LRU) {
     // Note, Positive Eviction Training requires entry features to be updated after this call!
     const Features& df = entry.features;
-    hp_.hp_.reinforce(df.gather(), true);   // reinforce as cachable
+    hp_.hpTables_.reinforce(df.gather(), true);   // reinforce as cachable
   }
 }
 
@@ -1427,8 +1455,8 @@ auto AssociativeSet<Key>::find_Rank(Key k, Features f) {
     return std::next(stack_.rbegin()).base();
   }
 
-  auto [keep, sum, weights] = hp_.hp_.inference(f.gather(), false);
-  double absolute = hp_.hp_.quantize(f.gather(), false);
+  auto [keep, sum, weights] = hp_.hpTables_.inference(f.gather(), false);
+  double absolute = hp_.hpTables_.quantize(f.gather(), false);
 
 //  float TRAINING_RATIO = 0.25;
 //  std::array<int64_t, 2> t = hp_.hp_.calc_training_ratio(TRAINING_RATIO);

@@ -143,8 +143,8 @@ po::variables_map parse_options(int argc, const char* argv[]) {
     ("pcaps", po::value<vector<string>>()->required(), "PCAP input files")
     ("sim.min", po::value<bool>(&CONFIG.simMIN)->required(), "Enable MIN simulation")
     ("sim.cache", po::value<bool>(&CONFIG.simCache)->required(), "Enable cache simulation")
-    ("sim.cache.entries", po::value<int>()->required(), "Cache elements for cache simulation")
-    ("sim.cache.associativity", po::value<int>()->required(), "Number of ways in cache simulation")
+    ("sim.cache.entries", po::value<int>(&CONFIG.simCacheEntries)->required(), "Cache elements for cache simulation")
+    ("sim.cache.associativity", po::value<int>(&CONFIG.simCacheAssociativity)->required(), "Number of ways in cache simulation")
 
     ("sim.cache.mode", po::value<string>(&CONFIG.POLICY_mode)->default_value("LRU"), "Predefined cache policy")
     ("sim.cache.mode.fa", po::value<bool>(&CONFIG.POLICY_modeFA)->default_value(false), "Fully-associative defaults to LRU unless this flag is set.")
@@ -158,6 +158,8 @@ po::variables_map parse_options(int argc, const char* argv[]) {
     ("sim.cache.hp.threshold", po::value<double>(&CONFIG.threshold)->default_value(0.25), "Hashed Perceptron Training Threshold")
     ("sim.cache.hp.history.keep", po::value<int>(&CONFIG.keep_history)->default_value(0), "Hashed Perceptron Keep History")
     ("sim.cache.hp.history.drop", po::value<int>(&CONFIG.drop_history)->default_value(0), "Hashed Perceptron Drop History")
+    ("sim.cache.hp.history.global", po::value<bool>(&CONFIG.ENABLE_Perceptron_Global_History)->default_value(false), "HP History Buffers {F:Distributed, T:Global} ")
+    ("sim.cache.hp.history.samplingRatio", po::value<double>(&CONFIG.samplingRatio)->default_value(1.0), "Hashed Perceptron Feedback Sampling Ratio (1.0: All)")
 
     ("sim.cache.hp.reuse", po::value<bool>(&CONFIG.ENABLE_Perceptron_Reuse_Prediction)->default_value(false), "Enable Perceptron Reuse prediction")
     ("sim.cache.hp.bypass", po::value<bool>(&CONFIG.ENABLE_Perceptron_Bypass_Prediction)->default_value(false), "Enable Perceptron Bypass prediction")
@@ -1254,8 +1256,8 @@ int main(int argc, const char* argv[]) {
                  << double(simCache.get_replacements_eager())/hpReplace * 100 << '%'
                  << endl;
             auto& hp_handle = simCache.get_hp_handle();
-            hp_handle.hp_.epoc_stats();
-            hp_handle.hp_.clear_stats();
+            hp_handle.hpTables_.epoc_stats();
+            hp_handle.hpTables_.clear_stats();
           }
 
           // Add flows not observed to dormant list:
@@ -1403,7 +1405,7 @@ int main(int argc, const char* argv[]) {
     cout << s << '\n';
     }
 
-    simCache.get_hp_handle().hp_.final_stats();
+    simCache.get_hp_handle().hpTables_.final_stats();
   }
 
 //  debugLog << "Burst Histogram:\n";
