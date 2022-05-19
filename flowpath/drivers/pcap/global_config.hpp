@@ -54,6 +54,7 @@ struct global_config {
   double threshold;
   int keep_history;
   int drop_history;
+  double samplingRatio;
 //  bool ENABLE_History_Training = false;
 
   // Positive Reinforcement:

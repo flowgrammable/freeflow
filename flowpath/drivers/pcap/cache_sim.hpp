@@ -32,7 +32,7 @@ extern struct global_config CONFIG;
 template<typename Key> class HistoryTrainer;
 
 // Global Random Number Generator:
-std::mt19937 rE{std::random_device{}()};
+std::mt19937_64 rE{std::random_device{}()};
 
 // TODO: seperate Policy types for better config error catching
 struct Policy {
@@ -292,6 +292,11 @@ static double matthewsCorrelationCoefficient(double tp, double tn, double fp, do
   return (tp*tn - fp*fn) / sqrt((tp+fp)*(tp+fn)*(tn+fp)*(tn+fn));
 }
 
+static bool randomThreshold(double threshold) {
+  auto r = std::generate_canonical<double, 10>(rE);
+  return r < threshold;
+}
+
 void PredictionStats::write_stats(std::string filename) const {
   using Ratios = std::array<double, std::tuple_size_v<Weights>>;
   if (!PREDICTION_STATS)
@@ -424,9 +429,11 @@ template<typename Key>
 class HistoryTrainer {
 public:
   using Entry = std::pair<Key, Prediction>;
+  using Weights = entangle::HashedPerceptron<Features::FeatureVector>::Weights;
+
+  const bool ENABLE_Feedback_Sampling = false;
   const size_t pKEEP_DEPTH;
   const size_t pEVICT_DEPTH;
-  using Weights = entangle::HashedPerceptron<Features::FeatureVector>::Weights;
 
   HistoryTrainer(entangle::HashedPerceptron<Features::FeatureVector>& hp,
                  size_t pEvictDepth, size_t pKeepDepth) :
@@ -533,6 +540,14 @@ template<typename Key>
 void HistoryTrainer<Key>::prediction(Key k, Features f, Features::FeatureVector fv,
                                      Weights w, bool keep,
                                      Prediction::Question q, bool demand) {
+
+  // Skip noting prediction if randomthreshold(samplingRatio) returns false
+  // 1.0: always note
+  // 0.0: never note
+  if (ENABLE_Feedback_Sampling && !randomThreshold(CONFIG.samplingRatio)) {
+    return;
+  }
+
   // Take note of prediction:
   Prediction nextPred{f, fv, w, q, keep, demand};
 

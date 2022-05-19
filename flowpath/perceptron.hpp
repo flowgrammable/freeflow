@@ -146,7 +146,7 @@ private:
   int64_t feature_n_ {};  // number of inferences (for std. deviation)
 
   std::array<int64_t, TABLES_> feature_delta_ {}; // delta from confidence (correlation with 'true')
-  int64_t feature_d_ {};  // number of training corrections (for correlatio with 'true')
+  int64_t feature_d_ {};  // number of training corrections (for correlation with 'true')
 
   // Stat Output Files:
   CSV csv_fCorrelation_;  // mult+add (feature x feature)
