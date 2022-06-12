@@ -431,14 +431,19 @@ public:
   using Entry = std::pair<Key, Prediction>;
   using Weights = entangle::HashedPerceptron<Features::FeatureVector>::Weights;
 
-  const bool ENABLE_Feedback_Sampling = false;
   const size_t pKEEP_DEPTH;
   const size_t pEVICT_DEPTH;
+
+  const bool ENABLE_Feedback_Sampling = CONFIG.samplingRatio < 1.0;
 
   HistoryTrainer(entangle::HashedPerceptron<Features::FeatureVector>& hp,
                  size_t pEvictDepth, size_t pKeepDepth) :
     hp_(hp), pKEEP_DEPTH(pKeepDepth), pEVICT_DEPTH(pEvictDepth)
   {
+    if (ENABLE_Feedback_Sampling &&
+        !(CONFIG.samplingRatio > 0 && CONFIG.samplingRatio <= 1)) {
+      throw std::domain_error("samplingRatio out of range (0,1]");
+    }
     pKeepHistory_.reserve(pKeepDepth);
     pEvictHistory_.reserve(pEvictDepth);
     cutoff_ = hp_.decision_threshold() / (hp_.TABLES_-1);  // ignore table 0
