@@ -342,9 +342,9 @@ void PredictionStats::write_stats(std::string filename) const {
     sFalseNegative[i] = sEvictConcurMistakes[i] + sEvictOppositionMistakes[i];  // Incorrect Evict
     mcc[i] = matthewsCorrelationCoefficient(sTruePositive[i], sTrueNegative[i],
                                             sFalsePositive[i], sFalseNegative[i]);
+    evictRatio[i] = (sTrueNegative[i] + sFalseNegative[i]) / double(events);
 
     // Reputation Ratios:
-    evictRatio[i] = (sTrueNegative[i] + sFalseNegative[i]) / double(events);
     keepRep[i] = (sKeepConcur_[i] + sKeepOpposition_[i]) / double(keepEvents);
     evictRep[i] = (sEvictConcur_[i] + sEvictOpposition_[i]) / double(evictEvents);
     totalRep[i] = (sContribConcur[i] + sContribOpposition[i]) / double(events);
@@ -369,29 +369,39 @@ void PredictionStats::write_stats(std::string filename) const {
   csv.append( std::tuple_cat(std::make_tuple("Features"), Features::names(), std::make_tuple("System")) );
 
   // Weighted Sums:
-  csv.append( std::tuple_cat(std::make_tuple("Keep Correct Sum"), sKeepCorrectSum_) );
-  csv.append( std::tuple_cat(std::make_tuple("Keep Incorrect Sum"), sKeepIncorrectSum_) );
-  csv.append( std::tuple_cat(std::make_tuple("Evict Correct Sum"), sEvictCorrectSum_) );
-  csv.append( std::tuple_cat(std::make_tuple("Evict Incorrect Sum"), sEvictIncorrectSum_) );
+  csv.append( std::tuple_cat(std::make_tuple("Keep Correct Sum"), sKeepCorrectSum_,
+                             std::make_tuple(sKeepCorrectSumSys_)) );
+  csv.append( std::tuple_cat(std::make_tuple("Keep Incorrect Sum"), sKeepIncorrectSum_,
+                             std::make_tuple(sKeepIncorrectSumSys_)) );
+  csv.append( std::tuple_cat(std::make_tuple("Evict Correct Sum"), sEvictCorrectSum_,
+                             std::make_tuple(sEvictCorrectSumSys_)) );
+  csv.append( std::tuple_cat(std::make_tuple("Evict Incorrect Sum"), sEvictIncorrectSum_,
+                             std::make_tuple(sEvictIncorrectSumSys_)) );
 
   /// Per-Feature Confusion Matrix:
   // Partial Decisions (Correct):
   csv.append( std::tuple_cat(std::make_tuple("Keep Correct (TPc)"), sKeepConcur_) );
-  csv.append( std::tuple_cat(std::make_tuple("Keep Incorrect (FPd)"), sKeepOpposition_) );
+  csv.append( std::tuple_cat(std::make_tuple("Keep Incorrect (FPc)"), sKeepOpposition_) );
   csv.append( std::tuple_cat(std::make_tuple("Evict Correct (TNc)"), sEvictConcur_) );
-  csv.append( std::tuple_cat(std::make_tuple("Evict Incorrect (FNd)"), sEvictOpposition_) );
+  csv.append( std::tuple_cat(std::make_tuple("Evict Incorrect (FNc)"), sEvictOpposition_) );
 
   // Partial Decisions (Mistakes):
-  csv.append( std::tuple_cat(std::make_tuple("Keep Correct (TPd)"), sKeepConcurMistakes) );
-  csv.append( std::tuple_cat(std::make_tuple("Keep Incorrect (FPc)"), sKeepOppositionMistakes) );
-  csv.append( std::tuple_cat(std::make_tuple("Evict Correct (TNd)"), sEvictConcurMistakes) );
-  csv.append( std::tuple_cat(std::make_tuple("Evict Incorrect (FNc)"), sEvictOppositionMistakes) );
+  csv.append( std::tuple_cat(std::make_tuple("Keep Correct (TPm)"), sKeepConcurMistakes) );
+  csv.append( std::tuple_cat(std::make_tuple("Keep Incorrect (FPm)"), sKeepOppositionMistakes) );
+  csv.append( std::tuple_cat(std::make_tuple("Evict Correct (TNm)"), sEvictConcurMistakes) );
+  csv.append( std::tuple_cat(std::make_tuple("Evict Incorrect (FNm)"), sEvictOppositionMistakes) );
 
   // Partial Confusion Matrix (by Feature):
-  csv.append( std::tuple_cat(std::make_tuple("TP"), sTruePositive, std::make_tuple(sKeepCorrectEvents_)) );
-  csv.append( std::tuple_cat(std::make_tuple("FP"), sFalsePositive, std::make_tuple(sKeepIncorrectEvents_)) );
-  csv.append( std::tuple_cat(std::make_tuple("TN"), sTrueNegative, std::make_tuple(sEvictCorrectEvents_)) );
-  csv.append( std::tuple_cat(std::make_tuple("FN"), sFalseNegative, std::make_tuple(sEvictIncorrectEvents_)) );
+  csv.append( std::tuple_cat(std::make_tuple("TP"), sTruePositive,
+                             std::make_tuple(sKeepCorrectEvents_)) );
+  csv.append( std::tuple_cat(std::make_tuple("FP"), sFalsePositive,
+                             std::make_tuple(sKeepIncorrectEvents_)) );
+  csv.append( std::tuple_cat(std::make_tuple("TN"), sTrueNegative,
+                             std::make_tuple(sEvictCorrectEvents_)) );
+  csv.append( std::tuple_cat(std::make_tuple("FN"), sFalseNegative,
+                             std::make_tuple(sEvictIncorrectEvents_)) );
+  csv.append( std::tuple_cat(std::make_tuple("Evict Ratio"), evictRatio,
+    std::make_tuple((sEvictCorrectEvents_ + sEvictIncorrectEvents_) / double(events))) );
 
   // Per-Feature contributions and mistakes:
   csv.append( std::tuple_cat(std::make_tuple("Contribution Concur Counts"), sContribConcur) );
@@ -400,7 +410,6 @@ void PredictionStats::write_stats(std::string filename) const {
   csv.append( std::tuple_cat(std::make_tuple("Mistake Opposition Counts"), sMistakeOpposition) );
 
   // Reputation:
-  csv.append( std::tuple_cat(std::make_tuple("Evict Ratio"), evictRatio) );
   csv.append( std::tuple_cat(std::make_tuple("Keep Reputation"), keepRep) );
   csv.append( std::tuple_cat(std::make_tuple("Evict Reputation"), evictRep) );
   csv.append( std::tuple_cat(std::make_tuple("Total Reputation"), totalRep) );
