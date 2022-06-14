@@ -218,7 +218,7 @@ struct PredictionStats {
 //  enum Result {keep_correct, keep_incorrect, evict_correct, evict_incorrect, invalid};
   using Result = Prediction::Result;
   using Weights = entangle::HashedPerceptron<Features::FeatureVector>::Weights;
-  using Stats = std::array<int64_t, std::tuple_size_v<Weights> + 1>;
+  using Stats = std::array<int64_t, std::tuple_size_v<Weights>>;
 
   Stats sKeepCorrectSum_{};    // Weight towards correct keep decisions
   Stats sKeepIncorrectSum_{};  // Weight towards incorrect keep decisions
@@ -230,6 +230,8 @@ struct PredictionStats {
   Stats sEvictOpposition_{}; // Opposition to incorrect evict prediciton
   int64_t sKeepCorrectEvents_{}, sKeepIncorrectEvents_{};
   int64_t sEvictCorrectEvents_{}, sEvictIncorrectEvents_{};
+  int64_t sKeepCorrectSumSys_{}, sKeepIncorrectSumSys_{};
+  int64_t sEvictCorrectSumSys_{}, sEvictIncorrectSumSys_{};
 
   void note(const Prediction& p, Weights::value_type threshold);
   void write_stats(std::string filename) const;
@@ -246,23 +248,19 @@ void PredictionStats::note(const Prediction& p, Weights::value_type threshold) {
   switch (p.r_) {
   case Result::keep_correct:
     ++sKeepCorrectEvents_;
-    sKeepCorrectSum_.at(std::tuple_size_v<Weights>) += sum;  // positive was correct
-    ++sKeepConcur_.at(std::tuple_size_v<Weights>);
+    sKeepCorrectSumSys_ += sum;  // positive was correct
     break;
   case Result::keep_incorrect:
     ++sKeepIncorrectEvents_;
-    sKeepIncorrectSum_.at(std::tuple_size_v<Weights>) -= sum; // evict: invert sign; negative was correct
-    ++sKeepOpposition_.at(std::tuple_size_v<Weights>);
+    sKeepIncorrectSumSys_ -= sum; // evict: invert sign; negative was correct
     break;
   case Result::evict_correct:
     ++sEvictCorrectEvents_;
-    sEvictCorrectSum_.at(std::tuple_size_v<Weights>) -= sum;  // evict: invert sign; negative was correct
-    ++sEvictConcur_.at(std::tuple_size_v<Weights>);
+    sEvictCorrectSumSys_ -= sum;  // evict: invert sign; negative was correct
     break;
   case Result::evict_incorrect:
     ++sEvictIncorrectEvents_;
-    sEvictIncorrectSum_.at(std::tuple_size_v<Weights>) += sum; // positive was correct
-    ++sEvictOpposition_.at(std::tuple_size_v<Weights>);
+    sEvictIncorrectSumSys_ += sum; // positive was correct
     break;
   default:
     throw std::logic_error("Invalid Result enum");
@@ -323,7 +321,6 @@ void PredictionStats::write_stats(std::string filename) const {
   Ratios evictRatio, keepRep, evictRep, totalRep, mcc;
   Ratios keepCorrectInfluence, keepIncorrectInfluence, evictCorrectInfluence, evictIncorrectInfluence;
   Ratios correctInfluence, incorrectInfluence, totalInfluence;
-
   for (size_t i = 0; i < std::tuple_size_v<Weights>; i++) {
     // Calculate Per-Feature Mistakes as inverse of concur/opposition and total events:
     // - note inversion of opposition and concur for mistakes (inversion of correct portion of confusion matrix).
@@ -343,14 +340,14 @@ void PredictionStats::write_stats(std::string filename) const {
     sTrueNegative[i] = sEvictConcur_[i] + sKeepOpposition_[i];  // Correct Evict
     sFalsePositive[i] = sKeepConcurMistakes[i] + sKeepOppositionMistakes[i];    // Incorrect Keep
     sFalseNegative[i] = sEvictConcurMistakes[i] + sEvictOppositionMistakes[i];  // Incorrect Evict
+    mcc[i] = matthewsCorrelationCoefficient(sTruePositive[i], sTrueNegative[i],
+                                            sFalsePositive[i], sFalseNegative[i]);
 
     // Reputation Ratios:
     evictRatio[i] = (sTrueNegative[i] + sFalseNegative[i]) / double(events);
     keepRep[i] = (sKeepConcur_[i] + sKeepOpposition_[i]) / double(keepEvents);
     evictRep[i] = (sEvictConcur_[i] + sEvictOpposition_[i]) / double(evictEvents);
     totalRep[i] = (sContribConcur[i] + sContribOpposition[i]) / double(events);
-    mcc[i] = matthewsCorrelationCoefficient(sTruePositive[i], sTrueNegative[i],
-                                            sFalsePositive[i], sFalseNegative[i]);
 
     // Influencial Weight:
     keepCorrectInfluence[i] = sKeepCorrectSum_[i] / double(sKeepCorrectEvents_);
@@ -409,16 +406,27 @@ void PredictionStats::write_stats(std::string filename) const {
   csv.append( std::tuple_cat(std::make_tuple("Total Reputation"), totalRep) );
 
   // Reputation weighted as Influence:
-  csv.append( std::tuple_cat(std::make_tuple("Keep Correct (TP) Influence"), keepCorrectInfluence) );
-  csv.append( std::tuple_cat(std::make_tuple("Keep Incorrect (FP) Influence"), keepIncorrectInfluence) );
-  csv.append( std::tuple_cat(std::make_tuple("Evict Correct (TN) Influence"), evictCorrectInfluence) );
-  csv.append( std::tuple_cat(std::make_tuple("Evict Incorrect (FN) Influence"), evictIncorrectInfluence) );
-  csv.append( std::tuple_cat(std::make_tuple("Correct Influence"), correctInfluence) );
-  csv.append( std::tuple_cat(std::make_tuple("Incorrect Influence"), incorrectInfluence) );
-  csv.append( std::tuple_cat(std::make_tuple("Total Influence"), totalInfluence) );
+  csv.append( std::tuple_cat(std::make_tuple("Keep Correct (TP) Influence"), keepCorrectInfluence,
+    std::make_tuple(sKeepCorrectSumSys_ / double(sKeepCorrectEvents_))) );
+  csv.append( std::tuple_cat(std::make_tuple("Keep Incorrect (FP) Influence"), keepIncorrectInfluence,
+    std::make_tuple(sKeepIncorrectSumSys_ / double(sKeepIncorrectEvents_))) );
+  csv.append( std::tuple_cat(std::make_tuple("Evict Correct (TN) Influence"), evictCorrectInfluence,
+    std::make_tuple(sEvictCorrectSumSys_ / double(sEvictCorrectEvents_))) );
+  csv.append( std::tuple_cat(std::make_tuple("Evict Incorrect (FN) Influence"), evictIncorrectInfluence,
+    std::make_tuple(sEvictIncorrectSumSys_ / double(sEvictIncorrectEvents_))) );
+
+  csv.append( std::tuple_cat(std::make_tuple("Correct Influence"), correctInfluence,
+    std::make_tuple((sKeepCorrectSumSys_+sEvictCorrectSumSys_) / double(correctEvents))) );
+  csv.append( std::tuple_cat(std::make_tuple("Incorrect Influence"), incorrectInfluence,
+    std::make_tuple((sKeepIncorrectSumSys_+sEvictIncorrectSumSys_) / double(incorrectEvents))) );
+  csv.append( std::tuple_cat(std::make_tuple("Total Influence"), totalInfluence,
+    std::make_tuple((sKeepCorrectSumSys_+sEvictCorrectSumSys_+
+                     sKeepIncorrectSumSys_+sEvictIncorrectSumSys_) / double(events))) );
 
   // Matthews Correlation Coefficient per-feature followed by total system:
-  csv.append( std::tuple_cat(std::make_tuple("MCC"), mcc) );
+  csv.append( std::tuple_cat(std::make_tuple("MCC"), mcc, std::make_tuple(
+    matthewsCorrelationCoefficient(sKeepCorrectEvents_, sEvictCorrectEvents_,
+                                   sKeepIncorrectEvents_, sEvictIncorrectEvents_))) );
 }
 
 
