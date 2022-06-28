@@ -29,8 +29,7 @@ struct Features {
 #ifdef SCRIPT_SEQ
   using FeatureSeq = std::integer_sequence<size_t, 0, SCRIPT_REPLACE>;
 #else
-  using FeatureSeq = std::integer_sequence<size_t, 0,
-  6,21,25,18,10,22,19,27,8,20>;
+  using FeatureSeq = std::make_index_sequence<29>;  // all features
 #endif
 //6,21,25,18,10,22,19,27,8,20,28,11,4,7,17,14,3,2,15,23,1,16,9,13,5,26,24,12>
 //6,21,25,18,10,22,19,27,8,20>;
