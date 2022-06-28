@@ -303,7 +303,8 @@ template<> auto Features::name_idx(std::integer_sequence<size_t, 27>) {
   return "Burst ^ IpLength";
 }
 template<> auto Features::gather_idx(std::integer_sequence<size_t, 28>) const {
-  FeatureType x = get<16>() ^ get<11>();
+  FeatureType x = std::min(get<16>(), uint16_t(std::numeric_limits<uint8_t>::max()))<<8 ^
+                  get<11>();
   return x;
 }
 template<> auto Features::name_idx(std::integer_sequence<size_t, 28>) {
