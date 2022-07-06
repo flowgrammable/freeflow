@@ -318,7 +318,7 @@ void PredictionStats::write_stats(std::string filename) const {
   Stats sContribConcur, sContribOpposition, sMistakeConcur, sMistakeOpposition;
   Stats sTruePositive, sTrueNegative, sFalsePositive, sFalseNegative;
   Stats correctSum, incorrectSum;
-  Ratios evictRatio, keepRep, evictRep, totalRep, mcc;
+  Ratios evictRatio, keepRep, evictRep, totalRep, mcc, mccInf;
   Ratios keepCorrectInfluence, keepIncorrectInfluence, evictCorrectInfluence, evictIncorrectInfluence;
   Ratios correctInfluence, incorrectInfluence, totalInfluence;
   for (size_t i = 0; i < std::tuple_size_v<Weights>; i++) {
@@ -361,6 +361,8 @@ void PredictionStats::write_stats(std::string filename) const {
     incorrectInfluence[i] = incorrectSum[i] / double(incorrectEvents);
     totalInfluence[i] = (correctSum[i] + incorrectSum[i]) / double(events);
 //    gmInfluence[i] = sqrt(correctInfluence[i] * incorrectInfluence[i]);  // Geometric-mean
+    mccInf[i] = matthewsCorrelationCoefficient(sKeepCorrectSum_[i], sEvictCorrectSum_[i],
+                                               sKeepIncorrectSum_[i], sEvictIncorrectSum_[i]);
   }
 
   // Name Columns:
@@ -436,6 +438,9 @@ void PredictionStats::write_stats(std::string filename) const {
   csv.append( std::tuple_cat(std::make_tuple("MCC"), mcc, std::make_tuple(
     matthewsCorrelationCoefficient(sKeepCorrectEvents_, sEvictCorrectEvents_,
                                    sKeepIncorrectEvents_, sEvictIncorrectEvents_))) );
+  csv.append( std::tuple_cat(std::make_tuple("MCCINF"), mccInf, std::make_tuple(
+    matthewsCorrelationCoefficient(sKeepCorrectSumSys_, sEvictCorrectSumSys_,
+                                   sKeepIncorrectSumSys_, sEvictIncorrectSumSys_))) );
 }
 
 
