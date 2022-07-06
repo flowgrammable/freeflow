@@ -228,6 +228,7 @@ struct PredictionStats {
   Stats sKeepOpposition_{}; // Opposition to incorrect keep prediction
   Stats sEvictConcur_{};    // Concuring with correct evict prediction
   Stats sEvictOpposition_{}; // Opposition to incorrect evict prediciton
+  Stats sTP_{}, sTN_{}, sFP_{}, sFN_{};  // per feature confusion matrix of weights
   int64_t sKeepCorrectEvents_{}, sKeepIncorrectEvents_{};
   int64_t sEvictCorrectEvents_{}, sEvictIncorrectEvents_{};
   int64_t sKeepCorrectSumSys_{}, sKeepIncorrectSumSys_{};
@@ -272,19 +273,43 @@ void PredictionStats::note(const Prediction& p, Weights::value_type threshold) {
     switch (p.r_) {
     case Result::keep_correct:
       sKeepCorrectSum_[i] += delta;  // positive was correct
-      if (delta >= confidence) { ++sKeepConcur_[i]; }
+      if (delta >= confidence) {
+        ++sKeepConcur_[i];
+        sTP_[i] += delta; // correctly guessed active w/ concensus
+      }
+      else {
+        sFN_[i] -= delta; // falsely pessamistic
+      }
       break;
     case Result::keep_incorrect:
       sKeepIncorrectSum_[i] -= delta; // evict: invert sign; negative was correct
-      if (delta < -confidence) { ++sKeepOpposition_[i]; }
+      if (delta < -confidence) {
+        ++sKeepOpposition_[i];
+        sTN_[i] -= delta; // correctly guessed dormant against concensus
+      }
+      else {
+        sFP_[i] += delta; // contributed to FP
+      }
       break;
     case Result::evict_correct:
       sEvictCorrectSum_[i] -= delta;  // evict: invert sign; negative was correct
-      if (delta < -confidence) { ++sEvictConcur_[i]; }
+      if (delta < -confidence) {
+        ++sEvictConcur_[i];
+        sTN_[i] -= delta; // correctly guessed dormant w/ concensus
+      }
+      else {
+        sFP_[i] += delta; // falsely optimistic
+      }
       break;
     case Result::evict_incorrect:
       sEvictIncorrectSum_[i] += delta; // positive was correct
-      if (delta >= confidence) { ++sEvictOpposition_[i]; }
+      if (delta >= confidence) {
+        ++sEvictOpposition_[i];
+        sTP_[i] += delta; // correctly guessed active against concensus
+      }
+      else {
+        sFN_[i] -= delta; // contributed to FN
+      }
       break;
     default:
       throw std::logic_error("Invalid Result enum");
@@ -361,8 +386,8 @@ void PredictionStats::write_stats(std::string filename) const {
     incorrectInfluence[i] = incorrectSum[i] / double(incorrectEvents);
     totalInfluence[i] = (correctSum[i] + incorrectSum[i]) / double(events);
 //    gmInfluence[i] = sqrt(correctInfluence[i] * incorrectInfluence[i]);  // Geometric-mean
-    mccInf[i] = matthewsCorrelationCoefficient(sKeepCorrectSum_[i], sEvictCorrectSum_[i],
-                                               sKeepIncorrectSum_[i], sEvictIncorrectSum_[i]);
+    mccInf[i] = matthewsCorrelationCoefficient(sTP_[i], sTN_[i],
+                                               sFP_[i], sFN_[i]);
   }
 
   // Name Columns:
