@@ -346,6 +346,7 @@ void PredictionStats::write_stats(std::string filename) const {
   Ratios evictRatio, keepRep, evictRep, totalRep, mcc, mccInf;
   Ratios keepCorrectInfluence, keepIncorrectInfluence, evictCorrectInfluence, evictIncorrectInfluence;
   Ratios correctInfluence, incorrectInfluence, totalInfluence;
+  Ratios correctReputation, incorrectReputation, totalReputation;
   for (size_t i = 0; i < std::tuple_size_v<Weights>; i++) {
     // Calculate Per-Feature Mistakes as inverse of concur/opposition and total events:
     // - note inversion of opposition and concur for mistakes (inversion of correct portion of confusion matrix).
@@ -380,12 +381,19 @@ void PredictionStats::write_stats(std::string filename) const {
     evictCorrectInfluence[i] = sEvictCorrectSum_[i] / double(sEvictCorrectEvents_);
     evictIncorrectInfluence[i] = sEvictIncorrectSum_[i] / double(sEvictIncorrectEvents_);
 
+    // Influnce towards correct/incorrect global decision:
     correctSum[i] = sKeepCorrectSum_[i] + sEvictCorrectSum_[i];
     incorrectSum[i] = sKeepIncorrectSum_[i] + sEvictIncorrectSum_[i];
     correctInfluence[i] = correctSum[i] / double(correctEvents);
     incorrectInfluence[i] = incorrectSum[i] / double(incorrectEvents);
     totalInfluence[i] = (correctSum[i] + incorrectSum[i]) / double(events);
 //    gmInfluence[i] = sqrt(correctInfluence[i] * incorrectInfluence[i]);  // Geometric-mean
+
+    // Individual opinions after feedback (reputation?):
+    correctReputation[i] = (sTP_[i] + sTN_[i]) / double(correctEvents);
+    incorrectReputation[i] = (sFP_[i] + sFN_[i]) / double(incorrectEvents);
+    totalReputation[i] = (sTP_[i] + sTN_[i] + sFP_[i] + sFN_[i]) / double(events);
+
     mccInf[i] = matthewsCorrelationCoefficient(sTP_[i], sTN_[i],
                                                sFP_[i], sFN_[i]);
   }
@@ -451,11 +459,21 @@ void PredictionStats::write_stats(std::string filename) const {
   csv.append( std::tuple_cat(std::make_tuple("Evict Incorrect (FN) Influence"), evictIncorrectInfluence,
     std::make_tuple(sEvictIncorrectSumSys_ / double(sEvictIncorrectEvents_))) );
 
+  // Influnce towards correct/incorrect global decision:
   csv.append( std::tuple_cat(std::make_tuple("Correct Influence"), correctInfluence,
     std::make_tuple((sKeepCorrectSumSys_+sEvictCorrectSumSys_) / double(correctEvents))) );
   csv.append( std::tuple_cat(std::make_tuple("Incorrect Influence"), incorrectInfluence,
     std::make_tuple((sKeepIncorrectSumSys_+sEvictIncorrectSumSys_) / double(incorrectEvents))) );
   csv.append( std::tuple_cat(std::make_tuple("Total Influence"), totalInfluence,
+    std::make_tuple((sKeepCorrectSumSys_+sEvictCorrectSumSys_+
+                     sKeepIncorrectSumSys_+sEvictIncorrectSumSys_) / double(events))) );
+
+  // Individual opinions after feedback (reputation?):
+  csv.append( std::tuple_cat(std::make_tuple("Correct Reputation"), correctReputation,
+    std::make_tuple((sKeepCorrectSumSys_+sEvictCorrectSumSys_) / double(correctEvents))) );
+  csv.append( std::tuple_cat(std::make_tuple("Incorrect Reputation"), incorrectReputation,
+    std::make_tuple((sKeepIncorrectSumSys_+sEvictIncorrectSumSys_) / double(incorrectEvents))) );
+  csv.append( std::tuple_cat(std::make_tuple("Total Reputation"), totalReputation,
     std::make_tuple((sKeepCorrectSumSys_+sEvictCorrectSumSys_+
                      sKeepIncorrectSumSys_+sEvictIncorrectSumSys_) / double(events))) );
 
